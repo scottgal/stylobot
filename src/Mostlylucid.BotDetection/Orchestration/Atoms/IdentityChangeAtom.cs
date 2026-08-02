@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
@@ -48,16 +49,22 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
     private readonly ILogger<IdentityChangeAtom> _logger;
     private readonly IFingerprintStore _store;
     private readonly IDetectorConfigProvider _configProvider;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IdentityGlobalWeightsCache _globalWeights;
 
     public IdentityChangeAtom(
         ILogger<IdentityChangeAtom> logger,
         IDetectorConfigProvider configProvider,
-        IFingerprintStore store)
+        IFingerprintStore store,
+        IHttpContextAccessor httpContextAccessor,
+        IdentityGlobalWeightsCache globalWeights)
         : base(name: "IdentityChange", category: "IdentityChange")
     {
         _logger = logger;
         _store = store;
         _configProvider = configProvider;
+        _httpContextAccessor = httpContextAccessor;
+        _globalWeights = globalWeights;
     }
 
     public override int Priority => 30;
@@ -76,6 +83,13 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
     // its CURRENT request scores suspicious independent of whether THIS request diverged.
     private double DriftFrequencyHighThreshold => _configProvider.GetParameter(Name, "drift_frequency_high_threshold", 0.3);
     private double DriftFrequencyWeight => _configProvider.GetParameter(Name, "drift_frequency_weight", 0.3);
+
+    // Behavioural shape drift (LIVE, per-request): weighted-cosine between THIS request's own
+    // identity vector and the fingerprint's established centroid+weights. Same warning
+    // threshold FingerprintDriftService's background audit pass uses, kept as an independent
+    // atom-owned parameter so live scoring and the background badge can be tuned separately.
+    private double BehavioralDriftWarningThreshold => _configProvider.GetParameter(Name, "behavioral_drift_warning_threshold", 0.92);
+    private double BehavioralDriftWeight => _configProvider.GetParameter(Name, "behavioral_drift_weight", 0.3);
 
     public override async Task<IReadOnlyList<DetectionContribution>> DetectAsync(
         SignalSink sink,
@@ -238,6 +252,47 @@ public sealed class IdentityChangeAtom : DetectorAtomBase
                 Reason = $"Fingerprint drifts frequently (freq {fp.DriftFrequency:F2}) — anti-detect / profile-cycling pattern",
                 BotType = BotType.Unknown.ToString()
             });
+        }
+
+        // Behavioural shape drift (LIVE, per-request). Distinct from the surface-dims compare
+        // above (geo/ASN/UA/canvas): this is the continuous behavioural/header SHAPE, so it
+        // catches drift even when every discrete surface dim stays put -- the "Adblocker ->
+        // curl" case (same IP/UA/geo, different tool fingerprint). Mirrors
+        // FingerprintDriftService's background weighted-cosine check, but computed inline
+        // against THIS request's own IdentityVectorAtom-composed vector rather than a stored
+        // "latest observation", so it feeds scoring in real time instead of only the
+        // background-tick audit badge. Gated on CentroidMaturity > 0 -- a cold-start
+        // fingerprint's centroid is all-zero, so comparing against it would be a meaningless,
+        // guaranteed-below-threshold false positive on every brand-new visitor.
+        if (fp is not null && fp.CentroidMaturity > 0
+            && _httpContextAccessor.HttpContext is { } context
+            && IdentityVectorAtom.TryGetVector(context) is { } currentVector
+            && currentVector.Length == fp.Centroid.Length)
+        {
+            var composedWeights = _globalWeights.Compose(fp.Weights);
+            var similarity = BruteForceIdentityAnchorIndex.WeightedCosine(currentVector, fp.Centroid, composedWeights);
+
+            if (similarity < BehavioralDriftWarningThreshold)
+            {
+                sink.Raise(SignalKeys.RiskBehavioralDriftHigh, sessionId);
+                sink.Raise($"{SignalKeys.RiskBehavioralDriftScore}:{similarity.ToString("F3", CultureInfo.InvariantCulture)}", sessionId);
+
+                var deficit = Math.Clamp(BehavioralDriftWarningThreshold - similarity, 0.0, 1.0);
+                var driftDelta = Math.Clamp(BehavioralDriftWeight * deficit, 0.0, BehavioralDriftWeight);
+
+                _logger.LogDebug("IdentityChange behavioral-drift fp={Fp} similarity={Similarity:F2} delta={Delta:F2}",
+                    fingerprintId.Length > 8 ? fingerprintId[..8] : fingerprintId, similarity, driftDelta);
+
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "BehavioralDrift",
+                    ConfidenceDelta = driftDelta,
+                    Weight = 1.0,
+                    Reason = $"Request's behavioural shape diverges from established fingerprint centroid (similarity {similarity:F2})",
+                    BotType = BotType.Unknown.ToString()
+                });
+            }
         }
 
         return contributions.Count > 0 ? contributions : None();

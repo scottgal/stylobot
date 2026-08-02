@@ -1968,6 +1968,21 @@ public static partial class SignalKeys
     /// <summary>String: the matched fingerprint's accumulated drift-frequency EWMA figure, formatted to 3 decimals. Written alongside <see cref="RiskDriftFrequencyHigh"/> for dashboards / logs so the magnitude is visible without re-joining fingerprint state.</summary>
     public const string RiskDriftFrequency = "risk.drift_frequency";
 
+    /// <summary>
+    ///     Boolean (presence): THIS request's own identity vector diverges from the matched
+    ///     fingerprint's established behavioural centroid (weighted-cosine below the atom's
+    ///     warning threshold). Distinct from <see cref="RiskSuspiciousChangeScore"/> (discrete
+    ///     surface dims: geo/ASN/UA/canvas) -- this is the continuous behavioural/header SHAPE,
+    ///     so it catches drift even when every surface dim stays put (the "Adblocker -> curl"
+    ///     case: same IP/UA/geo, different tool fingerprint). Computed inline against this
+    ///     request's own vector, so it feeds scoring in real time rather than only the
+    ///     background drift-service audit badge.
+    /// </summary>
+    public const string RiskBehavioralDriftHigh = "risk.behavioral_drift_high";
+
+    /// <summary>String: the weighted-cosine similarity score between this request's vector and the fingerprint's centroid, formatted to 3 decimals. Written alongside <see cref="RiskBehavioralDriftHigh"/>.</summary>
+    public const string RiskBehavioralDriftScore = "risk.behavioral_drift_score";
+
     // ==========================================
     // Privacy / PII Detection signals
     // Set by PiiQueryStringContributor when PII patterns detected in query strings

@@ -206,7 +206,14 @@ public sealed class IdentityChangeDimFoldTests : IDisposable
     private static SignalSink NewSink() => new(maxCapacity: 1000, maxAge: TimeSpan.FromMinutes(1));
 
     private static IdentityChangeAtom NewAtom(IFingerprintStore store) => new(
-        NullLogger<IdentityChangeAtom>.Instance, new StubDetectorConfigProvider(), store);
+        NullLogger<IdentityChangeAtom>.Instance,
+        new StubDetectorConfigProvider(),
+        store,
+        new StaticHttpContextAccessor(new Microsoft.AspNetCore.Http.DefaultHttpContext()),
+        new IdentityGlobalWeightsCache(
+            NullLogger<IdentityGlobalWeightsCache>.Instance,
+            store,
+            Microsoft.Extensions.Options.Options.Create(new BotDetectionOptions { Identity = new IdentityOptions { Enabled = true } })));
 
     private static SignalSink SinkFor(string fingerprintId, string country)
     {

@@ -94,6 +94,14 @@ output:
       entity_type: string
       salience: 0.8
       description: The matched fingerprint's accumulated drift-frequency EWMA figure (formatted to 3 decimals), written alongside risk.drift_frequency_high so dashboards and logs can render the magnitude without re-joining fingerprint state.
+    - key: risk.behavioral_drift_high
+      entity_type: boolean
+      salience: 0.85
+      description: True when THIS request's own identity vector diverges (weighted-cosine below behavioral_drift_warning_threshold) from the matched fingerprint's established behavioural centroid. Distinct from the discrete surface-dims flags above (geo/ASN/UA/canvas) - this is the continuous behavioural/header shape, so it catches drift even when every surface dim stays put (same IP/UA/geo, different tool fingerprint - "Adblocker -> curl"). Computed inline against this request's own vector, so it feeds scoring in real time rather than only FingerprintDriftService's background audit-trail badge.
+    - key: risk.behavioral_drift_score
+      entity_type: string
+      salience: 0.7
+      description: The weighted-cosine similarity between this request's identity vector and the fingerprint's centroid (formatted to 3 decimals), written alongside risk.behavioral_drift_high.
 
 triggers:
   requires:
@@ -137,6 +145,12 @@ emits:
     - key: risk.drift_frequency
       type: string
       description: The matched fingerprint's accumulated drift-frequency EWMA figure (3 decimals) - render-ready alongside risk.drift_frequency_high.
+    - key: risk.behavioral_drift_high
+      type: bool
+      description: True when this request's own identity vector diverges from the fingerprint's established behavioural centroid (weighted-cosine below threshold) - catches shape drift even when discrete surface dims (geo/ASN/UA/canvas) stay put.
+    - key: risk.behavioral_drift_score
+      type: string
+      description: Weighted-cosine similarity between this request's vector and the fingerprint's centroid (3 decimals) - render-ready alongside risk.behavioral_drift_high.
 
   on_failure:
     - detector.identitychange.failed
@@ -183,6 +197,15 @@ defaults:
     # [0, drift_frequency_weight]. Indicator only; FOSS does not gate policy on it.
     drift_frequency_high_threshold: 0.3
     drift_frequency_weight: 0.3
+    # Behavioural shape drift (LIVE, per-request): weighted-cosine between this request's
+    # own identity vector (IdentityVectorAtom's per-request compose, not the historical
+    # "latest observation" FingerprintDriftService's Tick10s audit pass uses) and the
+    # fingerprint's established centroid+weights. 0.92 mirrors DriftWarningThreshold's
+    # default (identity.drift options) but is kept as an independent atom-owned parameter
+    # so live scoring and the background badge can be tuned separately. Gated on
+    # CentroidMaturity > 0 so a cold-start (all-zero) centroid never false-positives.
+    behavioral_drift_warning_threshold: 0.92
+    behavioral_drift_weight: 0.3
 
 tags:
   - identity
