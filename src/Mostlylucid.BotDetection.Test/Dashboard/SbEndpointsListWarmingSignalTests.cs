@@ -96,6 +96,39 @@ public sealed class SbEndpointsListWarmingSignalTests
         Assert.Empty(model.Endpoints);
     }
 
+    [Fact]
+    public async Task Cold_windowed_read_also_renders_warming_not_bare_empty()
+    {
+        // This is the branch the LIVE page actually takes on first render: the
+        // <sb-endpoints-list> tag helper always forwards range="@Model.Filters.Window",
+        // so InvokeAsync's `startTime.HasValue` guard is true and it never reaches the
+        // "legacy fallback" branch the other tests in this file exercise. A cold SWR
+        // placeholder here must be flagged warming exactly like the unfiltered path.
+        var store = new FakeStore(result: [], stampWarming: true);
+        var (vc, ctx) = NewVc(store);
+
+        var result = await vc.InvokeAsync(range: "24h") as ViewViewComponentResult;
+
+        var model = Assert.IsType<EndpointsListModel>(result!.ViewData!.Model);
+        Assert.True(model.IsWarming, "a cold SWR placeholder on the windowed/range-driven read must render as warming too");
+        Assert.Empty(model.Endpoints);
+    }
+
+    [Fact]
+    public async Task Warm_windowed_read_renders_normally_without_warming_flag()
+    {
+        var store = new FakeStore(
+            result: [new DashboardEndpointStats { Method = "GET", Path = "/pricing", TotalCount = 10 }],
+            stampWarming: false);
+        var (vc, ctx) = NewVc(store);
+
+        var result = await vc.InvokeAsync(range: "24h") as ViewViewComponentResult;
+
+        var model = Assert.IsType<EndpointsListModel>(result!.ViewData!.Model);
+        Assert.False(model.IsWarming);
+        Assert.Single(model.Endpoints);
+    }
+
     private sealed class FakeStore(List<DashboardEndpointStats> result, bool stampWarming) : IDashboardEventStore
     {
         public HttpContext? LastContext;

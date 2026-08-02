@@ -89,7 +89,21 @@ public class SbEndpointsListViewComponent(
             // Must win over the warming/composed checks below -- a specific audience/window
             // request (including the "Show self-probe" -> "all_incl_internal" toggle) is asking
             // for a slice the composed snapshot can never satisfy, warming or not.
+            //
+            // THIS is the branch the live page actually takes on first render: the
+            // <sb-endpoints-list> tag helper always forwards range="@Model.Filters.Window",
+            // so startTime.HasValue is true here on every real page load -- the "legacy
+            // fallback" branch below (where the warming-signal check first landed) is
+            // effectively dead for that call shape. A cold SWR placeholder from a store-layer
+            // decorator returns an empty list immediately here too, so it needs the exact
+            // same warming check, or a windowed cold-miss renders as bare "no data" same as
+            // the unfiltered one did before the fix.
             data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience, scopedDomains);
+            if (data.Count == 0)
+            {
+                var windowedDomainTag = scopedDomains is { Count: 1 } ? scopedDomains[0] : null;
+                isWarming = DashboardWarmingSignal.IsWarming(HttpContext, "endpoints", windowedDomainTag);
+            }
         }
         else if (pageResult is { IsWarming: true })
         {
