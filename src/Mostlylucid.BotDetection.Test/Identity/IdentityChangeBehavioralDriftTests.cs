@@ -216,7 +216,18 @@ public sealed class IdentityChangeBehavioralDriftTests
                     {
                         AbsorptionMaturityThreshold = 1,
                         AbsorptionAgeDays = 30,
-                        ActiveWindowDays = 90
+                        ActiveWindowDays = 90,
+                        // Pinned well past this test's runtime: FingerprintAbsorptionService
+                        // subscribes to ObservationAppended at construction and schedules its
+                        // OWN debounced background absorption (default 250ms) independent of
+                        // this test's explicit TickOnceAsync polling below. On a slow CI runner
+                        // the 30-iteration loop's cumulative wall-clock time can exceed 250ms,
+                        // so the event-driven path starts firing mid-loop and races the explicit
+                        // ticks -- double-absorbing an observation and producing a non-monotonic
+                        // similarity reading (observed CI flake: "iteration 18: similarity must
+                        // not regress"). A debounce far longer than the test can possibly run
+                        // guarantees ONLY the explicit TickOnceAsync calls ever absorb.
+                        SubscriptionDebounceMs = 300_000
                     }
                 }
             });
