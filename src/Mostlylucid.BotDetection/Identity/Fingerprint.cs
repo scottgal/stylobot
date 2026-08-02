@@ -23,15 +23,15 @@ public sealed record Fingerprint
     public double CachedBotProbability { get; init; }
 
     /// <summary>
-    ///     Set by <see cref="FingerprintDriftService"/> when it detects this fingerprint's
-    ///     current behaviour has drifted away from its established shape (weighted-cosine
-    ///     below <see cref="IdentityDriftOptions.DriftWarningThreshold"/>). While
-    ///     <c>UtcNow</c> is before this timestamp, verdict writes use the wider
-    ///     <see cref="IdentityDriftOptions.DriftReopenAlpha"/> instead of the steady-state
-    ///     <see cref="IdentityDriftOptions.CachedScoreEwmaAlpha"/>, so <see cref="CachedBotProbability"/>
-    ///     converges to the fingerprint's new behaviour within ~1-2 observations rather than
-    ///     the dozens a slow EWMA would need. Null = not currently reopened (steady-state
-    ///     alpha applies, the normal case).
+    ///     DORMANT (2026-08-02 fp-cache-current architecture). Was the Phase-1 "drift-reopen
+    ///     window" mechanism -- a wider EWMA alpha applied for a fixed window after
+    ///     <see cref="FingerprintDriftService"/> detected drift. Superseded by
+    ///     <see cref="Identity.EvidencePowerAbsorption"/>'s per-observation power-weighted
+    ///     alpha, which reacts to each request's own evidence strength instead of a scheduled
+    ///     window. Nothing sets this field any more; kept on the record (and the
+    ///     <c>drift_reopened_until_utc</c> column) pending a schema-migration cleanup pass
+    ///     rather than removed alongside the dead code, to avoid touching persisted rows
+    ///     mid-rebuild. Always null in practice.
     /// </summary>
     public DateTime? DriftReopenedUntilUtc { get; init; }
 

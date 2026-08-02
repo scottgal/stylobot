@@ -227,12 +227,11 @@ internal static class IdentitySchema
         await TryDropColumnAsync(conn,
             "ALTER TABLE fingerprints DROP COLUMN cached_risk_band", ct);
 
-        // 2026-08-02 -- fast drift-reopen absorption (fp-cache-current architecture,
-        // Phase 1). FingerprintDriftService stamps this when weighted-cosine drift
-        // crosses DriftWarningThreshold; RecordVerdictWriteBehind/RecordVerdictAsync
-        // use the wide DriftReopenAlpha instead of the slow steady-state alpha while
-        // now() is before it. NULL = not currently reopened. The CREATE in
-        // identity_core.sql already carries this for fresh schemas.
+        // 2026-08-02 -- drift-reopen column, DORMANT. Was Phase 1's fast-absorption-window
+        // mechanism (fp-cache-current architecture); superseded by EvidencePowerAbsorption's
+        // per-observation power-weighted alpha. Nothing writes this column any more -- kept
+        // (migration retained, not dropped) pending a schema-cleanup pass rather than removed
+        // mid-rebuild. The CREATE in identity_core.sql already carries this for fresh schemas.
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN drift_reopened_until_utc TEXT", ct);
     }

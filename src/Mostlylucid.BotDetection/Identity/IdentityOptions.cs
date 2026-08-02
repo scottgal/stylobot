@@ -467,28 +467,6 @@ public sealed class IdentityDriftOptions
     public double DriftBadgeThreshold { get; set; } = 0.15;
 
     /// <summary>
-    ///     EWMA alpha used for <c>CachedBotProbability</c> writes while a fingerprint is
-    ///     inside its drift-reopen window (see <see cref="DriftReopenWindowSeconds"/>) --
-    ///     much wider than the steady-state <see cref="CachedScoreEwmaAlpha"/> so a
-    ///     fingerprint whose behaviour just changed converges to its new reality within
-    ///     ~1-2 observations instead of dozens. Default 0.6: the fresh observation
-    ///     dominates the blend, but a single spurious outlier still can't fully overwrite
-    ///     history in one write (see <c>fp-cache-current-2026-08-02</c>).
-    /// </summary>
-    public double DriftReopenAlpha { get; set; } = 0.6;
-
-    /// <summary>
-    ///     How long (from the moment <see cref="FingerprintDriftService"/> detects drift --
-    ///     weighted-cosine score below <see cref="DriftWarningThreshold"/>) the fast
-    ///     <see cref="DriftReopenAlpha"/> applies to subsequent <c>CachedBotProbability</c>
-    ///     writes for that fingerprint, before falling back to the steady-state
-    ///     <see cref="CachedScoreEwmaAlpha"/>. Default 300s (5 min) -- long enough to
-    ///     absorb the next few requests from an actively-drifting fingerprint, short
-    ///     enough that a one-off anomaly doesn't leave the cache permanently over-reactive.
-    /// </summary>
-    public int DriftReopenWindowSeconds { get; set; } = 300;
-
-    /// <summary>
     ///     2026-08-02 fp-cache-current architecture: the ceiling EWMA alpha for a graduated
     ///     (non-categorically-definitive) observation whose evidence is nonetheless strong and
     ///     confident (see <see cref="Identity.EvidencePowerAbsorption.ResolveGraduatedAlpha"/>).
