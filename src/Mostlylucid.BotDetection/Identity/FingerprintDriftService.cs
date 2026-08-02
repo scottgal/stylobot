@@ -152,9 +152,9 @@ public sealed class FingerprintDriftService : IDisposable
                     _logger.LogInformation(
                         "On-demand drift check: fingerprint {Id} score={Score:F3} below {Threshold:F3}",
                         fingerprintId, score, _options.Drift.DriftWarningThreshold);
-                    var reopenedUntil = DateTime.UtcNow.AddSeconds(
-                        Math.Max(1, _options.Drift.DriftReopenWindowSeconds));
-                    await _store.MarkDriftReopenedAsync(fingerprintId, reopenedUntil, runCt);
+                    // Audit trail only (dashboard badge) -- see TickOnceAsync's comment: the
+                    // fast-absorption-window side effect is superseded by real-time
+                    // per-request drift scoring.
                 }
 
                 await _store.BumpCachedScoreCheckedAtAsync(fingerprintId, runCt);
@@ -198,14 +198,17 @@ public sealed class FingerprintDriftService : IDisposable
                     fp.FingerprintId, fp.InferredClientType, score, _options.Drift.DriftWarningThreshold,
                     fp.CachedBotProbability, fp.CentroidMaturity);
 
-                // Phase 1, fp-cache-current architecture (2026-08-02): drift detection is no
-                // longer a dead end. Open the fast-absorption window so the NEXT verdict
-                // write(s) for this fingerprint use the wide DriftReopenAlpha and converge
-                // to its new behaviour within ~1-2 observations instead of staying stuck on
-                // the stale cached score for dozens of requests.
-                var reopenedUntil = DateTime.UtcNow.AddSeconds(
-                    Math.Max(1, _options.Drift.DriftReopenWindowSeconds));
-                await _store.MarkDriftReopenedAsync(fp.FingerprintId, reopenedUntil, ct);
+                // 2026-08-02 fp-cache-current architecture (final model): this background,
+                // periodic (Tick10s) check remains the drift-SHAPE audit trail (dashboard
+                // drift badge, operator visibility on fingerprints that haven't been observed
+                // recently) -- it does NOT feed the score directly any more (superseded: the
+                // old "open a fast-absorption window" side effect was a scheduled/background
+                // write, which the operator's corrected model explicitly rules out: "NO
+                // scheduled folding, NO session-boundary deferral, NO background batch").
+                // Drift-toward-bot-like-shape now enters scoring in REAL TIME instead, as a
+                // per-request DetectionContribution computed inline against the CURRENT
+                // request's own observation (see IdentityChangeAtom's behavioural-drift arm),
+                // not via this background pass.
             }
 
             await _store.BumpCachedScoreCheckedAtAsync(fp.FingerprintId, ct);

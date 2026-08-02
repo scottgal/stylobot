@@ -111,19 +111,25 @@ public interface IFingerprintStore : IFingerprintReader
     /// </summary>
     void RecordVerdictWriteBehind(string fingerprintId, double botProbability, string? botType = null) { }
 
-    Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default);
-
     /// <summary>
-    ///     Opens the fast drift-reopen absorption window: while <c>UtcNow</c> is before
-    ///     <paramref name="untilUtc"/>, <c>CachedBotProbability</c> writes for this
-    ///     fingerprint use the wide <c>IdentityDriftOptions.DriftReopenAlpha</c> instead
-    ///     of the slow steady-state alpha, so the cache converges to the fingerprint's
-    ///     new behaviour within ~1-2 observations. Called by <see cref="FingerprintDriftService"/>
-    ///     when weighted-cosine drift crosses <c>IdentityDriftOptions.DriftWarningThreshold</c>.
-    ///     Default no-op for stores that hold no resident dict (the null store); SQLite +
-    ///     the commercial store override it.
+    ///     2026-08-02 fp-cache-current architecture: the power-weighted successor to
+    ///     <see cref="RecordVerdictWriteBehind"/>. <paramref name="isDefinitive"/> (categorical
+    ///     evidence -- honeypot hit, verified-bad-bot, security-tool detection, high threat/attack
+    ///     severity; see <see cref="EvidencePowerAbsorption.IsDefinitive"/>) sets the cached score
+    ///     DIRECTLY to <paramref name="botProbability"/>, one observation, no blend. Otherwise the
+    ///     store EWMA-blends at an alpha derived from <see cref="EvidencePowerAbsorption.ComputeCertainty"/>
+    ///     (<paramref name="confidence"/> combined with how extreme <paramref name="botProbability"/>
+    ///     is) -- weak/ambiguous evidence barely moves the score; strong-but-non-categorical evidence
+    ///     moves it hard without a full overwrite. Default falls back to the flat-alpha
+    ///     <see cref="RecordVerdictWriteBehind"/> so a store that hasn't been upgraded yet (e.g. the
+    ///     commercial Postgres store, at the time this was added) keeps working, just without the
+    ///     power-weighting -- SQLite overrides this directly.
     /// </summary>
-    Task MarkDriftReopenedAsync(string fingerprintId, DateTime untilUtc, CancellationToken ct = default) => Task.CompletedTask;
+    void RecordVerdictWriteBehindWithPower(
+        string fingerprintId, double botProbability, double confidence, bool isDefinitive, string? botType = null)
+        => RecordVerdictWriteBehind(fingerprintId, botProbability, botType);
+
+    Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default);
 
     // ── Matcher write path ───────────────────────────────────────────────────
     Task InsertFingerprintAsync(Fingerprint fp, string primarySignature, CancellationToken ct = default);

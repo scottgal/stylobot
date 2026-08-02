@@ -487,6 +487,17 @@ public sealed class IdentityDriftOptions
     ///     enough that a one-off anomaly doesn't leave the cache permanently over-reactive.
     /// </summary>
     public int DriftReopenWindowSeconds { get; set; } = 300;
+
+    /// <summary>
+    ///     2026-08-02 fp-cache-current architecture: the ceiling EWMA alpha for a graduated
+    ///     (non-categorically-definitive) observation whose evidence is nonetheless strong and
+    ///     confident (see <see cref="Identity.EvidencePowerAbsorption.ResolveGraduatedAlpha"/>).
+    ///     Deliberately below 1.0 -- literal instant-overwrite is reserved for the definitive
+    ///     tier (honeypot / verified-bad-bot / security-tool / high threat) only, so even very
+    ///     confident-but-non-categorical evidence moves the score hard without fully discarding
+    ///     history in one observation. Default 0.9.
+    /// </summary>
+    public double GraduatedCeilingAlpha { get; set; } = 0.9;
 }
 
 public sealed class IdentityCalibrationOptions

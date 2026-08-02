@@ -33,7 +33,12 @@ public class NullFingerprintStore : IFingerprintStore
     public Task<IReadOnlyList<Fingerprint>> ListFingerprintsAsync(CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<Fingerprint>>(Array.Empty<Fingerprint>());
 
-    public Task<Fingerprint?> GetFingerprintAsync(string fingerprintId, CancellationToken ct = default)
+    /// <summary>
+    ///     Virtual so test doubles (e.g. <c>PostDetectionActionGate</c>'s live-fingerprint-score
+    ///     enforcement tests) can layer a resolvable fingerprint on top without restubbing the
+    ///     rest of the interface -- mirrors the existing virtual members below.
+    /// </summary>
+    public virtual Task<Fingerprint?> GetFingerprintAsync(string fingerprintId, CancellationToken ct = default)
         => Task.FromResult<Fingerprint?>(null);
 
     public Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default)

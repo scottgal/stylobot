@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Domains;
+using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -71,15 +73,43 @@ public sealed class PostDetectionActionGate
     private readonly BotDetectionOptions _options;
     private readonly ILogger<PostDetectionActionGate> _logger;
     private readonly ITokenBucketStore? _tokenBucketStore;
+    private readonly IFingerprintStore? _fingerprintStore;
 
     public PostDetectionActionGate(
         IOptions<BotDetectionOptions> options,
         ILogger<PostDetectionActionGate> logger,
-        ITokenBucketStore? tokenBucketStore = null)
+        ITokenBucketStore? tokenBucketStore = null,
+        IFingerprintStore? fingerprintStore = null)
     {
         _options = options.Value;
         _logger = logger;
         _tokenBucketStore = tokenBucketStore;
+        _fingerprintStore = fingerprintStore;
+    }
+
+    /// <summary>
+    ///     2026-08-02 fp-cache-current architecture: enforcement's per-BotType fallback
+    ///     threshold check must read the SAME live fingerprint score
+    ///     (<see cref="Fingerprint.CachedBotProbability"/>) the dashboard headline reads --
+    ///     <see cref="Orchestration.Atoms.BotDetectionOrchestrator"/> already wrote this
+    ///     request's verdict into the fingerprint cache (power-weighted absorption) before this
+    ///     gate runs, so a same-request read-back sees the freshly-absorbed value. Falls back to
+    ///     <paramref name="evidence"/>'s own <see cref="AggregatedEvidence.BotProbability"/>
+    ///     under exactly three conditions: Identity disabled (store resolves null for every id),
+    ///     no fingerprint id resolved this request, or the request is learning-suppressed --
+    ///     a learning-suppressed request must score and enforce purely on its own evidence,
+    ///     never read another request's absorbed history.
+    /// </summary>
+    private async Task<double> ResolveEnforcementBotProbabilityAsync(
+        HttpContext context, AggregatedEvidence evidence)
+    {
+        if (_fingerprintStore is null) return evidence.BotProbability;
+        if (string.IsNullOrEmpty(evidence.FingerprintId)) return evidence.BotProbability;
+        if (context.IsLearningSuppressedByApiKey()) return evidence.BotProbability;
+
+        var fingerprint = await _fingerprintStore.GetFingerprintAsync(
+            evidence.FingerprintId, context.RequestAborted);
+        return fingerprint?.CachedBotProbability ?? evidence.BotProbability;
     }
 
     /// <summary>
@@ -220,8 +250,9 @@ public sealed class PostDetectionActionGate
             return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.PolicyContinued), evidence);
         }
 
+        var enforcementBotProbability = await ResolveEnforcementBotProbabilityAsync(context, evidence);
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
-            && evidence.BotProbability >= _options.BotThreshold
+            && enforcementBotProbability >= _options.BotThreshold
             && evidence.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
 #pragma warning restore CS0618
         {
@@ -244,10 +275,10 @@ public sealed class PostDetectionActionGate
                 context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
 
                 _logger.LogInformation(
-                    "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, type={BotType})",
+                    "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, enforcementRisk={EnforcementRisk:F2}, type={BotType})",
                     resolvedPolicyName,
                     _options.ObserveOnly ? " [observe-only shadow]" : "",
-                    context.Request.Path, evidence.BotProbability, evidence.PrimaryBotType);
+                    context.Request.Path, evidence.BotProbability, enforcementBotProbability, evidence.PrimaryBotType);
 
                 var fallbackResult = await fallbackPolicy.ExecuteAsync(context, evidence, context.RequestAborted);
                 return fallbackResult.Continue

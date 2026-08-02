@@ -1960,8 +1960,11 @@ public class SqliteFingerprintStore : IFingerprintStore
 
         var existing = entry.Fingerprint;
         var now = DateTime.UtcNow;
-        var alpha = DriftReopenAbsorption.ResolveAlpha(
-            existing.DriftReopenedUntilUtc, now, _engineOptions.VerdictEwmaAlpha, _driftOptions.DriftReopenAlpha);
+        // Flat steady-state alpha: this is the legacy write path, kept only as the interface's
+        // fallback target for callers that haven't moved to the power-weighted
+        // RecordVerdictWriteBehindWithPower (2026-08-02 fp-cache-current architecture), which
+        // is what the orchestrator actually calls now. See that method for the real logic.
+        var alpha = Math.Clamp(_engineOptions.VerdictEwmaAlpha, 0.0, 1.0);
         var blended = existing.CachedScoreUpdatedAt is null
             ? botProbability
             : existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
@@ -1970,6 +1973,43 @@ public class SqliteFingerprintStore : IFingerprintStore
         // CachedBotType is only overwritten when this write supplies one -- a null botType
         // preserves the fingerprint's existing catalogue type (mirrors the SQL COALESCE).
         // No band is stored: RiskBand is derived at read from the blended probability.
+        _fingerprintById[fingerprintId] = entry.WithFingerprint(existing with
+        {
+            CachedBotProbability = blended,
+            CachedBotType        = botType ?? existing.CachedBotType,
+            CachedScoreUpdatedAt = now
+        });
+
+        EnsureNameDrainerStarted();
+        _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, botType, now));
+    }
+
+    /// <inheritdoc />
+    public void RecordVerdictWriteBehindWithPower(
+        string fingerprintId, double botProbability, double confidence, bool isDefinitive, string? botType = null)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var entry)) return;
+
+        var existing = entry.Fingerprint;
+        var now = DateTime.UtcNow;
+
+        double blended;
+        if (isDefinitive || existing.CachedScoreUpdatedAt is null)
+        {
+            // Definitive evidence (honeypot / verified-bad-bot / security-tool / high threat)
+            // sets the score directly, one observation, no blend -- same shape as the
+            // existing "first-ever write" direct assignment.
+            blended = botProbability;
+        }
+        else
+        {
+            var certainty = EvidencePowerAbsorption.ComputeCertainty(botProbability, confidence);
+            var alpha = EvidencePowerAbsorption.ResolveGraduatedAlpha(
+                certainty, _engineOptions.VerdictEwmaAlpha, _driftOptions.GraduatedCeilingAlpha);
+            blended = existing.CachedBotProbability * (1.0 - alpha) + botProbability * alpha;
+        }
+
         _fingerprintById[fingerprintId] = entry.WithFingerprint(existing with
         {
             CachedBotProbability = blended,
@@ -2008,8 +2048,11 @@ public class SqliteFingerprintStore : IFingerprintStore
         }
 
         var now = DateTime.UtcNow;
-        var alpha = DriftReopenAbsorption.ResolveAlpha(
-            existing.DriftReopenedUntilUtc, now, _engineOptions.VerdictEwmaAlpha, _driftOptions.DriftReopenAlpha);
+        // Session-boundary write: no per-observation evidence (confidence / definitive-signal
+        // classification) is available at this call site, so this uses the plain steady-state
+        // alpha. The power-weighted path (RecordVerdictWriteBehindWithPower) is the primary,
+        // real-time absorption mechanism; this remains the coarser session-end fallback.
+        var alpha = Math.Clamp(_engineOptions.VerdictEwmaAlpha, 0.0, 1.0);
 
         // First-ever write (CachedScoreUpdatedAt is null) is a direct assignment so a
         // brand-new fingerprint's first detection lands its real probability, not an
@@ -2648,32 +2691,6 @@ public class SqliteFingerprintStore : IFingerprintStore
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
         InvalidateFingerprintCache(fingerprintId);
-    }
-
-    /// <inheritdoc />
-    public async Task MarkDriftReopenedAsync(string fingerprintId, DateTime untilUtc, CancellationToken ct = default)
-    {
-        await EnsureInitialisedAsync(ct);
-
-        // Dict-first, same convention as RecordVerdictWriteBehind: update the resident
-        // fingerprint (if any) so the NEXT verdict write on the hot path sees the reopened
-        // window immediately, without waiting on the durability round-trip below.
-        if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
-        {
-            _fingerprintById[fingerprintId] = entry.WithFingerprint(
-                entry.Fingerprint with { DriftReopenedUntilUtc = untilUtc });
-        }
-
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE fingerprints SET drift_reopened_until_utc = @until
-             WHERE fingerprint_id = @id
-            """;
-        cmd.Parameters.AddWithValue("@until", untilUtc.ToString("O"));
-        cmd.Parameters.AddWithValue("@id", fingerprintId);
-        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>

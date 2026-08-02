@@ -114,6 +114,10 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // path) and persists via the shared name drainer -- NO per-request DB connection.
             // Dict-only + no-op when identity is disabled or the fingerprint id is absent.
             var identityFingerprintId = _signalSink.ReadHint(SignalKeys.IdentityFingerprintId);
+            // Carry the resolved fingerprint id onto evidence so PostDetectionActionGate can
+            // read the SAME live fp.CachedBotProbability this write-back is about to update,
+            // instead of enforcing on a possibly-stale per-request BotProbability.
+            evidence = evidence with { FingerprintId = identityFingerprintId };
             // Learning-suppressed requests (bypass key with DisableLearningWrites, or
             // impersonation) score normally but must NOT write back into the identity
             // headline. RecordVerdictWriteBehind is a learning write -- skip it. Detection
@@ -126,8 +130,21 @@ public sealed class BotDetectionOrchestrator : IDisposable
                 // alongside the score so the read-through projects the real type (not the
                 // inferred_client_type identity axis). Null when no type was identified this
                 // request, which preserves any prior stored type in the store.
-                _fingerprintStore.RecordVerdictWriteBehind(
-                    identityFingerprintId, evidence.BotProbability, evidence.PrimaryBotType?.ToString());
+                //
+                // 2026-08-02 fp-cache-current architecture: power-weighted, not a flat alpha.
+                // Definitive evidence (honeypot / verified-bad-bot / security-tool / high
+                // threat -- the SAME classifier the Tool-family demotion arm uses) sets the
+                // cached score directly, one observation; everything else blends at an alpha
+                // derived from how extreme + well-backed this request's own verdict is. Both
+                // are evidence already computed for THIS request -- no new metric invented.
+                var isDefinitiveObservation = EvidencePowerAbsorption.IsDefinitive(
+                    hasHostileSignals: DetectionLedgerExtensions.HasHostileSignals(
+                        evidence.Signals, evidence.ThreatScore),
+                    earlyExitVerifiedBadBot: evidence.EarlyExit
+                        && evidence.EarlyExitVerdict == EarlyExitVerdict.VerifiedBadBot);
+                _fingerprintStore.RecordVerdictWriteBehindWithPower(
+                    identityFingerprintId, evidence.BotProbability, evidence.Confidence,
+                    isDefinitiveObservation, evidence.PrimaryBotType?.ToString());
 
                 // Latch the DURABLE verified claim when a verification channel (IP-range / rDNS /
                 // forward-DNS) CONFIRMED a good bot this request. FingerprintRiskProjection derives

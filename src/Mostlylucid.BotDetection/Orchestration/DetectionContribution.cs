@@ -67,6 +67,16 @@ public sealed record AggregatedEvidence
     public double PriorProbability { get; init; }
 
     /// <summary>
+    ///     The identity fingerprint id resolved for this request (<c>identity.fingerprint_id</c>
+    ///     hint), or null when Identity is disabled or no match/allocation happened this request.
+    ///     Lets downstream enforcement (<see cref="Enforcement.PostDetectionActionGate"/>) read
+    ///     the SAME live <c>fp.CachedBotProbability</c> the dashboard headline reads, instead of
+    ///     this request's own <see cref="BotProbability"/> -- the two must never disagree about
+    ///     the same visitor.
+    /// </summary>
+    public string? FingerprintId { get; init; }
+
+    /// <summary>
     ///     Posterior minus prior: how much this single request moved the fingerprint's
     ///     belief, in absolute probability units. Zero when there was no prior (cold
     ///     start). Negative if confirmatory of human, positive if confirmatory of bot.

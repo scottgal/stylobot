@@ -1104,7 +1104,14 @@ public static class DetectionLedgerExtensions
     ///     refuses to fire when this returns true so the SecurityToolContributor
     ///     verdict path is left intact for genuinely hostile tools (sqlmap, nikto).
     /// </summary>
-    private static bool HasHostileSignals(IDictionary<string, object> signals, double threatScore, SignalSink? sink = null)
+    /// <summary>
+    ///     Categorical "is this observation definitive" check -- shared with
+    ///     <see cref="Identity.EvidencePowerAbsorption"/> so the fingerprint-absorption
+    ///     instant-trip tier (2026-08-02 fp-cache-current architecture) uses the SAME
+    ///     evidence-grounded classification as the Tool-family demotion arm, not a
+    ///     second invented metric.
+    /// </summary>
+    internal static bool HasHostileSignals(IReadOnlyDictionary<string, object> signals, double threatScore, SignalSink? sink = null)
     {
         if (threatScore >= 0.55) return true;
         // SecurityToolDetected is raised via sink.Raise in production; the dict

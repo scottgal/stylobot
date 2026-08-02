@@ -126,69 +126,71 @@ public class IdentityVerdictWriteBehindHotPathTests : IDisposable
             "direct overwrite would write 0.90 verbatim; EWMA must dampen the swing");
     }
 
-    [Fact]
-    public async Task RecordVerdictWriteBehind_InsideDriftReopenWindow_ConvergesFasterThanSteadyState()
-    {
-        // Phase 1 of the 2026-08-02 fp-cache-current architecture: a fingerprint FingerprintDriftService
-        // has flagged as drifted (weighted-cosine below threshold) must converge to fresh, strongly
-        // contradicting evidence within ~1-2 writes -- not the dozens the steady-state EWMA alpha
-        // would take. This is the exact prod symptom: a clean-history fingerprint (Adblocker) whose
-        // behaviour flipped (curl) stayed reading a low cached score for a long time after the flip.
-        var store = await NewStoreAsync();
-        const string primarySig = "drifted-sig";
-        const string fpId = "drifted-fp";
-        var dim = store.Layout.Dimension;
-        var reopenedUntil = DateTime.UtcNow.AddMinutes(5);
-        await store.InsertFingerprintAsync(
-            NewFingerprint(fpId, dim) with { DriftReopenedUntilUtc = reopenedUntil },
-            primarySig, CancellationToken.None);
-        await store.GetFingerprintAsync(fpId); // resident-load (mirrors the matcher)
-
-        store.RecordVerdictWriteBehind(fpId, 0.10); // first-ever write: direct assignment, as always
-        store.RecordVerdictWriteBehind(fpId, 0.90); // second write: this is the one that must use the wide alpha
-
-        var after = await store.GetFingerprintAsync(fpId);
-        after!.CachedBotProbability.Should().BeGreaterThan(0.5,
-            "the wide drift-reopen alpha must dominate the blend so a single strong contradicting " +
-            "observation crosses 50% within 2 writes, unlike the steady-state alpha (see the sibling " +
-            "TwiceResident_ExposesEwmaBlend test, which stays well below 0.90 with the SAME two inputs " +
-            "outside a reopen window)");
-    }
+    // NOTE: the Phase-1 "drift-reopen window" mechanism this test used to pin
+    // (RecordVerdictWriteBehind_InsideDriftReopenWindow_ConvergesFasterThanSteadyState) is
+    // superseded by the 2026-08-02 fp-cache-current final model: drift now feeds scoring in
+    // real time as a per-request DetectionContribution, not via a background-flagged window.
+    // See RecordVerdictWriteBehindWithPower_* below for the current fast-convergence coverage.
 
     [Fact]
-    public async Task MarkDriftReopenedAsync_updates_the_resident_dict_and_persists()
+    public async Task RecordVerdictWriteBehindWithPower_DefinitiveEvidence_SetsScoreInstantly()
     {
+        // The exact "honeypot first-hit trips instantly" case from the operator's design:
+        // a categorically definitive observation sets the score directly, not an EWMA blend.
         var store = await NewStoreAsync();
-        const string primarySig = "reopen-sig";
-        const string fpId = "reopen-fp";
+        const string primarySig = "honeypot-sig";
+        const string fpId = "honeypot-fp";
         var dim = store.Layout.Dimension;
         await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySig, CancellationToken.None);
         await store.GetFingerprintAsync(fpId); // resident-load (mirrors the matcher)
 
-        var until = DateTime.UtcNow.AddMinutes(5);
-        await store.MarkDriftReopenedAsync(fpId, until);
+        store.RecordVerdictWriteBehindWithPower(fpId, botProbability: 0.10, confidence: 0.9, isDefinitive: false);
+        store.RecordVerdictWriteBehindWithPower(fpId, botProbability: 0.98, confidence: 0.95, isDefinitive: true);
 
-        // Dict-first: the very next verdict write (still on this "request") must already
-        // see the reopened window without a cold reload.
-        store.RecordVerdictWriteBehind(fpId, 0.10);
-        store.RecordVerdictWriteBehind(fpId, 0.90);
-        var afterHotPath = await store.GetFingerprintAsync(fpId);
-        afterHotPath!.CachedBotProbability.Should().BeGreaterThan(0.5,
-            "the dict must be updated immediately, not only after a durability round-trip");
+        var after = await store.GetFingerprintAsync(fpId);
+        after!.CachedBotProbability.Should().Be(0.98,
+            "definitive evidence must set the cached score directly, not blend it against prior history");
+    }
 
-        // Durability: a genuinely cold store (simulating a process restart / different
-        // reader against the same DB file) must also see the reopened window, not just the
-        // first store's in-memory dict.
-        var coldOptions = Options.Create(new BotDetectionOptions
-        {
-            DatabasePath = Path.Combine(_tempDir, "botdetection.db"),
-            Identity = new IdentityOptions { Enabled = true }
-        });
-        var coldStore = new SqliteFingerprintStore(
-            NullLogger<SqliteFingerprintStore>.Instance, coldOptions, IdentityVectorLayout.DefaultV1());
-        await coldStore.EnsureInitialisedAsync();
-        var coldLoaded = await coldStore.GetFingerprintAsync(fpId);
-        coldLoaded!.DriftReopenedUntilUtc.Should().NotBeNull();
+    [Fact]
+    public async Task RecordVerdictWriteBehindWithPower_WeakObservation_BarelyMovesTheScore()
+    {
+        var store = await NewStoreAsync();
+        const string primarySig = "weak-sig";
+        const string fpId = "weak-fp";
+        var dim = store.Layout.Dimension;
+        await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySig, CancellationToken.None);
+        await store.GetFingerprintAsync(fpId);
+
+        store.RecordVerdictWriteBehindWithPower(fpId, botProbability: 0.05, confidence: 0.9, isDefinitive: false);
+        // Weak, low-confidence, near-ambiguous observation -- must accumulate, not swing the score.
+        store.RecordVerdictWriteBehindWithPower(fpId, botProbability: 0.6, confidence: 0.3, isDefinitive: false);
+
+        var after = await store.GetFingerprintAsync(fpId);
+        after!.CachedBotProbability.Should().BeLessThan(0.35,
+            "a weak, low-confidence, near-ambiguous observation must barely move a clean-history score");
+    }
+
+    [Fact]
+    public async Task RecordVerdictWriteBehindWithPower_StrongGraduatedObservation_MovesHardButNotFully()
+    {
+        var store = await NewStoreAsync();
+        const string primarySig = "strong-sig";
+        const string fpId = "strong-fp";
+        var dim = store.Layout.Dimension;
+        await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), primarySig, CancellationToken.None);
+        await store.GetFingerprintAsync(fpId);
+
+        store.RecordVerdictWriteBehindWithPower(fpId, botProbability: 0.05, confidence: 0.9, isDefinitive: false);
+        // Strong, confident, extreme -- but NOT categorically definitive (no honeypot/security-tool/
+        // attack signal) -- must move hard without a full overwrite.
+        store.RecordVerdictWriteBehindWithPower(fpId, botProbability: 0.97, confidence: 0.95, isDefinitive: false);
+
+        var after = await store.GetFingerprintAsync(fpId);
+        after!.CachedBotProbability.Should().BeGreaterThan(0.6,
+            "strong, confident, extreme evidence must move the score hard even without being categorically definitive");
+        after.CachedBotProbability.Should().BeLessThan(0.97,
+            "non-definitive evidence must never fully overwrite -- only the definitive tier does that");
     }
 
     [Fact]

@@ -101,12 +101,16 @@ public sealed class FingerprintDriftServiceTickTests
     };
 
     [Fact]
-    public async Task TickOnceAsync_opens_the_drift_reopen_window_when_drift_is_detected()
+    public async Task TickOnceAsync_detects_drift_as_an_audit_signal_without_a_background_score_write()
     {
-        // Phase 1 of the 2026-08-02 fp-cache-current architecture mandate: drift detection
-        // must not be a dead-end log line. When weighted-cosine drift crosses the warning
-        // threshold, the service must open the fast-absorption window so the NEXT verdict
-        // writes converge quickly instead of staying stuck on the stale cached score.
+        // 2026-08-02 fp-cache-current architecture (final model): this background, periodic
+        // (Tick10s) check remains a drift-SHAPE audit trail (dashboard badge / operator
+        // visibility) -- it must NOT write the fingerprint's score itself. The operator's
+        // corrected model is explicit: "NO scheduled folding, NO session-boundary deferral,
+        // NO background batch." Drift-toward-bot-like-shape now feeds scoring in REAL TIME,
+        // per request, as a DetectionContribution (IdentityChangeAtom's behavioural-drift
+        // arm) -- not via this background pass. So: drift is still DETECTED and counted here
+        // (checked/drifts), but no fingerprint-store write happens as a side effect.
         var coordinator = new RecordingScheduleCoordinator();
         var fp = DriftFixture("drifted-fp");
 
@@ -138,13 +142,12 @@ public sealed class FingerprintDriftServiceTickTests
         var (checkedCount, drifts) = await sut.TickOnceAsync(CancellationToken.None);
 
         checkedCount.Should().Be(1);
-        drifts.Should().Be(1);
-        fpStore.Verify(s => s.MarkDriftReopenedAsync(
-                fp.FingerprintId,
-                It.Is<DateTime>(d => d > DateTime.UtcNow),
-                It.IsAny<CancellationToken>()),
-            Times.Once,
-            "drift detection must open the fast-absorption window, not just log a warning");
+        drifts.Should().Be(1, "drift is still detected and counted -- the audit trail is not retired");
+        // No fingerprint-store WRITE method exists for this background path any more (the
+        // reopen-window write was removed entirely) -- the only store interaction on a
+        // detected-drift pass is the checked-at bump below, confirming this is audit-only.
+        fpStore.Verify(s => s.BumpCachedScoreCheckedAtAsync(fp.FingerprintId, It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
