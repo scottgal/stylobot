@@ -374,7 +374,7 @@ Two products, same detection engine. FOSS is complete for detection, entity reso
 
 **Additional packs:** Django, Rails, Laravel, Spring Boot, Strapi, Shopify simulation packs; identity graph explorer
 
-**License model:** capability-based JWT tiers. If a license expires, the system reverts to FOSS mode: detection continues, PostgreSQL falls back to SQLite, config editor goes read-only. No downtime.
+**License model:** FOSS is always full detection + learning, no license, no expiry, ever. Commercial trial/tier expiry mechanics are documented at [stylo.bot](https://stylo.bot), not here.
 
 ---
 
