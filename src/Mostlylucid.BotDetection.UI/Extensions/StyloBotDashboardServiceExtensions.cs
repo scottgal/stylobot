@@ -1005,7 +1005,7 @@ public static class StyloBotDashboardServiceExtensions
             var authAdvisory = DashboardAuthPosture.Advisory(options);
             if (authAdvisory is not null)
                 app.ApplicationServices.GetService<ILoggerFactory>()?
-                    .CreateLogger("StyloBot.Dashboard.Auth").LogWarning("{Advisory}", authAdvisory);
+                    .CreateLogger("StyloBot.Dashboard.Auth").LogError("SECURITY: {Advisory}", authAdvisory);
 
             // Dashboard CSS/JS lives at /_content/Mostlylucid.BotDetection.UI/...
             // Ensure static files middleware is active so these assets are served.
