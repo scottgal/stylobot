@@ -58,6 +58,9 @@
     --sb-signal-pos:      var(--color-success);
     --sb-signal-warn:     var(--color-warning);
     --sb-signal-danger:   var(--color-error);
+    /* One card recipe (P1 envelope): radius + shadow tokens every card surface consumes. */
+    --sb-card-radius:     0.5rem;
+    --sb-card-shadow:     0 10px 30px -16px rgba(0, 0, 0, 0.35);
 }
 
 /* =============================================
@@ -365,7 +368,7 @@
     background: var(--sb-surface-alt);
     color: var(--sb-text);
     border: 1px solid var(--sb-border);
-    border-radius: 8px;
+    border-radius: var(--sb-card-radius);
     padding: 0.75em 1em;
     display: flex;
     flex-direction: column;
@@ -752,6 +755,26 @@
 .sb-h-half    { grid-row: span 5; }  /* ~14.75rem — small charts / short lists  */
 .sb-h-tall    { grid-row: span 7; }  /* ~20.75rem — charts / medium tables      */
 .sb-h-full    { grid-row: span 9; }  /* ~26.75rem — headline chart / long lists */
+
+/* ===========================================================================
+   sb-widget-card — the ONE card envelope (P1 unification). Every widget surface
+   uses this (or daisyUI's .card, which resolves the same base-100/base-300
+   tokens); never a bespoke radius, shadow or inline --sb-card-* style.
+   Markup convention for the envelope:
+     <article class="sb-widget-card" data-sb-widget="<name>">
+       <header> [icon] TITLE(sb-h-widget) …right-slot </header>
+       <div class="body"> …content… </div>
+       <footer> optional drill link </footer>
+     </article>
+   The identity attribute is what the future page editor moves/restacks.
+   =========================================================================== */
+.sb-widget-card {
+    background: var(--sb-card-bg);
+    border: 1px solid var(--sb-card-border);
+    border-radius: var(--sb-card-radius);
+    box-shadow: var(--sb-card-shadow);
+    min-width: 0;
+}
 
 /* the tier cell owns the height; the widget's own card fills it, content scrolls */
 .sb-widget { min-width: 0; }
