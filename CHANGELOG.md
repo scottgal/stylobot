@@ -7,6 +7,142 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.7.0] - 2026-08-03
+
+8.7 ships FOSS dashboard view-authentication, a self-contained HTML shell for standalone binaries,
+content-cache hardening, a revamped CLI live table, and the v8.7 AOT baseline.
+
+### Added
+
+- **FOSS dashboard view-authentication.** Opt-in config-credential cookie login via
+  `StyloBot:Dashboard:Auth:Mode=Login` with a single username + PBKDF2 password hash in config/env
+  (no user database). Generate hashes with `stylobot dashboard hash-password`. A styled daisyUI
+  login page with double-submit CSRF gates HTML routes; dashboard data/partial requests return
+  401 JSON. `DashboardAuthPosture` startup advisory fires at ERROR level when no auth is
+  configured — the dashboard is **locked by default**. Operator must explicitly configure
+  `Auth:Mode=Login`, `RequireAuthentication` (SQLite Identity user-store), or
+  `AllowUnauthenticatedAccess=true`.
+- **Commercial OIDC seam.** FOSS registers the `stylobot-dashboard-view` authorization policy
+  enforced via `IPolicyEvaluator`. Commercial OIDC (Keycloak/SSO) adds its own scheme to the
+  same policy — no FOSS fork needed.
+- **Self-contained FOSS dashboard shell.** Standalone binaries (`stylobot-ui`, `stylobot-all`)
+  now receive a full HTML shell when no host layout is present: daisyUI+Tailwind CSS,
+  stylo·bot navbar with sidebar drawer, theme boot from localStorage, favicon, version badge,
+  and footer with docs/github links. Host-provided layouts (stylo.bot marketing site) are
+  untouched.
+
+### Changed
+
+- **Content-cache hardening.** Shared `CacheKeyBuilder` with per-policy query allow-lists
+  replaces ad-hoc all-query keys, preventing cache fragmentation from tracking params.
+  `CacheabilityEvaluator` enforces never-cache rules (auth cookies, Set-Cookie, 206, ≥400,
+  no-store|private, fail-open). Both `ContentCacheActionPolicy` and `ExtractMarkdownActionPolicy`
+  now call `MarkResponseFromStyloBot()` on cache hit — fixes a latent bug where synthetic 200s
+  fed `DegradationAtom`. `ContentCacheTelemetry` exposes per-policy hit/miss/bypass/eviction
+  counters via `System.Diagnostics.Metrics`.
+- **AI scrapers get StyloExtract Markdown by default.** `BotTypeActionPolicies:AiBot` now maps
+  to `extract-markdown` (was `rate-limit-ai`). Every verified AI scraper receives clean Markdown
+  cached for 24 hours (30min sliding, 24h absolute, `VersionSalt` bumped).
+- **Fingerprint profile bar moved to top of signature detail page.** The identity card
+  (TLS/protocol/consistency/headless/datacenter) now renders directly under the header triplet,
+  before the verdict card. Empty-signal state is an error callout (`role=alert`) — zero signal
+  data on a rendered fingerprint is now treated as a pipeline bug.
+- **CLI live table revamped.** Dashboard-style layout with Unicode box-drawing borders, brand
+  title bar with mode indicator (● production / ○ demo), mini progress bars for human/bot
+  percentages, improved fingerprint sidebar with bot names + EWMA sparklines, license banner
+  (reads `STYLOBOT_LICENSE` env var or JSON file), and an SSL warning for HTTPS upstreams
+  suggesting `--cert` / `--cert-password` or `STYLOBOT_SKIP_UPSTREAM_SSL_VALIDATION` for dev.
+  Responsive columns hide Δ%/Risk/Intent on narrow terminals.
+- **Dashboard auth documentation rewritten.** Posture matrix covering all config combinations,
+  locked-by-default rationale, demo mode pattern (public read-only, write gated at commercial
+  layer), and all override points documented.
+
+### Fixed
+
+- **Deflaked adaptive scale factor test.** `Adaptive_scale_factor_rises_after_repeated_slow_ticks_and_relaxes_after_fast_ones`
+  bumped `Task.Delay` from 50ms→100ms and increased iterations (3→6 slow, 5→8 fast) for CI
+  reliability. Added actual/expected values to assertion messages.
+- **StringComparison.Ordinal** in `HandleViewUnauthenticatedAsync` — two `StartsWith` calls
+  were culture-sensitive; both now use `StringComparison.Ordinal`.
+- **Auth mode conflict guard.** `AddStyloBotDashboard` throws `InvalidOperationException` when
+  both `RequireAuthentication` and `Auth:Mode=Login` are configured — they are mutually exclusive.
+
+### AOT baseline
+
+- `stylobot` Console AOT publish passes with zero regressions. All 1230 build warnings are
+  pre-existing (LLM provider JSON serialization, Serilog, LLamaSharp, native linker).
+  Dashboard auth code (`DashboardPasswordHasher`, `DashboardViewCredentialVerifier`,
+  `DashboardAuthOptions`, cookie scheme registration) is fully AOT-compatible.
+
+## [8.6.0] - 2026-07-31
+
+8.6 adds webhook recognition as a first-class traffic class, an opt-in bounded response-cache action
+policy for safe public content, and a verified-crawler fast path — alongside dashboard Top Bots
+read-path fixes and the permanent removal of "Unknown" as a naming terminal.
+
+### Added
+
+- **Webhook recognition + policy.** Inbound webhook traffic is recognized as a legitimate machine
+  class via layered shape + named-provider + IP corroborators (verified 2xx track record, dominant
+  IP) and scored low without a path allowlist. Backed by a zero-PII keyed-HMAC endpoint/IP reputation
+  store (`WebhookSensor`), a post-`_next` outcome recorder (5xx-neutral, so a transient upstream error
+  doesn't punish a verified sender), a `PostDetectionActionGate` webhook-recognized benign policy arm,
+  and a site-wide `SafetyCeilingRpm` that sheds absolute floods even from recognized traffic.
+- **Bounded content-cache action policies.** New opt-in `content-cache-search` and
+  `extract-markdown-cache-ai` response-cache policies, backed by a bounded, process-local
+  `SlidingCacheAtom` (never persistent or distributed) with LFU eviction, sliding idle expiry, and a
+  non-extendable absolute expiry. Serves cached responses to recognized search engines / AI scrapers
+  for safe, repeatable public content; a `markdown=true` query override is a separately-labelled test
+  action. Fails open to origin on any cache failure.
+- **Verified crawler marketing fast path** in `PostDetectionActionGate` for verified crawlers.
+- **`MinActionConfidence` classification option** (default 0.5) plus a read-only UI accessor
+  (`IClassificationThresholdProvider`) surfacing `BotFloor`/`HumanCeiling`/`MinActionConfidence` to the
+  dashboard's policy control. Option/read plumbing only — enforcement is a deliberate fast-follow, not
+  wired in this release.
+- **Geo emitter layer:** `GeoLocationSignalEmitter` + `IpAtom.EmitGeoSignals` write `IsProxy`/`IsTor`
+  onto the blackboard from `IpApiGeoLocationService`.
+
+### Fixed
+
+- **"Unknown" is no longer a valid naming terminal.** A self-identifying scanner whose UA doesn't
+  literally match a catalog pattern (e.g. Palo Alto Cortex-Xpanse's UA contains "Cortex-Xpanse", not
+  the arcjet entry's bare "Expanse" literal) previously dead-ended at the display name "Unknown".
+  Both dead-end terminals now synthesize a behavioral identity — `"{role} - {identity}"` — from
+  signals already on the blackboard (attack/CVE/intent signals → role; self-declared domain/provider/
+  ASN/country → identity), e.g. "Config Scanner - paloaltonetworks.com". A real catalog match still
+  takes priority. Permanent regression guard: a never-Unknown invariant test plus an exhaustive
+  UA×fingerprint×identity×behaviour corpus.
+- **Top Bots sparkline (HitTrend) now reaches the dashboard's own render paths.** The live write path
+  (`SignatureAggregateCache`) was always correct; the gap was that only the standalone REST endpoint
+  overlaid live `HitTrend` onto DB rows. `WidgetRenderHelpers.OverlayLiveHitTrend` is now called from
+  all three places that actually build the Top Bots widget model: the SSR ViewComponent, the MVC/
+  tick-composer convergence point, and the SignalR/batch live-update path.
+- **Top Bots chips (All/Bots/Humans/Internal) matched to the visible list.** Chips were computed on
+  the pre-collapse raw distribution while the list rendered post-collapse, so a merged identity could
+  make the chip counts exceed the rows shown. Both now derive from the same collapsed set. Also fixes
+  a stuck tooltip left pinned over a stale row after an HTMX/SignalR swap removed the hovered trigger
+  without firing `mouseleave`.
+- **Sink→evidence signal projection.** `SinkEvidenceReader.ProjectSinkSignals` is now wired into
+  `DetectionLedgerExtensions` dict builds instead of being silently dropped; the `BdfReplayEndpoints`
+  sink-remerge that was masking the gap (making the replay test falsely green) is removed.
+- **Dashboard prune cutoff now tracks the configured `DetectionRetention`, not a hardcoded 7 days.**
+  `DashboardSummaryBroadcaster`'s hourly prune ignored `StyloBotDashboardOptions.DetectionRetention`
+  (default 30 days) and always deleted anything older than 7 days, even though the dashboard's own
+  window picker (6h/24h/7d/30d) is gated on that same configured value. Any host configured for
+  >7 days of retention had real data silently deleted before a 30d query ever ran. Cutoff is now
+  `nowUtc - DetectionRetention`, matching the pattern already used elsewhere in the codebase.
+
+### Changed
+
+- **Dashboard: Top content pages + Top endpoints merged into one full-width control.** Both widgets
+  rendered the same endpoint dataset; replaced with the full `SbEndpointsList` (Status/Mode/Method/
+  path filters, avg+p95, status-band, bot-pressure, per-column sort, real row navigation) as the single
+  source of truth. `Mode=Content` recovers the old "content pages" view as a filter click.
+- **FOSS showcase/demo dashboard editors are now interactive.** The demo surface's read-only stub
+  controls (Policies, rule cards, endpoint pins, config baseline) now open the same editors the
+  licensed dashboard renders; every Save remains server-refused (commercial-gated). View/test-only —
+  no auth or middleware changed.
+
 ## [8.5.1] - 2026-07-26
 
 8.5.1 is a reliability hotfix for long-running gateway processes under high-cardinality request churn.
