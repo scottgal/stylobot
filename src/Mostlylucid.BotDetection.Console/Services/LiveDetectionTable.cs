@@ -693,7 +693,7 @@ public sealed class LiveDetectionTableService : BackgroundService
     ///     ms get one decimal, larger ms drop the fraction, and seconds collapse with a
     ///     decimal. All forms fit a five-character field.
     /// </summary>
-    internal static string FormatLatency(double ms)
+    public static string FormatLatency(double ms)
     {
         if (double.IsNaN(ms) || ms < 0) return "-";
         if (ms < 1.0) return $"{(int)Math.Round(ms * 1000.0)}\u00b5s"; // e.g. 342µs
@@ -707,7 +707,7 @@ public sealed class LiveDetectionTableService : BackgroundService
     ///     last-seen columns. Tops out at 5 chars: "now", "12s", "5m", "2h", "3d".
     ///     Negatives clamp to "now". Right-aligned by the caller via VPadL.
     /// </summary>
-    internal static string FormatAgo(TimeSpan elapsed)
+    public static string FormatAgo(TimeSpan elapsed)
     {
         var s = (int)elapsed.TotalSeconds;
         if (s <= 1) return "now";

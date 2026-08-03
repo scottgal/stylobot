@@ -141,6 +141,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot genkey                             Generate a random 32-byte base64 key");
     Console.WriteLine("    stylobot clear [--sessions]                 Clear learned patterns (and optionally sessions)");
     Console.WriteLine("    stylobot setup [--check-only] [--force]     Check and download missing resources");
+    Console.WriteLine("    stylobot archetype-from-bdf <dir>          Import BDF fixtures as identity archetypes");
     Console.WriteLine();
     Console.WriteLine("  LLM Tunnel Options:");
     Console.WriteLine("    --ollama <url>              Local Ollama URL (default: http://127.0.0.1:11434)");
@@ -176,6 +177,15 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("                                still runs; you lose learning, entity resolution, the");
     Console.WriteLine("                                metastable identity layer, the verdict cache, and any");
     Console.WriteLine("                                cross-restart history.");
+    Console.WriteLine("    --enable-api                Expose /api/v1/* REST endpoints + SignalR hub at");
+    Console.WriteLine("                                /api/v1/hub for remote stylobot-ui hosts. Requires");
+    Console.WriteLine("                                BotDetection:ApiKeys configured in appsettings.json.");
+    Console.WriteLine("    --origin-tunnel <hostname>  Reach private origin through Cloudflare Tunnel B.");
+    Console.WriteLine("                                Pairs with --tunnel for full brownfield retrofit.");
+    Console.WriteLine("    --profile <name>            Kestrel profile: balanced (default), api, site,");
+    Console.WriteLine("                                highrisk, economy. Also settable via STYLOBOT_PROFILE.");
+    Console.WriteLine("    --no-deps-check             Alias for --skip-dependencies-check. Skip first-run");
+    Console.WriteLine("                                downloads (bot list, GeoIP, Ollama model pull).");
     Console.WriteLine("    -h, --help                  Show this help");
     Console.WriteLine();
     Console.WriteLine("  Examples:");
@@ -1584,7 +1594,7 @@ static void ShowManPage()
 
     [bold]DESCRIPTION[/]
         StyloBot proxies HTTP traffic to an upstream server while running real-time
-        bot detection. 49 detectors analyze every request in <1ms, including
+        bot detection. 67 detectors analyze every request in <1ms, including
         Threat Intelligence (Spamhaus DROP / Tor exit / CISA KEV / cloud ranges)
         and behavioural pattern matching. Results display in a live terminal
         table with color-coded verdicts.
@@ -1640,7 +1650,7 @@ static void ShowManPage()
                                                override to production to enable policy actions)
         [bold]--policy[/] <name>                Action policy override. Default action grammar (6.8+)
                                                routes per BotType: MaliciousBot -> block-hard,
-                                               AiBot -> rate-limit-ai, SearchEngine -> rate-limit-search,
+                                               AiBot -> extract-markdown, SearchEngine -> rate-limit-search,
                                                etc. Override the fallback (used when no per-type entry
                                                matches): logonly | block | throttle-stealth | challenge.
         [bold]--threshold[/] <0.0-1.0>          Bot probability threshold (default: 0.7)
@@ -1664,13 +1674,28 @@ static void ShowManPage()
         [bold]--config[/] <path>                Custom appsettings.json
         [bold]--log-level[/] <level>            Minimum log level (default: Warning)
         [bold]--verbose[/]                      Full log output (disables live table)
+        [bold]--enable-api[/]                   Expose /api/v1/* REST endpoints + SignalR hub
+                                               (requires BotDetection:ApiKeys configured)
+        [bold]--origin-tunnel[/] <hostname>      Reach private origin through Cloudflare Tunnel B
+        [bold]--profile[/] <name>               Kestrel profile: balanced|api|site|highrisk|economy
+                                               (also settable via STYLOBOT_PROFILE env)
+        [bold]--skip-dependencies-check[/]       Skip first-run downloads (bot list, GeoIP, Ollama)
+
+    [bold]DASHBOARD AUTH[/]
+        [bold]stylobot dashboard hash-password[/]
+                Generate a PBKDF2 hash for StyloBot:Dashboard:Auth:PasswordHash.
+                Output goes to stdout (pipeable); prompts go to stderr.
+                --password <pw> skip interactive prompt (scripts/CI).
+
+        [bold]stylobot dashboard[/] <url> [--api-key <key>]
+                Remote dashboard TUI for another stylobot instance.
 
     [bold]POLICY GRAMMAR (6.8+)[/]
         Action policies are now intent-keyed (Pass / Block / RateLimit / Throttle / Challenge)
         and route per-BotType automatically. Set per-policy overrides in appsettings.json:
 
           BotDetection:BotTypeActionPolicies.MaliciousBot   = "block-hard"        (default)
-          BotDetection:BotTypeActionPolicies.AiBot          = "rate-limit-ai"     (default)
+          BotDetection:BotTypeActionPolicies.AiBot          = "extract-markdown"  (default)
           BotDetection:BotTypeActionPolicies.SearchEngine   = "rate-limit-search" (default)
           BotDetection:BotTypeActionPolicies.Tool           = "throttle-tools"    (default)
           ...
@@ -1726,7 +1751,10 @@ static void ShowManPage()
         stylobot 5080 http://localhost:3000 --tunnel
         stylobot 5080 http://localhost:3000 --llm groq --llm-key gsk-...
         stylobot start 443 https://backend:8080 --cert cert.pfx
-        # Brownfield retrofit (6.8.2+): private origin via Cloudflare Tunnel B,
+        stylobot 5080 http://localhost:3000 --enable-api    # Expose REST API for stylobot-ui
+        stylobot dashboard hash-password                    # Generate auth hash for config
+        stylobot dashboard https://gateway.example.com --api-key mykey   # Remote dashboard TUI
+        # Brownfield retrofit: private origin via Cloudflare Tunnel B,
         # public ingress via Tunnel A. Old box has zero public exposure.
         stylobot 5080 --origin-tunnel oldsite.tunnel.example.org --tunnel <ingress-token>
 
@@ -1748,7 +1776,7 @@ static void ShowManPage()
         https://stylo.bot
         https://github.com/scottgal/stylobot
 
-    [dim]StyloBot Community Edition                Free forever                  v6.8.2[/]
+    [dim]StyloBot Community Edition                Free forever                  v8.7.0[/]
     """;
 
     // Render [bold]...[/] and [dim]...[/] tags with ANSI codes (no Spectre dependency)
