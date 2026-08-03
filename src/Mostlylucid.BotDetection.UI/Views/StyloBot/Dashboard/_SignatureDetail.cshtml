@@ -241,6 +241,107 @@ else
         @PolicyActionSlot.Render(Model.SignatureId, Model.Action, Model.BotType, Model.IsBot)
     </div>
 
+    @* Fingerprint Profile — the page's identity card (TLS/protocol/consistency/headless/
+       datacenter read-out), placed directly under the header triplet so the operator sees
+       WHO this is before the verdict/signals detail (operator direction 2026-08-03: profile
+       bar must be at the top of the page; was previously mid-page beside the radar). *@
+    <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">
+            <i class="bx bx-fingerprint text-sm" style="color: var(--sb-accent);"></i>
+            Fingerprint Profile
+        </h3>
+        @{
+            // Helper to find a detector contribution by name fragment
+            SignatureDetectorEntry? FindDetector(params string[] names) =>
+                Model.DetectorContributions.FirstOrDefault(d => names.Any(n => d.Name.Contains(n, StringComparison.OrdinalIgnoreCase)));
+
+            // Helper to get signal value by category+key or flat key
+            string? Signal(string category, string key) =>
+                Model.SignalCategories.TryGetValue(category, out var cat) && cat.TryGetValue(key, out var v) ? v : null;
+
+            // Derive fingerprint fields from detector contributions + signals
+            var fingerprintDetector = FindDetector("ClientFingerprint", "Fingerprint", "JA3", "TLS");
+            var headlessDetector = FindDetector("Headless", "SecurityTool", "Playwright", "Selenium", "Puppeteer");
+            var datacenterDetector = FindDetector("IpReputation", "Datacenter", "ASN", "Hosting");
+            var consistencyDetector = FindDetector("Consistency", "HttpHeader", "Header", "Inconsistency");
+            var uaDetector = FindDetector("UserAgent", "UA");
+
+            // Read the REAL captured signal keys. HTTP protocol lives under
+            // "request.protocol" (EnrichProtocol), TLS under "tls.version"/"tls.cipher"
+            // (Kestrel handshake), JA3/JA4 under "ja3.hash"/"ja4.hash" (raw ClientHello
+            // capture). A null value means "not captured in this deployment", rendered
+            // honestly as "Unavailable" rather than a bare "-".
+            var tlsVersion     = Signal("tls", "version") ?? Signal("tls", "Version");
+            var tlsCipher      = Signal("tls", "cipher");
+            var httpProtocol   = Model.Protocol ?? Signal("request", "protocol")
+                                 ?? Signal("http", "protocol") ?? Signal("h2", "protocol") ?? Signal("h3", "protocol");
+            var ja3Fingerprint = Signal("ja3", "hash") ?? Signal("ja4", "hash") ?? Signal("tls", "client");
+            var tcpOsHint      = Signal("tcp", "os_hint") ?? Signal("tcp", "os");
+            var uaConsistency  = Signal("ua", "consistency");
+
+            const string Unavail = "Unavailable";
+            string Show(string? v) => string.IsNullOrWhiteSpace(v) ? Unavail : v!;
+            string AvailColor(string? v) => string.IsNullOrWhiteSpace(v) ? "text-base-content/40" : "text-info";
+            // Qualitative consistency from a detector -- never the raw contribution
+            // number (that was the old mis-map). High deviation = Flagged.
+            string Qual(SignatureDetectorEntry? det) => det == null ? Unavail :
+                Math.Abs(det.Contribution) >= 0.3 ? "Flagged" :
+                Math.Abs(det.Contribution) >= 0.1 ? "Suspect" : "Consistent";
+            string QualColor(SignatureDetectorEntry? det) => det == null ? "text-base-content/40" :
+                Math.Abs(det.Contribution) >= 0.3 ? "text-error" :
+                Math.Abs(det.Contribution) >= 0.1 ? "text-warning" : "text-success";
+
+            string? FpValue(SignatureDetectorEntry? det) => det == null ? null :
+                Math.Abs(det.Contribution) >= 0.1 ? $"{(det.Contribution >= 0 ? "+" : "")}{det.Contribution:F2}" : "Low";
+
+            string FpColor(SignatureDetectorEntry? det) => det == null ? "text-base-content/40" :
+                Math.Abs(det.Contribution) >= 0.3 ? "text-error" :
+                Math.Abs(det.Contribution) >= 0.1 ? "text-warning" : "text-success";
+
+            // The tooltip text for each item lives in
+            // Definitions/Tooltips/dashboard-tooltips.yaml under fp.* keys; the
+            // view references the key only (per feedback_no_word_lists). The
+            // SbTooltipTagHelper resolves the key against DashboardTooltipRegistry
+            // at render time and only emits markup when EnableTooltips is true.
+            var fpItems = new (string Label, string Icon, string Value, string Color, string TooltipKey)[] {
+                ("TLS Version", "bx-lock-alt", Show(tlsVersion), AvailColor(tlsVersion), "fp.tls_version"),
+                ("HTTP Protocol", "bx-globe", Show(httpProtocol), AvailColor(httpProtocol), "fp.http_protocol"),
+                ("Protocol Client", "bx-transfer", Show(ja3Fingerprint ?? tlsCipher), AvailColor(ja3Fingerprint ?? tlsCipher), "fp.protocol_client"),
+                ("TCP OS Hint", "bx-chip", Show(tcpOsHint), AvailColor(tcpOsHint), "fp.tcp_os_hint"),
+                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? Qual(fingerprintDetector) : (tlsVersion != null ? "Consistent" : Unavail), QualColor(fingerprintDetector), "fp.fingerprint_integrity"),
+                ("UA Consistency", "bx-badge-check", uaConsistency ?? Qual(uaDetector), uaConsistency != null ? "text-info" : QualColor(uaDetector), "fp.ua_consistency"),
+                ("Headless Indicator", "bx-bot", headlessDetector != null ? (FpValue(headlessDetector) ?? "Detected") : "Clean", headlessDetector != null ? FpColor(headlessDetector) : "text-success", "fp.headless_indicator"),
+                ("Datacenter IP", "bx-server", datacenterDetector != null ? (FpValue(datacenterDetector) ?? "Detected") : "Clean", datacenterDetector != null ? FpColor(datacenterDetector) : "text-success", "fp.datacenter_ip")
+            };
+        }
+        @* Inner profile grid: 1 col on narrow, 2 cols once room exists. The card is now
+           full-width (moved under the header), so two columns is comfortable at sm+. *@
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            @foreach (var (label, icon, value, color, tooltipKey) in fpItems)
+            {
+                <div class="flex items-center gap-2 rounded-lg border px-2 py-1.5" sb-tooltip="@tooltipKey" style="border-color: var(--sb-card-divider);">
+                    <i class="bx @icon text-sm" style="color: var(--sb-accent);"></i>
+                    <div>
+                        <div class="text-[10px] text-base-content/50">@label</div>
+                        <div class="text-xs font-mono @color">@value</div>
+                    </div>
+                </div>
+            }
+        </div>
+        @if (Model.DetectorContributions.Count == 0 && !Model.SignalCategories.Any())
+        {
+            @* NOT an empty state: a fingerprint is constructed FROM signal data, so zero
+               detector/signal data on a rendered fingerprint is always a data-plumbing bug.
+               Render it loud (error callout), never as a quiet "no data" note that reads
+               like a legitimate absence (operator direction 2026-08-03). *@
+            <div class="mt-2 rounded-lg border p-2 text-xs text-error"
+                 style="border-color: var(--sb-card-divider); background: var(--sb-card-bg);"
+                 role="alert">
+                Detector signal data missing — this is a pipeline bug, not an empty signature.
+            </div>
+        }
+    </div>
+
     @* VERDICT: the probability/confidence/risk tiles + the analysis prose + the signed
        per-detector signals used to be three separate cards competing for attention
        (a bare stats grid, then an Analysis card and a Detection Signals card two
@@ -319,120 +420,22 @@ else
         </div>
     </div>
 
-    @* Radar + fingerprint profile share a single row at lg and up so the radar's
-       whitespace gets reclaimed by the profile detail next to it. Below the lg
-       breakpoint they stack vertically (radar on top, profile below) so the
-       mobile reading order stays sensible. The two outer cards keep their own
-       border/background; the wrapping grid handles spacing. The inner FP grid
-       drops to 1/2 columns instead of 2/4 because each half is now narrower. *@
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-
     @* Behavioural fingerprint shape: 7-bucket centroid radar (Network / Locale /
        Headers / Tool / Transport / Session / Quality). Same FingerprintRadarProjection
        the home card uses, so the polygons read identically on both surfaces for the
        same signature. Null FingerprintShape => calibrating placeholder (the matcher
        has not yet mapped this signature to a fingerprint).
        Full tilde-path -- RazorViewRenderer does not inject /Views/StyloBot/Dashboard/
-       into the partial search list; same pattern other dashboard partials use. *@
-    <div class="rounded-xl border p-4 flex items-center justify-center"
-         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-        @await Html.PartialAsync("~/Views/Shared/_FingerprintShape.cshtml",
-            new FingerprintShapeViewModel(Model.FingerprintShape, Model.IsBot, 240, Model.UserAgent))
-    </div>
-
-    <!-- Fingerprint Profile -->
-    <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-        <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">
-            <i class="bx bx-fingerprint text-sm" style="color: var(--sb-accent);"></i>
-            Fingerprint Profile
-        </h3>
-        @{
-            // Helper to find a detector contribution by name fragment
-            SignatureDetectorEntry? FindDetector(params string[] names) =>
-                Model.DetectorContributions.FirstOrDefault(d => names.Any(n => d.Name.Contains(n, StringComparison.OrdinalIgnoreCase)));
-
-            // Helper to get signal value by category+key or flat key
-            string? Signal(string category, string key) =>
-                Model.SignalCategories.TryGetValue(category, out var cat) && cat.TryGetValue(key, out var v) ? v : null;
-
-            // Derive fingerprint fields from detector contributions + signals
-            var fingerprintDetector = FindDetector("ClientFingerprint", "Fingerprint", "JA3", "TLS");
-            var headlessDetector = FindDetector("Headless", "SecurityTool", "Playwright", "Selenium", "Puppeteer");
-            var datacenterDetector = FindDetector("IpReputation", "Datacenter", "ASN", "Hosting");
-            var consistencyDetector = FindDetector("Consistency", "HttpHeader", "Header", "Inconsistency");
-            var uaDetector = FindDetector("UserAgent", "UA");
-
-            // Read the REAL captured signal keys. HTTP protocol lives under
-            // "request.protocol" (EnrichProtocol), TLS under "tls.version"/"tls.cipher"
-            // (Kestrel handshake), JA3/JA4 under "ja3.hash"/"ja4.hash" (raw ClientHello
-            // capture). A null value means "not captured in this deployment", rendered
-            // honestly as "Unavailable" rather than a bare "-".
-            var tlsVersion     = Signal("tls", "version") ?? Signal("tls", "Version");
-            var tlsCipher      = Signal("tls", "cipher");
-            var httpProtocol   = Model.Protocol ?? Signal("request", "protocol")
-                                 ?? Signal("http", "protocol") ?? Signal("h2", "protocol") ?? Signal("h3", "protocol");
-            var ja3Fingerprint = Signal("ja3", "hash") ?? Signal("ja4", "hash") ?? Signal("tls", "client");
-            var tcpOsHint      = Signal("tcp", "os_hint") ?? Signal("tcp", "os");
-            var uaConsistency  = Signal("ua", "consistency");
-
-            const string Unavail = "Unavailable";
-            string Show(string? v) => string.IsNullOrWhiteSpace(v) ? Unavail : v!;
-            string AvailColor(string? v) => string.IsNullOrWhiteSpace(v) ? "text-base-content/40" : "text-info";
-            // Qualitative consistency from a detector -- never the raw contribution
-            // number (that was the old mis-map). High deviation = Flagged.
-            string Qual(SignatureDetectorEntry? det) => det == null ? Unavail :
-                Math.Abs(det.Contribution) >= 0.3 ? "Flagged" :
-                Math.Abs(det.Contribution) >= 0.1 ? "Suspect" : "Consistent";
-            string QualColor(SignatureDetectorEntry? det) => det == null ? "text-base-content/40" :
-                Math.Abs(det.Contribution) >= 0.3 ? "text-error" :
-                Math.Abs(det.Contribution) >= 0.1 ? "text-warning" : "text-success";
-
-            string? FpValue(SignatureDetectorEntry? det) => det == null ? null :
-                Math.Abs(det.Contribution) >= 0.1 ? $"{(det.Contribution >= 0 ? "+" : "")}{det.Contribution:F2}" : "Low";
-
-            string FpColor(SignatureDetectorEntry? det) => det == null ? "text-base-content/40" :
-                Math.Abs(det.Contribution) >= 0.3 ? "text-error" :
-                Math.Abs(det.Contribution) >= 0.1 ? "text-warning" : "text-success";
-
-            // The tooltip text for each item lives in
-            // Definitions/Tooltips/dashboard-tooltips.yaml under fp.* keys; the
-            // view references the key only (per feedback_no_word_lists). The
-            // SbTooltipTagHelper resolves the key against DashboardTooltipRegistry
-            // at render time and only emits markup when EnableTooltips is true.
-            var fpItems = new (string Label, string Icon, string Value, string Color, string TooltipKey)[] {
-                ("TLS Version", "bx-lock-alt", Show(tlsVersion), AvailColor(tlsVersion), "fp.tls_version"),
-                ("HTTP Protocol", "bx-globe", Show(httpProtocol), AvailColor(httpProtocol), "fp.http_protocol"),
-                ("Protocol Client", "bx-transfer", Show(ja3Fingerprint ?? tlsCipher), AvailColor(ja3Fingerprint ?? tlsCipher), "fp.protocol_client"),
-                ("TCP OS Hint", "bx-chip", Show(tcpOsHint), AvailColor(tcpOsHint), "fp.tcp_os_hint"),
-                ("Fingerprint Integrity", "bx-shield", fingerprintDetector != null ? Qual(fingerprintDetector) : (tlsVersion != null ? "Consistent" : Unavail), QualColor(fingerprintDetector), "fp.fingerprint_integrity"),
-                ("UA Consistency", "bx-badge-check", uaConsistency ?? Qual(uaDetector), uaConsistency != null ? "text-info" : QualColor(uaDetector), "fp.ua_consistency"),
-                ("Headless Indicator", "bx-bot", headlessDetector != null ? (FpValue(headlessDetector) ?? "Detected") : "Clean", headlessDetector != null ? FpColor(headlessDetector) : "text-success", "fp.headless_indicator"),
-                ("Datacenter IP", "bx-server", datacenterDetector != null ? (FpValue(datacenterDetector) ?? "Detected") : "Clean", datacenterDetector != null ? FpColor(datacenterDetector) : "text-success", "fp.datacenter_ip")
-            };
-        }
-        @* Inner profile grid: 1 col on narrow, 2 cols once room exists. The outer
-           50/50 row means we have ~half the page to work with at lg, so two
-           columns is the comfortable density; below lg the radar stacks above
-           so we go single-column. *@
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            @foreach (var (label, icon, value, color, tooltipKey) in fpItems)
-            {
-                <div class="flex items-center gap-2 rounded-lg border px-2 py-1.5" sb-tooltip="@tooltipKey" style="border-color: var(--sb-card-divider);">
-                    <i class="bx @icon text-sm" style="color: var(--sb-accent);"></i>
-                    <div>
-                        <div class="text-[10px] text-base-content/50">@label</div>
-                        <div class="text-xs font-mono @color">@value</div>
-                    </div>
-                </div>
-            }
+       into the partial search list; same pattern other dashboard partials use.
+       The Fingerprint Profile card that used to share this row moved to the top of
+       the page (operator direction 2026-08-03), so the radar stands alone. *@
+    <div class="mb-4">
+        <div class="rounded-xl border p-4 flex items-center justify-center"
+             style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            @await Html.PartialAsync("~/Views/Shared/_FingerprintShape.cshtml",
+                new FingerprintShapeViewModel(Model.FingerprintShape, Model.IsBot, 240, Model.UserAgent))
         </div>
-        @if (Model.DetectorContributions.Count == 0 && !Model.SignalCategories.Any())
-        {
-            <p class="text-[10px] text-base-content/30 mt-2 italic">No detector signal data available for this signature.</p>
-        }
     </div>
-
-    </div> @* /50-50 grid (radar + fingerprint profile) *@
 
     @* "Looks like" -- nearest centroid neighbours by vec0 KNN, computed per page
        load (the answer drifts with the population). Most useful when the visitor's
