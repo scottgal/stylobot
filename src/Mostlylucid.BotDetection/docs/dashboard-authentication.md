@@ -1,17 +1,42 @@
 # Dashboard Authentication
 
-StyloBot's dashboard authorization has two independent, optional, config-driven layers. Both gate **access/viewing** only — neither is the commercial write moat (which stays separately gated on top).
+StyloBot's dashboard authorization has two independent layers. Both gate **access/viewing** only — neither is the commercial write moat (which stays separately gated on top).
 
 | Layer | Gates | Configured by |
 |-------|-------|---------------|
 | **Interactive login** | The human-facing `/{BasePath}/*` HTML dashboard | `StyloBot:Dashboard:Auth` (this doc) |
 | **Gateway API key** | The machine `/api/v1/*` read endpoints | `BotDetection:ApiKeys` (see [api-keys.md](api-keys.md)) |
 
-This doc covers the interactive login. For the API-key access layer, see [api-keys.md → Gateway API access authorization](api-keys.md#gateway-api-access-authorization-apiv1).
+## Posture matrix
 
-## What it is
+The dashboard's authorization posture is the intersection of three independent knobs:
 
-A styled login page + cookie authentication for the FOSS dashboard, verifying a **single username + password hash held in config/env** — no user database, no identity provider. Opt-in: the dashboard's existing behaviour is unchanged until you configure it.
+| Knob | Default | Effect |
+|------|---------|--------|
+| `AllowUnauthenticatedAccess` | `false` | When `true`: dashboard is publicly viewable with no gate |
+| `Auth:Mode` | `None` | `Login` enables the config-credential cookie gate |
+| `RequireAuthentication` | `false` | Enables ASP.NET Core Identity with SQLite user store |
+
+The **effective posture** at startup:
+
+| Config | Result | Startup log |
+|--------|--------|-------------|
+| Nothing configured | **Dashboard locked** — 403 in production, auto-allow in Development | `ERROR: SECURITY: Dashboard has no view-auth configured…` |
+| `AllowUnauthenticatedAccess: true` | Dashboard open — public read-only | Silent |
+| `Auth:Mode=Login` + credential | Login page gates HTML routes; cookie auth | Silent |
+| `Auth:Mode=Login` without credential | Dashboard locked (login can't verify) | `ERROR: SECURITY: …Login but Username/PasswordHash are not both set…` |
+| `RequireAuthentication: true` | Identity API endpoints + `/setup` first-run flow | Silent |
+| Both `RequireAuthentication` AND `Auth:Mode=Login` | Startup exception (`InvalidOperationException`) | Crash |
+
+**The dashboard is locked by default.** The startup advisory (`DashboardAuthPosture`) fires at `LogError` level — red in production logs — if no gate is configured. To open the dashboard, you must explicitly set one of: `AllowUnauthenticatedAccess=true`, `Auth:Mode=Login` with a credential, or `RequireAuthentication=true`.
+
+## Demo mode (public read-only, write gated)
+
+The stylo.bot site runs in **demo mode**: `AllowUnauthenticatedAccess: true` so anyone can view the dashboard, but edit/write controls remain gated behind authentication at the commercial layer. Edit controls render as visual affordances but `LicenseAwarePolicyCanEditPolicy` gates actual writes — the "show but don't let them use" pattern. This is a commercial concern; FOSS has no write controls to gate.
+
+## Config-credential Login mode
+
+A styled login page + cookie authentication verifying a **single username + PBKDF2 password hash held in config/env** — no user database, no identity provider.
 
 ```json
 {
@@ -27,16 +52,14 @@ A styled login page + cookie authentication for the FOSS dashboard, verifying a 
 }
 ```
 
-- **`Mode`** — `None` (default, inert) or `Login`.
+- **`Mode`** — `None` (default) or `Login`.
 - **`Username`** — the single login username.
-- **`PasswordHash`** — a PBKDF2 hash produced by the hash CLI (below). **Never a plaintext password.**
-- **`CookieName`** (default `sb.dashboard.auth`) and **`SlidingExpirationMinutes`** (default `480`) are tunable.
+- **`PasswordHash`** — a PBKDF2 hash produced by the hash CLI. **Never a plaintext password.**
+- **`CookieName`** (default `sb.dashboard.auth`) and **`SlidingExpirationMinutes`** (default `480` = 8h) are tunable.
 
 All keys bind from environment variables via the standard double-underscore convention, e.g. `StyloBot__Dashboard__Auth__PasswordHash`.
 
 ## Generating the password hash
-
-Never write a plaintext password into config. Generate the hash with the CLI:
 
 ```bash
 stylobot dashboard hash-password
@@ -46,33 +69,31 @@ stylobot dashboard hash-password
 AQAAAAIAAYagAAAAE...                                                                       (stdout)
 ```
 
-The hash is printed to **stdout** (prompts/guidance go to stderr), so you can pipe it: `stylobot dashboard hash-password > hash.txt`. For scripted/CI use, pass `--password <pw>` to skip the prompt.
+The hash is printed to **stdout** (prompts go to stderr). Pipe it: `stylobot dashboard hash-password > hash.txt`. For CI/scripts: `--password <pw>`.
 
-## Behaviour
+## Login behaviour
 
-- **Unconfigured (`Mode: None`):** inert. The dashboard's existing authorization (`RequireAuthentication` / `AllowUnauthenticatedAccess` / dev-vs-prod default) is untouched. A **startup warning** nudges you to configure a login (or explicitly allow open access).
-- **`Mode: Login` with a credential:** unauthenticated HTML requests redirect to `/{BasePath}/login`; a correct login POST issues a sliding auth cookie; `/{BasePath}/logout` clears it. Dashboard data/partial requests (`/{BasePath}/api/*`, `/{BasePath}/partials/*`) get `401` instead of an HTML redirect.
-- **`Mode: Login` but `Username`/`PasswordHash` incomplete:** login is **not** enforced (can't verify an incomplete credential) and a startup warning says so. There is no baked-in default credential.
+- **`Mode=Login` with a credential:** unauthenticated HTML requests redirect to `/{BasePath}/login`; a correct login POST issues a sliding auth cookie; `/{BasePath}/logout` clears it. Dashboard data/partial requests (`/{BasePath}/api/*`, `/{BasePath}/partials/*`) get `401 JSON` instead of an HTML redirect.
+- **`Mode=Login` but `Username`/`PasswordHash` incomplete:** login is **not** enforced (can't verify an incomplete credential) and a startup error says so. There is no baked-in default credential.
+- The login page is styled to the dashboard chrome (Tailwind + daisyUI, theme-aware) and protects the login POST with a double-submit CSRF token (cookie `sb.login.csrf`).
 
-The login page is styled to the dashboard chrome (Tailwind + daisyUI, light/dark aware) and protects the login POST with a double-submit CSRF token.
+## Scope — what it gates
 
-## Scope — what it does and does not gate
-
-**Gates:** the human-facing `/{BasePath}/*` HTML routes only.
+**Gates:** the human-facing `/{BasePath}/*` HTML routes.
 
 **Does NOT gate:**
-- The machine `/api/v1/*` read endpoints — those are API-key gated (`BotDetection:ApiKeys`); the marketing site's `RemoteDashboardEventStore` and the gateway depend on them.
+- The machine `/api/v1/*` read endpoints — those are API-key gated (`BotDetection:ApiKeys`).
 - The detection pipeline.
-- The commercial edit/write moat (separately gated, on top of this).
+- The commercial edit/write moat (separately gated).
 
 ## Commercial OIDC layers on — no fork
 
-FOSS registers a cookie authentication scheme satisfying the well-known authorization policy **`stylobot-dashboard-view`**, which the dashboard middleware enforces. Commercial OIDC (Keycloak/SSO) layers on by registering its own authentication scheme into that **same** policy — it does not replace or fork the FOSS default:
+FOSS registers a cookie scheme satisfying the authorization policy **`stylobot-dashboard-view`**, which the dashboard middleware enforces via `IPolicyEvaluator`. Commercial OIDC layers on by adding its own scheme to the **same** policy — it does not replace or fork FOSS:
 
 - FOSS ships the login+cookie default fully working with zero commercial packages.
-- Commercial adds `AddOpenIdConnect(...)` and augments the `stylobot-dashboard-view` policy's accepted schemes; the middleware evaluates the policy (via `IPolicyEvaluator`), so both schemes are honoured together.
-- This removes the older limitation where OIDC and the built-in `RequireAuthentication` (SQLite user-store) path were mutually exclusive.
+- Commercial adds `AddOpenIdConnect(...)` and augments `stylobot-dashboard-view`'s accepted schemes; `IPolicyEvaluator` honours both together.
+- This replaces the older limitation where OIDC and `RequireAuthentication` were mutually exclusive.
 
-## Relationship to the existing `RequireAuthentication` path
+## `RequireAuthentication` (Identity user-store)
 
-`StyloBot:Dashboard:RequireAuthentication = true` is a separate, heavier auth mode: full ASP.NET Core Identity with a SQLite `dashboard_users` table and a `/setup` first-run admin flow. Use `Auth:Mode = Login` (this feature) for the simple, static, single-credential case; use `RequireAuthentication` when you need a multi-user database. They are alternates — do not enable both.
+`StyloBot:Dashboard:RequireAuthentication = true` enables full ASP.NET Core Identity with a SQLite `dashboard_users` table and a `/{BasePath}/setup` first-run admin flow. Use `Auth:Mode=Login` for the simple single-credential case; use `RequireAuthentication` when you need a multi-user database. **They are mutually exclusive** — enabling both throws `InvalidOperationException` at startup.
