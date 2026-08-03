@@ -883,7 +883,15 @@ public static class StyloBotDashboardServiceExtensions
         // onto the same "stylobot-dashboard-view" policy without forking (see
         // DashboardViewAuthDefaults).
         if (options.Auth.Mode == DashboardAuthMode.Login)
+        {
+            if (options.RequireAuthentication)
+                throw new InvalidOperationException(
+                    "StyloBot:Dashboard:Auth:Mode=Login and RequireAuthentication are mutually exclusive. "
+                    + "Login mode uses a single config credential (no user DB); RequireAuthentication "
+                    + "uses ASP.NET Core Identity with a SQLite user store. Choose one.");
+
             services.AddStyloBotDashboardViewAuth(options);
+        }
 
         // Register dashboard data API paths with the bot detection policy system.
         // Detection runs on ALL paths including dashboard API - no exclusions.

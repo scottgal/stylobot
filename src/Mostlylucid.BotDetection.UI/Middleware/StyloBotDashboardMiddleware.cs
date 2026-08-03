@@ -977,7 +977,7 @@ public class StyloBotDashboardMiddleware
         }
 
         // API paths return 401 JSON; browser paths redirect to login UI
-        if (relLower.StartsWith("api/") || relLower.StartsWith("partials/"))
+        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.Headers.WWWAuthenticate = "Bearer";
@@ -1248,7 +1248,7 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private async Task HandleViewUnauthenticatedAsync(HttpContext context, string relLower)
     {
-        if (relLower.StartsWith("api/") || relLower.StartsWith("partials/"))
+        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
