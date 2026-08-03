@@ -4,8 +4,10 @@ using Mostlylucid.BotDetection.Middleware;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
@@ -86,6 +88,11 @@ public class StyloBotDashboardMiddleware
 
     internal const string SetupCsrfCookieName = "sb.setup.csrf";
     internal const string SetupCsrfFormField = "__csrf";
+
+    // Double-submit CSRF for the FOSS config-credential login form (shares the field
+    // name with setup; a distinct cookie + path scopes it to the login route).
+    internal const string LoginCsrfCookieName = "sb.login.csrf";
+    internal const string LoginCsrfFormField = "__csrf";
 
     private const string AuthPageCss = """
         *{box-sizing:border-box;margin:0;padding:0}
@@ -233,12 +240,27 @@ public class StyloBotDashboardMiddleware
             if (relLower is "auth-ui" or "login") { await ServeLoginUiAsync(context); return; }
         }
 
+        // FOSS config-credential view-auth: the login page (GET form / POST verify) and
+        // logout are always reachable so an unauthenticated visitor can sign in. The gate
+        // below enforces auth for every other dashboard path.
+        if (_options.Auth.Mode == DashboardAuthMode.Login && _options.Auth.IsConfigured)
+        {
+            if (relLower is "login") { await ServeConfigLoginAsync(context); return; }
+            if (relLower is "logout") { await HandleConfigLogoutAsync(context); return; }
+        }
+
         // Check authorization
         if (!await IsAuthorizedAsync(context))
         {
             if (_options.RequireAuthentication)
             {
                 await HandleUnauthenticatedAsync(context, relLower);
+                return;
+            }
+
+            if (_options.Auth.Mode == DashboardAuthMode.Login && _options.Auth.IsConfigured)
+            {
+                await HandleViewUnauthenticatedAsync(context, relLower);
                 return;
             }
 
@@ -885,6 +907,12 @@ public class StyloBotDashboardMiddleware
             return context.User.Identity?.IsAuthenticated == true;
         }
 
+        // FOSS config-credential view-auth: evaluate the shared "stylobot-dashboard-view"
+        // policy inline. IPolicyEvaluator authenticates the policy's scheme(s) (FOSS cookie,
+        // plus any commercial OIDC scheme added to the policy) and evaluates in one pass.
+        if (_options.Auth.Mode == DashboardAuthMode.Login && _options.Auth.IsConfigured)
+            return await EvaluateViewAuthAsync(context);
+
         // Custom filter takes precedence
         if (_options.AuthorizationFilter != null) return await _options.AuthorizationFilter(context);
 
@@ -949,7 +977,7 @@ public class StyloBotDashboardMiddleware
         }
 
         // API paths return 401 JSON; browser paths redirect to login UI
-        if (relLower.StartsWith("api/") || relLower.StartsWith("partials/"))
+        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.Headers.WWWAuthenticate = "Bearer";
@@ -1182,6 +1210,260 @@ public class StyloBotDashboardMiddleware
             </html>
             """);
     }
+
+    // ---- FOSS config-credential view-auth (StyloBot:Dashboard:Auth, Mode=Login) ----
+
+    /// <summary>
+    ///     Evaluates the shared <c>stylobot-dashboard-view</c> policy inline via
+    ///     <see cref="IPolicyEvaluator"/>: authenticates the policy's scheme(s) (FOSS cookie,
+    ///     plus any commercial OIDC scheme registered into the policy) and returns whether
+    ///     the request is authorized. No dependency on <c>UseAuthentication()</c> ordering.
+    /// </summary>
+    private async Task<bool> EvaluateViewAuthAsync(HttpContext context)
+    {
+        var policyProvider = context.RequestServices.GetService<IAuthorizationPolicyProvider>();
+        var evaluator = context.RequestServices.GetService<IPolicyEvaluator>();
+        if (policyProvider is not null && evaluator is not null)
+        {
+            var policy = await policyProvider.GetPolicyAsync(DashboardViewAuthDefaults.PolicyName);
+            if (policy is not null)
+            {
+                var authn = await evaluator.AuthenticateAsync(policy, context);
+                if (authn.Principal is not null) context.User = authn.Principal;
+                var authz = await evaluator.AuthorizeAsync(policy, authn, context, resource: null);
+                return authz.Succeeded;
+            }
+        }
+
+        // Fallback: authenticate the FOSS cookie scheme directly.
+        var result = await context.AuthenticateAsync(DashboardViewAuthDefaults.Scheme);
+        if (result?.Principal is not null) context.User = result.Principal;
+        return context.User.Identity?.IsAuthenticated == true;
+    }
+
+    /// <summary>
+    ///     Unauthenticated handling for Login mode: dashboard data/partials get a 401 JSON
+    ///     (so XHR/HTMX callers don't get an HTML redirect body); HTML page requests are
+    ///     redirected to the login page.
+    /// </summary>
+    private async Task HandleViewUnauthenticatedAsync(HttpContext context, string relLower)
+    {
+        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Unauthorized\"}");
+            return;
+        }
+
+        context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/login");
+    }
+
+    /// <summary>Serves the login form (GET) and verifies the config credential (POST).</summary>
+    private async Task ServeConfigLoginAsync(HttpContext context)
+    {
+        var basePath = _options.BasePath.TrimEnd('/');
+
+        if (HttpMethods.IsPost(context.Request.Method))
+        {
+            var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            if (!ValidateLoginCsrfToken(context))
+            {
+                await WriteLoginPageAsync(context, basePath,
+                    "Your session expired. Please try again.", StatusCodes.Status400BadRequest);
+                return;
+            }
+
+            var username = form["username"].FirstOrDefault() ?? string.Empty;
+            var password = form["password"].FirstOrDefault() ?? string.Empty;
+            var verifier = context.RequestServices.GetRequiredService<DashboardViewCredentialVerifier>();
+            if (verifier.Verify(_options.Auth, username, password))
+            {
+                var identity = new ClaimsIdentity(
+                    new[] { new Claim(ClaimTypes.Name, _options.Auth.Username!) },
+                    DashboardViewAuthDefaults.Scheme);
+                await context.SignInAsync(DashboardViewAuthDefaults.Scheme, new ClaimsPrincipal(identity));
+                context.Response.Redirect(basePath.Length == 0 ? "/" : basePath);
+                return;
+            }
+
+            _logger.LogWarning("Dashboard login failed for {IP}", context.Connection.RemoteIpAddress);
+            await WriteLoginPageAsync(context, basePath,
+                "Invalid username or password.", StatusCodes.Status401Unauthorized);
+            return;
+        }
+
+        await WriteLoginPageAsync(context, basePath, null, StatusCodes.Status200OK);
+    }
+
+    /// <summary>Clears the auth cookie and returns to the login page.</summary>
+    private async Task HandleConfigLogoutAsync(HttpContext context)
+    {
+        await context.SignOutAsync(DashboardViewAuthDefaults.Scheme);
+        context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/login");
+    }
+
+    private async Task WriteLoginPageAsync(HttpContext context, string basePath, string? error, int statusCode)
+    {
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "text/html; charset=utf-8";
+
+        var nonce = GetOrCreateCspNonce(context);
+        context.Response.Headers["Content-Security-Policy"] = string.Join("; ",
+            "default-src 'self'", "base-uri 'self'", "frame-ancestors 'self'", "object-src 'none'",
+            "img-src 'self' data:", "font-src 'self' data:",
+            "style-src 'self' 'unsafe-inline'", $"script-src 'self' 'nonce-{nonce}'");
+
+        var csrf = IssueLoginCsrfToken(context);
+        await context.Response.WriteAsync(RenderConfigLoginPage(basePath, csrf, nonce, error));
+    }
+
+    private string IssueLoginCsrfToken(HttpContext context)
+    {
+        var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        context.Response.Cookies.Append(LoginCsrfCookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Strict,
+            Secure = context.Request.IsHttps,
+            Path = _options.BasePath.TrimEnd('/') + "/login",
+            MaxAge = TimeSpan.FromMinutes(30)
+        });
+        return token;
+    }
+
+    internal static bool ValidateLoginCsrfToken(HttpContext context)
+    {
+        var cookie = context.Request.Cookies[LoginCsrfCookieName];
+        var form = context.Request.Form[LoginCsrfFormField].FirstOrDefault();
+        if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(form)) return false;
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(cookie),
+            Encoding.UTF8.GetBytes(form));
+    }
+
+    /// <summary>
+    ///     The FOSS login page, styled to the dashboard chrome (vendored Tailwind + daisyUI,
+    ///     theme-aware light/dark). Self-contained; the only script is the nonce'd theme boot.
+    /// </summary>
+    private static string RenderConfigLoginPage(string basePath, string csrfToken, string nonce, string? error)
+    {
+        var errorHtml = string.IsNullOrEmpty(error)
+            ? ""
+            : $"<div class=\"alert alert-error text-sm mt-4\" role=\"alert\">{System.Net.WebUtility.HtmlEncode(error)}</div>";
+        var loginAction = (basePath.Length == 0 ? "" : basePath) + "/login";
+
+        return $$"""
+            <!DOCTYPE html>
+            <html lang="en" data-theme="light">
+            <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>StyloBot Dashboard — Sign in</title>
+            <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css">
+            <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css">
+            <script nonce="{{nonce}}">
+            (function(){try{var t=localStorage.getItem('sb-theme')||localStorage.getItem('theme');
+            if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+            document.documentElement.setAttribute('data-theme',t);
+            document.documentElement.classList.toggle('dark',t==='dark');}catch(e){} })();
+            </script>
+            </head>
+            <body class="min-h-screen flex items-center justify-center bg-base-200 p-4">
+              <div class="card w-full max-w-sm bg-base-100 shadow-xl border border-base-300">
+                <div class="card-body">
+                  <h1 class="text-xl font-semibold">StyloBot Dashboard</h1>
+                  <p class="text-sm text-base-content/60 mb-2">Sign in to view the dashboard.</p>
+                  <form method="post" action="{{loginAction}}" class="space-y-3">
+                    <input type="hidden" name="__csrf" value="{{csrfToken}}">
+                    <label class="form-control w-full">
+                      <span class="label-text text-sm">Username</span>
+                      <input type="text" name="username" autocomplete="username" required autofocus
+                             class="input input-bordered w-full">
+                    </label>
+                    <label class="form-control w-full">
+                      <span class="label-text text-sm">Password</span>
+                      <input type="password" name="password" autocomplete="current-password" required
+                             class="input input-bordered w-full">
+                    </label>
+                    <button type="submit" class="btn btn-primary w-full mt-2">Sign in</button>
+                    {{errorHtml}}
+                  </form>
+                </div>
+              </div>
+            </body>
+            </html>
+            """;
+    }
+
+    /// <summary>
+    ///     Wraps a rendered dashboard content fragment in a self-contained HTML shell
+    ///     for standalone FOSS deployments (<c>stylobot-ui</c>, <c>stylobot-all</c>)
+    ///     that ship no host <c>_Layout</c>. Mirrors the login-page pattern: vendored
+    ///     Tailwind + daisyUI, theme boot, shared navbar, CSP, and the in-content
+    ///     footer. Host-provided layouts (like the stylo.bot marketing site) already
+    ///     emit DOCTYPE + &lt;html&gt; and this wrapper is skipped.
+    /// </summary>
+    private static string WrapStandaloneDashboardPage(
+        string content, string nonce, string basePath, DashboardShellModel model)
+    {
+        var rawTitle = model.ActiveRow?.Area is { Length: > 0 } area
+            ? $"StyloBot — {char.ToUpperInvariant(area[0])}{area[1..]}"
+            : "StyloBot Dashboard";
+        var title = System.Net.WebUtility.HtmlEncode(rawTitle);
+        var version = System.Net.WebUtility.HtmlEncode(model.Version ?? "");
+        var encodedBasePath = System.Net.WebUtility.HtmlEncode(basePath);
+        var encodedContent = content; // already HTML
+
+        return string.Concat(
+            "<!DOCTYPE html>\n<html lang=\"en\" data-theme=\"dark\">\n<head>\n",
+            "<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n",
+            "<title>", title, "</title>\n",
+            "<link rel=\"icon\" type=\"image/svg+xml\" href=\"/_content/Mostlylucid.BotDetection.UI/stylowall.svg\">\n",
+            "<link rel=\"stylesheet\" href=\"/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css\">\n",
+            "<link rel=\"stylesheet\" href=\"/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css\">\n",
+            "<script nonce=\"", nonce, "\">",
+            "(function(){try{var t=localStorage.getItem('sb-theme')||localStorage.getItem('theme');",
+            "if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}",
+            "document.documentElement.setAttribute('data-theme',t);",
+            "document.documentElement.classList.toggle('dark',t==='dark');}catch(e){}})();",
+            "</script>\n</head>\n",
+            "<body class=\"min-h-screen bg-base-200\">\n",
+            "<div class=\"drawer lg:drawer-open\">\n",
+            "<input id=\"dashboard-drawer\" type=\"checkbox\" class=\"drawer-toggle\">\n",
+            "<div class=\"drawer-content flex flex-col\">\n",
+            "<div class=\"navbar bg-base-100 border-b border-base-300 px-4 sticky top-0 z-30\">\n",
+            "<div class=\"navbar-start\">\n",
+            "<label for=\"dashboard-drawer\" class=\"btn btn-ghost drawer-button lg:hidden\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"h-5 w-5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 6h16M4 12h16M4 18h7\"/></svg>",
+            "</label>\n",
+            "<a href=\"", encodedBasePath, "\" class=\"flex items-center gap-2 text-lg no-underline\">",
+            "<img src=\"/_content/Mostlylucid.BotDetection.UI/stylowall.svg\" alt=\"\" class=\"h-6 w-6\">",
+            "<span class=\"font-semibold tracking-tight\">stylo<span class=\"text-base-content/40 font-light\">·</span>bot</span>",
+            "</a>\n</div>\n",
+            "<div class=\"navbar-end\">",
+            "<span class=\"text-xs text-base-content/40 font-mono\">v", version, "</span>",
+            "</div>\n</div>\n",
+            "<main class=\"flex-1 p-4 max-w-7xl w-full mx-auto\">\n",
+            encodedContent, "\n</main>\n",
+            "<footer class=\"text-xs text-base-content/40 text-center py-3 border-t border-base-300\">",
+            "StyloBot — Zero-PII Bot Detection · ",
+            "<a href=\"https://stylo.bot/docs\" class=\"link link-hover\">docs</a> · ",
+            "<a href=\"https://github.com/scottgal/stylobot\" class=\"link link-hover\">github</a>",
+            "</footer>\n</div>\n",
+            "<div class=\"drawer-side z-40\">\n",
+            "<label for=\"dashboard-drawer\" aria-label=\"close sidebar\" class=\"drawer-overlay\"></label>\n",
+            "<aside class=\"bg-base-100 w-56 min-h-full border-r border-base-300 p-3 text-sm\">\n",
+            "<nav class=\"flex flex-col gap-1\">\n",
+            "<a href=\"", encodedBasePath, "/traffic\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Traffic</a>\n",
+            "<a href=\"", encodedBasePath, "/visitors\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Visitors</a>\n",
+            "<a href=\"", encodedBasePath, "/site\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Site</a>\n",
+            "<a href=\"", encodedBasePath, "/policies\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Policies</a>\n",
+            "<a href=\"", encodedBasePath, "/configuration\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Configuration</a>\n",
+            "</nav>\n</aside>\n</div>\n</div>\n</body>\n</html>"
+        );
+    }
+
     private async Task ServeDashboardPageAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html";
@@ -1529,6 +1811,17 @@ public class StyloBotDashboardMiddleware
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", model, context, isMainPage: true);
+
+        // Standalone FOSS binaries (stylobot-ui, stylobot-all) ship no host Views/
+        // _Layout, so Index.cshtml (Layout=null, isMainPage=true) renders as an
+        // unwrapped fragment. Detect that and wrap it in a self-contained shell
+        // matching the login / detail pages — same CSS, theme boot, and navbar.
+        if (!html.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            && !html.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            html = WrapStandaloneDashboardPage(html, cspNonce, basePath, model);
+        }
+
         await context.Response.WriteAsync(html);
 
         async Task<DashboardSummary> SafeGetSummaryAsync(DateTime? start = null, DateTime? end = null)
@@ -6487,6 +6780,13 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", shellModel, context, isMainPage: true);
+
+        if (!html.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            && !html.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            html = WrapStandaloneDashboardPage(html, shellModel.CspNonce ?? "", shellModel.BasePath ?? "", shellModel);
+        }
+
         await context.Response.WriteAsync(html);
     }
 
@@ -7118,6 +7418,13 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", shellModel, context, isMainPage: true);
+
+        if (!html.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            && !html.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            html = WrapStandaloneDashboardPage(html, shellModel.CspNonce ?? "", shellModel.BasePath ?? "", shellModel);
+        }
+
         await context.Response.WriteAsync(html);
     }
 

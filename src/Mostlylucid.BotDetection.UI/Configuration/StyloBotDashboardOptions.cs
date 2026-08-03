@@ -318,6 +318,16 @@ public sealed class StyloBotDashboardOptions
     /// </summary>
     public bool RequireAuthentication { get; set; }
 
+    /// <summary>
+    ///     FOSS config-credential dashboard view-auth (login page + cookie). Opt-in:
+    ///     inert unless <c>Auth:Mode = Login</c> and a username + password hash are set.
+    ///     Sits beside the existing auth knobs (<see cref="RequireAuthentication"/>,
+    ///     <see cref="AllowUnauthenticatedAccess"/>). Commercial OIDC layers on top via
+    ///     the shared <c>DashboardViewAuthDefaults.PolicyName</c> policy without forking.
+    ///     Bound from <c>StyloBot:Dashboard:Auth</c>.
+    /// </summary>
+    public DashboardAuthOptions Auth { get; set; } = new();
+
     public MonitoringPackOptions MonitoringPack { get; set; } = new();
 
     /// <summary>

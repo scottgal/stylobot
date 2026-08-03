@@ -296,7 +296,7 @@ builder.Services.AddStyloBotDashboard(builder.Configuration);
 
 ### Binary topology
 
-- **`stylobot` (Console)** - edge gateway. Default surface is detection + reverse-proxy. `--enable-api` opts into the `/api/v1/*` REST surface + SignalR invalidation hub at `/api/v1/hub`. Fails fast if `StyloBot:ApiKeys` is empty when `--enable-api` is set. `-d` / `--daemon` shorthand for the existing `start` subcommand. `--output-config <file>` dumps the effective `BotDetectionOptions` for editing.
+- **`stylobot` (Console)** - edge gateway. Default surface is detection + reverse-proxy. `--enable-api` opts into the `/api/v1/*` REST surface + SignalR invalidation hub at `/api/v1/hub`. Fails fast if `BotDetection:ApiKeys` is empty when `--enable-api` is set. `-d` / `--daemon` shorthand for the existing `start` subcommand. `--output-config <file>` dumps the effective `BotDetectionOptions` for editing.
 - **`stylobot-sidecar`** - headless gRPC + REST detection sidecar. App calls per-request; loopback hop.
 - **`stylobot-ui` (`Stylobot.Ui`)** - dashboard host. `StyloBot:Source:Pull:Type = rest` (default) reads from a remote gateway; `local` runs detection + local SQLite store (typically only useful for development). `StyloBot:Source:Live:Type = signalr` connects to the gateway hub for live invalidation beacons; `none` is poll-only.
 - **`stylobot-all` (`Stylobot.All`)** - YARP gateway + detection + dashboard in one process. Single-host topology.

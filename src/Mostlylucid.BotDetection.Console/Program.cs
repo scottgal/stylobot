@@ -15,6 +15,7 @@ using Mostlylucid.BotDetection.Api.Endpoints;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.UI.Extensions;
+using Mostlylucid.BotDetection.UI.Services.Auth;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Llm.Cloud.Extensions;
 using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
@@ -136,6 +137,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot man                                Full reference manual");
     Console.WriteLine("    stylobot llmtunnel [token] [opts]           Start local LLM agent + Cloudflare tunnel");
     Console.WriteLine("    stylobot dashboard <url> [--api-key <k>]   Remote dashboard for another stylobot instance");
+    Console.WriteLine("    stylobot dashboard hash-password           Hash a password for StyloBot:Dashboard:Auth:PasswordHash");
     Console.WriteLine("    stylobot genkey                             Generate a random 32-byte base64 key");
     Console.WriteLine("    stylobot clear [--sessions]                 Clear learned patterns (and optionally sessions)");
     Console.WriteLine("    stylobot setup [--check-only] [--force]     Check and download missing resources");
@@ -1415,8 +1417,79 @@ finally
 
 return 0;
 
+// Hashes a password for StyloBot:Dashboard:Auth:PasswordHash. The hash goes to
+// stdout (pipeable); prompts/guidance go to stderr so `... hash-password > out` is clean.
+// --password <pw> allows non-interactive use (scripts/CI); otherwise prompt without echo.
+static int RunDashboardHashPassword(string[] args)
+{
+    var password = GetArg(args, "--password");
+    if (string.IsNullOrEmpty(password))
+    {
+        Console.Error.Write("Password: ");
+        password = ReadPasswordNoEcho();
+        Console.Error.WriteLine();
+        Console.Error.Write("Confirm : ");
+        var confirm = ReadPasswordNoEcho();
+        Console.Error.WriteLine();
+        if (password != confirm)
+        {
+            Console.Error.WriteLine("Passwords did not match.");
+            return 1;
+        }
+    }
+
+    if (string.IsNullOrEmpty(password))
+    {
+        Console.Error.WriteLine("Password must not be empty.");
+        return 1;
+    }
+
+    var hash = DashboardPasswordHasher.Hash(password);
+    Console.Error.WriteLine("Set StyloBot:Dashboard:Auth (Mode=Login, Username=...) and paste this as PasswordHash:");
+    Console.WriteLine(hash);
+    return 0;
+}
+
+// Reads a line without echoing keystrokes. Falls back to a normal read when input
+// is redirected (piped/CI) or no console is attached.
+static string ReadPasswordNoEcho()
+{
+    if (Console.IsInputRedirected)
+        return Console.ReadLine() ?? string.Empty;
+
+    var sb = new StringBuilder();
+    while (true)
+    {
+        ConsoleKeyInfo key;
+        try
+        {
+            key = Console.ReadKey(intercept: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // No interactive console (e.g. some CI shells): fall back to a plain read.
+            return Console.ReadLine() ?? sb.ToString();
+        }
+
+        if (key.Key == ConsoleKey.Enter) break;
+        if (key.Key == ConsoleKey.Backspace)
+        {
+            if (sb.Length > 0) sb.Length--;
+            continue;
+        }
+        if (!char.IsControl(key.KeyChar)) sb.Append(key.KeyChar);
+    }
+
+    return sb.ToString();
+}
+
 static async Task<int> RunDashboardAsync(string[] args)
 {
+    // stylobot dashboard hash-password -- print a PBKDF2 hash to paste into
+    // StyloBot:Dashboard:Auth:PasswordHash (FOSS config-credential dashboard login).
+    if (args.Length > 2 && args[2].Equals("hash-password", StringComparison.OrdinalIgnoreCase))
+        return RunDashboardHashPassword(args);
+
     // stylobot dashboard <url> [--api-key <key>]
     var apiKey = GetArg(args, "--api-key") ?? GetArg(args, "--apikey");
     string? url = null;
