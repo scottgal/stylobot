@@ -1396,6 +1396,72 @@ public class StyloBotDashboardMiddleware
             """;
     }
 
+    /// <summary>
+    ///     Wraps a rendered dashboard content fragment in a self-contained HTML shell
+    ///     for standalone FOSS deployments (<c>stylobot-ui</c>, <c>stylobot-all</c>)
+    ///     that ship no host <c>_Layout</c>. Mirrors the login-page pattern: vendored
+    ///     Tailwind + daisyUI, theme boot, shared navbar, CSP, and the in-content
+    ///     footer. Host-provided layouts (like the stylo.bot marketing site) already
+    ///     emit DOCTYPE + &lt;html&gt; and this wrapper is skipped.
+    /// </summary>
+    private static string WrapStandaloneDashboardPage(
+        string content, string nonce, string basePath, DashboardShellModel model)
+    {
+        var title = model.ActiveRow?.Area is { Length: > 0 } area
+            ? $"StyloBot — {char.ToUpperInvariant(area[0])}{area[1..]}"
+            : "StyloBot Dashboard";
+        var version = model.Version ?? "";
+        var encodedContent = content; // already HTML
+
+        return string.Concat(
+            "<!DOCTYPE html>\n<html lang=\"en\" data-theme=\"dark\">\n<head>\n",
+            "<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n",
+            "<title>", title, "</title>\n",
+            "<link rel=\"icon\" type=\"image/svg+xml\" href=\"/_content/Mostlylucid.BotDetection.UI/stylowall.svg\">\n",
+            "<link rel=\"stylesheet\" href=\"/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css\">\n",
+            "<link rel=\"stylesheet\" href=\"/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css\">\n",
+            "<script nonce=\"", nonce, "\">",
+            "(function(){try{var t=localStorage.getItem('sb-theme')||localStorage.getItem('theme');",
+            "if(!t){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}",
+            "document.documentElement.setAttribute('data-theme',t);",
+            "document.documentElement.classList.toggle('dark',t==='dark');}catch(e){}})();",
+            "</script>\n</head>\n",
+            "<body class=\"min-h-screen bg-base-200\">\n",
+            "<div class=\"drawer lg:drawer-open\">\n",
+            "<input id=\"dashboard-drawer\" type=\"checkbox\" class=\"drawer-toggle\">\n",
+            "<div class=\"drawer-content flex flex-col\">\n",
+            "<div class=\"navbar bg-base-100 border-b border-base-300 px-4 sticky top-0 z-30\">\n",
+            "<div class=\"navbar-start\">\n",
+            "<label for=\"dashboard-drawer\" class=\"btn btn-ghost drawer-button lg:hidden\">",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"h-5 w-5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 6h16M4 12h16M4 18h7\"/></svg>",
+            "</label>\n",
+            "<a href=\"", basePath, "\" class=\"flex items-center gap-2 text-lg no-underline\">",
+            "<img src=\"/_content/Mostlylucid.BotDetection.UI/stylowall.svg\" alt=\"\" class=\"h-6 w-6\">",
+            "<span class=\"font-semibold tracking-tight\">stylo<span class=\"text-base-content/40 font-light\">·</span>bot</span>",
+            "</a>\n</div>\n",
+            "<div class=\"navbar-end\">",
+            "<span class=\"text-xs text-base-content/40 font-mono\">v", version, "</span>",
+            "</div>\n</div>\n",
+            "<main class=\"flex-1 p-4 max-w-7xl w-full mx-auto\">\n",
+            encodedContent, "\n</main>\n",
+            "<footer class=\"text-xs text-base-content/40 text-center py-3 border-t border-base-300\">",
+            "StyloBot — Zero-PII Bot Detection · ",
+            "<a href=\"https://stylo.bot/docs\" class=\"link link-hover\">docs</a> · ",
+            "<a href=\"https://github.com/scottgal/stylobot\" class=\"link link-hover\">github</a>",
+            "</footer>\n</div>\n",
+            "<div class=\"drawer-side z-40\">\n",
+            "<label for=\"dashboard-drawer\" aria-label=\"close sidebar\" class=\"drawer-overlay\"></label>\n",
+            "<aside class=\"bg-base-100 w-56 min-h-full border-r border-base-300 p-3 text-sm\">\n",
+            "<nav class=\"flex flex-col gap-1\">\n",
+            "<a href=\"", basePath, "/traffic\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Traffic</a>\n",
+            "<a href=\"", basePath, "/visitors\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Visitors</a>\n",
+            "<a href=\"", basePath, "/site\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Site</a>\n",
+            "<a href=\"", basePath, "/policies\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Policies</a>\n",
+            "<a href=\"", basePath, "/configuration\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Configuration</a>\n",
+            "</nav>\n</aside>\n</div>\n</div>\n</body>\n</html>"
+        );
+    }
+
     private async Task ServeDashboardPageAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html";
@@ -1743,6 +1809,17 @@ public class StyloBotDashboardMiddleware
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", model, context, isMainPage: true);
+
+        // Standalone FOSS binaries (stylobot-ui, stylobot-all) ship no host Views/
+        // _Layout, so Index.cshtml (Layout=null, isMainPage=true) renders as an
+        // unwrapped fragment. Detect that and wrap it in a self-contained shell
+        // matching the login / detail pages — same CSS, theme boot, and navbar.
+        if (!html.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            && !html.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            html = WrapStandaloneDashboardPage(html, cspNonce, basePath, model);
+        }
+
         await context.Response.WriteAsync(html);
 
         async Task<DashboardSummary> SafeGetSummaryAsync(DateTime? start = null, DateTime? end = null)
@@ -6701,6 +6778,13 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", shellModel, context, isMainPage: true);
+
+        if (!html.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            && !html.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            html = WrapStandaloneDashboardPage(html, shellModel.CspNonce ?? "", shellModel.BasePath ?? "", shellModel);
+        }
+
         await context.Response.WriteAsync(html);
     }
 
@@ -7332,6 +7416,13 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", shellModel, context, isMainPage: true);
+
+        if (!html.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+            && !html.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            html = WrapStandaloneDashboardPage(html, shellModel.CspNonce ?? "", shellModel.BasePath ?? "", shellModel);
+        }
+
         await context.Response.WriteAsync(html);
     }
 
