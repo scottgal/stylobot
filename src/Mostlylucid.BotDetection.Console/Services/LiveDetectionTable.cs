@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Channels;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
@@ -105,6 +107,7 @@ public sealed class LiveDetectionTableService : BackgroundService
     private readonly bool _useTls;
     private readonly bool _tunnelEnabled;
     private readonly Func<string?>? _tunnelUrlGetter;
+    private readonly string? _licenseBanner; // pre-formatted license line, null when unlicensed
 
     private int _totalRequests;
     private double _totalDetectionTimeMs;
@@ -183,6 +186,57 @@ public sealed class LiveDetectionTableService : BackgroundService
         _useTls = useTls;
         _tunnelEnabled = tunnelEnabled;
         _tunnelUrlGetter = tunnelUrlGetter;
+        _licenseBanner = ResolveLicenseBanner();
+    }
+
+    /// <summary>
+    ///     Reads license info from STYLOBOT_LICENSE (env var or file path).
+    ///     Returns a pre-formatted banner line, or null when unlicensed.
+    /// </summary>
+    private static string? ResolveLicenseBanner()
+    {
+        try
+        {
+            var envVal = Environment.GetEnvironmentVariable("STYLOBOT_LICENSE");
+            var content = envVal;
+            if (string.IsNullOrWhiteSpace(content)) return null;
+
+            // If the value looks like a file path, read it
+            if (content.Length < 500 && File.Exists(content))
+                content = File.ReadAllText(content).Trim();
+
+            if (string.IsNullOrWhiteSpace(content)) return null;
+
+            // Try to parse as JSON for structured display
+            try
+            {
+                using var doc = JsonDocument.Parse(content);
+                var root = doc.RootElement;
+                var tier = GetString(root, "tier") ?? GetString(root, "plan") ?? "pro";
+                var licensee = GetString(root, "licensee") ?? GetString(root, "company") ?? "";
+                var seats = root.TryGetProperty("seats", out var s) ? s.GetInt32().ToString() : null;
+                var expires = GetString(root, "expires") ?? GetString(root, "expiry") ?? "";
+
+                var parts = new List<string> { $"stylo.bot/{tier}" };
+                if (!string.IsNullOrEmpty(licensee)) parts.Add(licensee);
+                if (seats is not null) parts.Add($"{seats} seats");
+                if (!string.IsNullOrEmpty(expires)) parts.Add($"expires {expires}");
+                return string.Join(" · ", parts);
+            }
+            catch
+            {
+                // Not valid JSON — use first line as the banner
+                var firstLine = content.Split('\n')[0].Trim();
+                return firstLine.Length > 80 ? firstLine[..77] + "..." : firstLine;
+            }
+        }
+        catch { return null; }
+    }
+
+    private static string? GetString(JsonElement el, string key)
+    {
+        return el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() : null;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -327,171 +381,273 @@ public sealed class LiveDetectionTableService : BackgroundService
 
     // ── Frame builder ─────────────────────────────────────────────────────────
 
+    // ── Frame builder (revamped — dashboard-style) ────────────────────────────
+
     private string BuildFrame(LinkedList<DetectionEntry> entries, string scheme, int w, int h)
     {
         var sb = new StringBuilder(w * h * 6);
-        // Home cursor — in the alt screen this is always top-left of the visible window.
-        sb.Append("\x1b[H");
+        sb.Append("\x1b[H"); // home cursor
 
         var uptime = DateTime.Now - _startTime;
         var reqPerSec = _recentRequests.Count / 10.0;
         var avgMs = _totalRequests > 0 ? _totalDetectionTimeMs / _totalRequests : 0;
-        var tunnelUrl = _tunnelEnabled ? _tunnelUrlGetter?.Invoke() : null;
 
-        var lines = 0;
-
-        // ── Line 0: Title bar ─────────────────────────────────────────────────
-        // Brand mark: "Stylo" in light-gray italic bold, "bot" in white bold - each
-        // half resets then re-establishes the blue title-bar background so the rest
-        // of the line (mode/upstream/uptime/etc.) renders unaffected.
-        var brand = C.StyloGray + C.Italic + C.Bold + "Stylo" + C.R
-                  + C.BgBlue + C.White + C.Bold + "bot" + C.R
-                  + C.BgBlue + C.White + C.Bold;
-        var title = $"  {brand}  {ModeLabel(_mode)}  \u2192 {_upstream}  \u23f1 {FormatUptime(uptime)}  {_totalRequests} req  {reqPerSec:F1}/s  ";
-        var titleVis = VLen(title);
-        sb.Append(C.BgBlue + C.White + C.Bold);
-        sb.Append(title);
-        if (titleVis < w) sb.Append(new string(' ', w - titleVis));
-        sb.Append(C.R + "\n");
-        lines++;
-
-        // ── Line 1: Stats bar (counts are unique fingerprints, not requests) ──
-        var spark = BuildSparkline(Math.Min(40, w / 3));
         var (humansFp, botsFp, threatsFp) = FingerprintCounts();
-        var threatCol = threatsFp > 0 ? C.Red : C.Dim;
+        var totalFp = humansFp + botsFp;
+        var humanPct = totalFp > 0 ? (int)(humansFp * 100.0 / totalFp) : 0;
+        var botPct = totalFp > 0 ? (int)(botsFp * 100.0 / totalFp) : 0;
 
-        var statsContent = C.Dim + "  fp " + C.R
-            + C.Green + $"\u2713 {humansFp} hum" + C.R
-            + C.Red + $"  \u2717 {botsFp} bot" + C.R
-            + threatCol + $"  \u26a0 {threatsFp} threats" + C.R
-            + C.Dim + $"  avg {FormatLatency(avgMs)}  max {FormatLatency(_maxDetectionTimeMs)}  " + C.R
-            + C.Blue + spark + C.R;
-        var statsVis = VLen(statsContent);
-        sb.Append(statsContent);
-        if (statsVis < w) sb.Append(new string(' ', w - statsVis));
-        sb.Append("\x1b[K\n");
-        lines++;
+        // ═══ Row 0: Top border ═══════════════════════════════════════════════
+        sb.Append(C.Blue).Append('╔').Append(new string('═', w - 2)).Append("╗\n");
 
-        // ── Line 2: Column headers ────────────────────────────────────────────
-        // Sidebar sizing is tiered: the fingerprint column is the critical surface
-        // for operators (each row is one identified actor), so on wide terminals
-        // we spend close to half the width on it. Three regimes:
-        //   <100 cols : no sidebar (terminal too narrow to split)
-        //   100-140   : compact 30-wide (legacy layout - name + posterior only)
-        //   >=140     : extended ~half-width (adds last-seen + request count so
-        //               the operator sees fingerprints visibly updating)
-        var sideW = w >= 140 ? Math.Clamp(w / 2, 50, 80)
-                  : w >= 100 ? 30
-                  : 0;
+        // ═══ Row 1: Title bar ═══════════════════════════════════════════════
+        var titleLeft = $" stylo{C.Dim}·{C.R}{C.Bold}bot{C.R}";
+        var modeTag = _mode == "production" ? $"{C.Red}●{C.R} production" : $"{C.Yellow}○{C.R} demo";
+        var upstreamDisplay = TruncateUrl(_upstream, Math.Max(20, w - VLen(titleLeft) - VLen(modeTag) - 25));
+        var titleRight = $"{C.Dim}⏱{C.R} {FormatUptime(uptime)}  {C.Dim}{reqPerSec:F1}/s{C.R}";
+
+        sb.Append(C.Blue).Append("║ ").Append(C.R);
+        sb.Append(C.Bold).Append(titleLeft).Append(C.R);
+        sb.Append("  ").Append(modeTag).Append("  ").Append(C.Dim).Append("→").Append(C.R).Append(" ").Append(upstreamDisplay);
+        var titleUsed = VLen(titleLeft) + 2 + VLen(modeTag) + 2 + 1 + 1 + upstreamDisplay.Length;
+        var rightPad = Math.Max(0, w - 4 - titleUsed - VLen(titleRight));
+        sb.Append(new string(' ', rightPad)).Append(titleRight);
+        sb.Append(C.Blue).Append(" ║\n");
+
+        // ═══ Row 2: Stats bar with mini progress bars ═══════════════════════
+        var barW = Math.Min(16, (w - 40) / 3);
+        var humanBar = BuildMiniBar(humanPct, barW, C.Green);
+        var botBar = BuildMiniBar(botPct, barW, C.Red);
+        var stats = $"{C.Green}✓ {humansFp} humans{C.R} {humanBar} {humanPct}%  "
+                  + $"{C.Red}✗ {botsFp} bots{C.R} {botBar} {botPct}%";
+        if (threatsFp > 0) stats += $"  {C.Yellow}⚠ {threatsFp}{C.R}";
+        stats += $"  {C.Dim}avg {FormatLatency(avgMs)}{C.R}";
+        var statsVis = VLen(stats);
+        sb.Append(C.Blue).Append("║ ").Append(C.R).Append(stats);
+        if (statsVis < w - 4) sb.Append(new string(' ', w - 4 - statsVis));
+        sb.Append(C.Blue).Append(" ║\n");
+
+        // ═══ Row 3: License banner (if present) ═══════════════════════════
+        if (_licenseBanner is not null)
+        {
+            var licLine = $" {C.Green}🔑{C.R} {C.Dim}{_licenseBanner}{C.R}";
+            sb.Append(C.Blue).Append("║").Append(C.R).Append(licLine);
+            var licVis = VLen(licLine);
+            if (licVis < w - 2) sb.Append(new string(' ', w - 2 - licVis));
+            sb.Append(C.Blue).Append("║\n");
+        }
+
+        // ═══ Column headers ═══════════════════════════════════════════════
+        var sideW = w >= 120 ? Math.Clamp(w / 2, 40, 70) : 0;
         var wide = sideW > 0;
-        var feedW = wide ? w - sideW - 1 : w;
+        var feedW = wide ? w - sideW - 3 : w - 2;
+        var showDelta = feedW >= 70;
+        var showRisk = feedW >= 60;
+        var showIntent = feedW >= 55;
 
-        // SrcMark(1) + Time(8) + Path + Δ%(5) + Rsk(3) + Int(3) + Act(6) + Lat(5) = path consumes the rest
-        var fixedCols = 1 + 8 + 5 + 3 + 3 + 6 + 5 + 7 * 2; // 7 two-space separators
-        var feedHdr = C.Dim
-            + VPad(" ", 1)
-            + VPad("Time", 8)
-            + "  " + VPad("Path", Math.Max(10, feedW - fixedCols))
-            + "  " + VPadL("\u0394%", 5)
-            + "  " + VPad("Rsk", 3)
-            + "  " + VPad("Int", 3)
-            + "  " + VPad("Act", 6)
-            + "  " + VPadL("Lat", 5) + " " + C.R;
-        sb.Append(feedHdr);
+        var hdr = BuildFeedHeader(feedW, showDelta, showRisk, showIntent);
+        sb.Append(C.Blue).Append("║").Append(C.R).Append(hdr);
         if (wide)
         {
-            sb.Append(C.Dim + "\u2502" + C.R);
-            // Column header for the extended layout matches the row budget in
-            // BuildSideLines: bullet(1)+sp(1)+name(width-30)+sp(2)+pct(4)+sp(2)+
-            // first(5)+sp(2)+last(5)+sp(2)+reqs(4). Compact layout keeps the legacy
-            // single-title row.
-            if (sideW - 1 >= 50)
-            {
-                var sideHdrNameW = Math.Max(20, (sideW - 1) - 30);
-                var sideHdr = " " + VPad("Fingerprint", sideHdrNameW)
-                    + "  " + VPadL("%", 4)
-                    + "  " + VPadL("first", 5)
-                    + "  " + VPadL("last", 5)
-                    + "  " + VPadL("req", 4);
-                sb.Append(C.Dim + sideHdr + C.R);
-            }
-            else
-            {
-                sb.Append(C.Dim + VPad(" Top Fingerprints", sideW - 1) + C.R);
-            }
+            sb.Append(C.Blue).Append("│").Append(C.R);
+            sb.Append(C.Dim).Append(" Fingerprint").Append(new string(' ', Math.Max(0, sideW - 14))).Append(C.R);
         }
-        sb.Append("\x1b[K\n");
-        lines++;
+        else sb.Append(new string(' ', w - 2 - VLen(hdr)));
+        sb.Append(C.Blue).Append("║\n");
 
-        // ── Line 3: Divider ───────────────────────────────────────────────────
-        sb.Append(C.Dim + new string('\u2500', feedW) + C.R);
-        if (wide) sb.Append(C.Dim + "\u253c" + new string('\u2500', sideW - 1) + C.R);
-        sb.Append("\x1b[K\n");
-        lines++;
+        // Divider
+        sb.Append(C.Blue).Append("╟").Append(new string('─', feedW));
+        if (wide) sb.Append(C.Blue).Append("┼").Append(new string('─', sideW)).Append(C.R);
+        else sb.Append(new string('─', w - 2 - feedW));
+        sb.Append(C.Blue).Append("╢\n");
 
-        // ── Body rows ─────────────────────────────────────────────────────────
-        var footerRows = _tunnelEnabled ? 3 : 2; // extra row for tunnel URL line
-        var bodyRows = h - lines - footerRows;
+        // ═══ Body rows ════════════════════════════════════════════════════
+        var footerRows = 2 + (_tunnelEnabled ? 1 : 0);
+        var bodyRows = h - 8 - footerRows; // header(4)+divider(1)+footer(2)+border(1) approx
+        bodyRows = Math.Max(3, bodyRows);
         var feedEntries = entries.Take(bodyRows).ToArray();
-        var sideLines = wide ? BuildSideLines(sideW - 1, bodyRows, scheme, tunnelUrl) : null;
+        var sideLines = wide ? BuildFingerprintSidebar(sideW, bodyRows) : null;
 
         for (var r = 0; r < bodyRows; r++)
         {
-            // Feed column
-            var feedLine = r < feedEntries.Length
-                ? FormatFeedRow(feedEntries[r], feedW)
-                : VPad("", feedW);
-            if (r == 0 && feedEntries.Length == 0)
-                feedLine = " " + C.Dim + "Waiting for requests..." + C.R + new string(' ', feedW - 25);
+            sb.Append(C.Blue).Append("║").Append(C.R);
+            if (r < feedEntries.Length)
+                sb.Append(FormatFeedRowV2(feedEntries[r], feedW, showDelta, showRisk, showIntent));
+            else if (r == 0 && feedEntries.Length == 0)
+            {
+                sb.Append(C.Dim).Append("  Waiting for requests...").Append(C.R);
+                sb.Append(new string(' ', Math.Max(0, feedW - 24)));
+            }
+            else sb.Append(new string(' ', feedW));
 
-            sb.Append(feedLine);
-
-            // Sidebar column
             if (wide)
             {
-                sb.Append(C.Dim + "\u2502" + C.R);
-                var side = sideLines != null && r < sideLines.Length ? sideLines[r] : new string(' ', sideW - 1);
-                sb.Append(side);
+                sb.Append(C.Blue).Append("│").Append(C.R);
+                sb.Append(sideLines is not null && r < sideLines.Length ? sideLines[r] : new string(' ', sideW));
             }
-
-            sb.Append("\x1b[K\n");
-            lines++;
+            sb.Append(C.Blue).Append("║\n");
         }
 
-        // ── Footer divider ────────────────────────────────────────────────────
-        sb.Append(C.Dim + new string('\u2500', w) + C.R + "\x1b[K\n");
-        lines++;
+        // ═══ Footer ═══════════════════════════════════════════════════════
+        sb.Append(C.Blue).Append("╚").Append(new string('═', w - 2)).Append("╝\n");
 
-        // ── Footer text ───────────────────────────────────────────────────────
-        string footer;
-        if (threatsFp >= 3 && _policy.Equals("logonly", StringComparison.OrdinalIgnoreCase))
-            footer = C.Yellow + $"  \u26a0  {threatsFp} threat fingerprints in observe-only mode  add --policy block to enable blocking" + C.R;
-        else
-            footer = C.Dim + "  Ctrl+C to stop  |  --verbose for full logs" + C.R;
-
+        var threatWarn = threatsFp >= 3 && _policy.Equals("logonly", StringComparison.OrdinalIgnoreCase)
+            ? $"{C.Yellow}⚠ {threatsFp} threats — add --policy block{C.R}  "
+            : "";
+        var footStats = $"{C.Dim}{_totalRequests:N0} total  avg {FormatLatency(avgMs)}  max {FormatLatency(_maxDetectionTimeMs)}  Ctrl+C stop{C.R}";
+        var footer = $" {threatWarn}{footStats}";
         sb.Append(footer);
-        sb.Append("\x1b[K");
+
+        // SSL warning: proxying HTTPS upstreams without proper TLS client certs
+        // can cause SSL errors (untrusted CA, self-signed upstream cert). Surface
+        // the fix inline so operators don't have to dig through logs.
+        if (_upstream.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            sb.Append("\n ").Append(C.Yellow).Append("⚠").Append(C.R);
+            sb.Append(C.Yellow).Append(" HTTPS upstream: SSL errors? Use --cert <pfx> --cert-password <pw>").Append(C.R);
+            sb.Append(C.Dim).Append("  (or set STYLOBOT_SKIP_UPSTREAM_SSL_VALIDATION=true for dev only)").Append(C.R);
+        }
 
         if (_tunnelEnabled)
         {
+            var tunnelUrl = _tunnelEnabled ? _tunnelUrlGetter?.Invoke() : null;
             sb.Append("\n");
-            if (tunnelUrl != null)
-            {
-                // Re-enable wrap so the full URL is never clipped; OSC 8 makes it clickable.
-                sb.Append("\x1b[?7h");
-                sb.Append(C.Bold + C.Green + "  tunnel: " + C.R);
-                sb.Append($"\x1b]8;;{tunnelUrl}\x1b\\");   // OSC 8 open
-                sb.Append(C.Green + C.Bold + tunnelUrl + C.R);
-                sb.Append("\x1b]8;;\x1b\\");               // OSC 8 close
-                sb.Append("\x1b[?7l");                      // restore no-wrap for rest of frame
-            }
-            else
-                sb.Append(C.Yellow + "  tunnel: connecting\u2026" + C.R);
-            sb.Append("\x1b[K");
+            sb.Append(tunnelUrl is not null
+                ? $"{C.Green}  tunnel: {tunnelUrl}{C.R}"
+                : $"{C.Yellow}  tunnel: connecting…{C.R}");
         }
-        // No trailing \n on the last line — prevents the terminal from scrolling.
 
         return sb.ToString();
+    }
+
+    // ── Mini bar helper ────────────────────────────────────────────────────────
+
+    private static string BuildMiniBar(int pct, int width, string color)
+    {
+        if (width <= 0) return "";
+        var filled = (int)Math.Round(pct * width / 100.0);
+        filled = Math.Clamp(filled, 0, width);
+        var empty = width - filled;
+        return color + new string('█', filled) + C.Dim + new string('░', empty) + C.R;
+    }
+
+    private static string TruncateUrl(string url, int maxLen)
+    {
+        if (url.Length <= maxLen) return url;
+        var display = url.Replace("https://", "").Replace("http://", "");
+        if (display.Length <= maxLen) return display;
+        return display[..(maxLen - 1)] + "…";
+    }
+
+    // ── Feed header V2 ────────────────────────────────────────────────────────
+
+    private static string BuildFeedHeader(int feedW, bool showDelta, bool showRisk, bool showIntent)
+    {
+        var hdr = " " + C.Dim + VPad("Time", 8);
+        var pathW = feedW - 10;
+        if (showDelta) pathW -= 7;
+        if (showRisk) pathW -= 5;
+        if (showIntent) pathW -= 5;
+        pathW -= 11;
+        pathW = Math.Max(10, pathW);
+        hdr += "  " + VPad("Path", pathW);
+        if (showDelta) hdr += "  " + VPadL("Δ%", 5);
+        if (showRisk) hdr += "  " + VPad("Rsk", 3);
+        if (showIntent) hdr += "  " + VPad("Int", 3);
+        hdr += "  " + VPad("Action", 6);
+        hdr += "  " + VPadL("Lat", 5) + " " + C.R;
+        return hdr;
+    }
+
+    // ── Feed row V2 ───────────────────────────────────────────────────────────
+
+    private static string FormatFeedRowV2(DetectionEntry e, int width, bool showDelta, bool showRisk, bool showIntent)
+    {
+        var pathW = width - 10;
+        if (showDelta) pathW -= 7;
+        if (showRisk) pathW -= 5;
+        if (showIntent) pathW -= 5;
+        pathW -= 11;
+        pathW = Math.Max(8, pathW);
+
+        var path = VTrunc(e.Path.Split('?')[0], pathW);
+        var srcMark = e.VerdictSource == "cache" ? C.Dim + "*" + C.R : " ";
+        var row = srcMark + C.Dim + VPad(e.Timestamp.ToString("HH:mm:ss"), 8) + C.R
+            + "  " + path + new string(' ', Math.Max(0, pathW - path.Length));
+
+        if (showDelta)
+        {
+            var d = e.RequestContributionDelta;
+            var dStr = $"{(d >= 0 ? "+" : "")}{d * 100:F1}";
+            var dCol = Math.Abs(d) < 0.02 ? C.Dim : d > 0 ? C.Yellow : C.Green;
+            row += "  " + dCol + VPadL(dStr, 5) + C.R;
+        }
+        if (showRisk) { var (t, c) = FormatRiskCell(e.RiskBand); row += "  " + c + VPad(t, 3) + C.R; }
+        if (showIntent) { var (t, c) = FormatIntentCell(e.ThreatBand); row += "  " + c + VPad(t, 3) + C.R; }
+
+        var action = FormatAction(e);
+        row += "  " + action + new string(' ', Math.Max(0, 6 - VLen(action)));
+
+        var msCol = e.DetectionTimeMs > 200 ? C.Red : e.DetectionTimeMs > 50 ? C.Yellow : C.Dim;
+        row += "  " + msCol + VPadL(FormatLatency(e.DetectionTimeMs), 5) + C.R + " ";
+
+        var vis = VLen(row);
+        if (vis < width) row += new string(' ', width - vis);
+        return row;
+    }
+
+    // ── Fingerprint sidebar V2 ────────────────────────────────────────────────
+
+    private string[] BuildFingerprintSidebar(int width, int totalRows)
+    {
+        var lines = new List<string>(totalRows);
+        lines.Add(" " + C.Dim + VPad("fingerprint", width - 14) + "  %    req  last" + C.R);
+        lines.Add(C.Dim + new string('─', width) + C.R);
+
+        var ordered = _fingerprints.Values
+            .OrderByDescending(s => s.LastSeen)
+            .Take(totalRows - 2)
+            .ToArray();
+
+        foreach (var s in ordered)
+        {
+            var fpKey = "";
+            foreach (var kv in _fingerprints) { if (kv.Value == s) { fpKey = kv.Key; break; } }
+
+            var name = !string.IsNullOrEmpty(s.BotName) ? s.BotName
+                : fpKey.Length > 8 ? fpKey[^8..] : fpKey;
+            var nameW = Math.Max(6, width - 24);
+            name = VTrunc(name, nameW);
+            var pct = s.Ewma * 100;
+            var pctCol = pct >= 70 ? C.Red : pct >= 40 ? C.Yellow : C.Green;
+
+            var spark = BuildTinySpark(s.RecentScores, s.RecentScoresCount, 6);
+            var row = " " + VPad(name, nameW)
+                + "  " + pctCol + VPadL($"{pct:F0}%", 4) + C.R
+                + "  " + C.Dim + VPadL(s.Requests.ToString(), 4) + C.R
+                + "  " + VPadL(FormatAgo(DateTime.Now - s.LastSeen), 4)
+                + " " + spark;
+            var vis = VLen(row);
+            if (vis < width) row += new string(' ', width - vis);
+            lines.Add(row);
+        }
+        while (lines.Count < totalRows) lines.Add(new string(' ', width));
+        return lines.ToArray();
+    }
+
+    private static string BuildTinySpark(double[] scores, int count, int width)
+    {
+        if (count < 2 || width <= 0) return "";
+        var chars = " ▁▂▃▄▅▆▇█";
+        var result = new char[Math.Min(width, count)];
+        var step = Math.Max(1, count / width);
+        for (var i = 0; i < result.Length; i++)
+        {
+            var idx = Math.Min(i * step, count - 1);
+            var level = (int)Math.Round(Math.Clamp(scores[idx], 0, 1) * (chars.Length - 1));
+            result[i] = chars[level];
+        }
+        return new string(result);
     }
 
     // ── Feed row ──────────────────────────────────────────────────────────────
