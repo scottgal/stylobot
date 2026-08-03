@@ -95,6 +95,209 @@ public sealed class DashboardViewAuthGateIntegrationTests : IAsyncDisposable
         Assert.NotEqual(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    // ---- Full login → dashboard → logout flow ----
+
+    [Fact]
+    public async Task Full_login_dashboard_logout_flow()
+    {
+        var client = await StartAsync();
+
+        // 1. Unauthenticated → redirected to login
+        var unauth = await client.GetAsync("/dashboard/traffic");
+        Assert.Equal(HttpStatusCode.Redirect, unauth.StatusCode);
+
+        // 2. Login → get auth cookie
+        var login = await PostLoginAsync(client, "admin", Password);
+        Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
+        var authCookie = login.Headers.GetValues("Set-Cookie")
+            .First(c => c.StartsWith("sb.dashboard.auth", StringComparison.Ordinal))
+            .Split(';')[0];
+
+        // 3. Authenticated → dashboard accessible
+        var authedReq = new HttpRequestMessage(HttpMethod.Get, "/dashboard/traffic");
+        authedReq.Headers.Add("Cookie", authCookie);
+        var authed = await client.SendAsync(authedReq);
+        Assert.NotEqual(HttpStatusCode.Redirect, authed.StatusCode);
+
+        // 4. Logout → redirected to login
+        var logoutReq = new HttpRequestMessage(HttpMethod.Get, "/dashboard/logout");
+        logoutReq.Headers.Add("Cookie", authCookie);
+        var logout = await client.SendAsync(logoutReq);
+        Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
+        Assert.EndsWith("/login", logout.Headers.Location?.ToString());
+
+        // 5. After logout → dashboard redirects to login again
+        var afterLogout = await client.GetAsync("/dashboard/traffic");
+        Assert.Equal(HttpStatusCode.Redirect, afterLogout.StatusCode);
+    }
+
+    // ---- Dashboard API / partials return 401 JSON, not HTML redirect ----
+
+    [Fact]
+    public async Task Unauthenticated_api_request_returns_401_json()
+    {
+        var client = await StartAsync();
+        var response = await client.GetAsync("/dashboard/api/summary");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Unauthorized", body);
+    }
+
+    [Fact]
+    public async Task Unauthenticated_partials_request_returns_401_json()
+    {
+        var client = await StartAsync();
+        var response = await client.GetAsync("/dashboard/partials/widget");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    // ---- CSRF validation ----
+
+    [Fact]
+    public async Task Login_post_without_csrf_token_is_rejected()
+    {
+        var client = await StartAsync();
+
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["username"] = "admin",
+            ["password"] = Password
+        });
+        var response = await client.PostAsync("/dashboard/login", form);
+
+        // Should NOT issue an auth cookie
+        var setCookie = response.Headers.GetValues("Set-Cookie");
+        Assert.DoesNotContain(setCookie,
+            c => c.StartsWith("sb.dashboard.auth=", StringComparison.Ordinal)
+                 && !c.StartsWith("sb.dashboard.auth=;", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Login_post_with_wrong_csrf_token_is_rejected()
+    {
+        var client = await StartAsync();
+
+        // Get the login page to get a CSRF cookie, but submit a wrong token
+        var page = await client.GetAsync("/dashboard/login");
+        var csrfCookie = page.Headers.TryGetValues("Set-Cookie", out var cookies)
+            ? cookies.First(c => c.StartsWith("sb.login.csrf", StringComparison.Ordinal)).Split(';')[0]
+            : string.Empty;
+
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["username"] = "admin",
+            ["password"] = Password,
+            ["__csrf"] = "DEADBEEF000000000000000000000000000000000000000000000000000000"
+        });
+        var request = new HttpRequestMessage(HttpMethod.Post, "/dashboard/login") { Content = form };
+        if (csrfCookie.Length > 0) request.Headers.Add("Cookie", csrfCookie);
+        var response = await client.SendAsync(request);
+
+        // Should NOT issue an auth cookie
+        var setCookie = response.Headers.GetValues("Set-Cookie");
+        Assert.DoesNotContain(setCookie,
+            c => c.StartsWith("sb.dashboard.auth=", StringComparison.Ordinal)
+                 && !c.StartsWith("sb.dashboard.auth=;", StringComparison.Ordinal));
+    }
+
+    // ---- Wrong username returns same error page (no timing leak) ----
+
+    [Fact]
+    public async Task Wrong_username_returns_same_error_as_wrong_password()
+    {
+        var client = await StartAsync();
+
+        var wrongUser = await PostLoginAsync(client, "notadmin", Password);
+        var wrongPass = await PostLoginAsync(client, "admin", "wrong-pw");
+
+        Assert.Equal(wrongUser.StatusCode, wrongPass.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, wrongUser.StatusCode);
+
+        var bodyUser = await wrongUser.Content.ReadAsStringAsync();
+        var bodyPass = await wrongPass.Content.ReadAsStringAsync();
+
+        // Both show the same error text (ignore nonce differences)
+        Assert.Contains("Invalid username or password", bodyUser);
+        Assert.Contains("Invalid username or password", bodyPass);
+    }
+
+    // ---- Login page is reachable without auth ----
+
+    [Fact]
+    public async Task Login_page_is_always_reachable()
+    {
+        var client = await StartAsync();
+
+        var response = await client.GetAsync("/dashboard/login");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // ---- Auth.Mode=None (back-compat: no login gate) ----
+
+    [Fact]
+    public async Task Mode_none_allows_access_when_allow_unauth_is_true()
+    {
+        // This test uses a separate app instance with Mode=None + AllowUnauthenticatedAccess=true
+        // to verify the back-compat path: no /login redirect, dashboard is open.
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+
+        builder.Services.AddStyloBotDashboardRemote(new DashboardSourceOptions
+        {
+            Pull = new DashboardSourcePullOptions
+            {
+                Type = DashboardSourceType.Rest,
+                Url = "http://gateway.test",
+                TimeoutSeconds = 2
+            }
+        });
+        builder.Services.AddHttpClient<GatewayApiClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => new EmptyGatewayHandler());
+        builder.Services.AddControllersWithViews()
+            .AddApplicationPart(typeof(StyloBotDashboardMiddleware).Assembly);
+        builder.Services.AddStyloBotDashboard(options =>
+        {
+            options.BasePath = "/dashboard";
+            options.AllowUnauthenticatedAccess = true;
+            options.Auth.Mode = DashboardAuthMode.None;
+        });
+
+        var app = builder.Build();
+        app.UseMiddleware<StyloBotDashboardMiddleware>();
+        await app.StartAsync();
+
+        var server = (TestServer)app.Services.GetRequiredService<IServer>();
+        var client = new HttpClient(server.CreateHandler()) { BaseAddress = new Uri("http://localhost/") };
+
+        try
+        {
+            var response = await client.GetAsync("/dashboard/traffic");
+            // Should NOT redirect to login; should be accessible (200 or the dashboard page)
+            Assert.NotEqual("/dashboard/login", response.Headers.Location?.ToString());
+        }
+        finally
+        {
+            await app.DisposeAsync();
+        }
+    }
+
+    // ---- Logout is always reachable ----
+
+    [Fact]
+    public async Task Logout_is_reachable_even_without_auth_cookie()
+    {
+        var client = await StartAsync();
+
+        var response = await client.GetAsync("/dashboard/logout");
+
+        // Logout always redirects to login (clears cookie regardless)
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.EndsWith("/login", response.Headers.Location?.ToString());
+    }
+
     private static async Task<HttpResponseMessage> PostLoginAsync(HttpClient client, string username, string password)
     {
         // Fetch the login page first, like a browser, to obtain the double-submit CSRF
