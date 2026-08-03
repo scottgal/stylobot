@@ -17,7 +17,8 @@ public sealed class DashboardUserAgentAggregator(IDashboardEventStore eventStore
     public async Task<List<DashboardUserAgentSummary>> ComputeAsync(
         string? audienceFilter = null,
         DateTime? startTime = null,
-        DateTime? endTime = null)
+        DateTime? endTime = null,
+        IReadOnlyList<string>? domains = null)
     {
         var isBot = audienceFilter?.ToLowerInvariant() switch
         {
@@ -32,6 +33,7 @@ public sealed class DashboardUserAgentAggregator(IDashboardEventStore eventStore
             StartTime = startTime,
             EndTime   = endTime,
             IsBot     = isBot,
+            Domains   = domains,
         });
 
         var uaGroups = new Dictionary<string, (int total, int bot, int human, double confSum, double procSum,

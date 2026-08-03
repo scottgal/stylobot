@@ -145,7 +145,7 @@ public interface IDashboardEventStore
     /// <summary>
     ///     Get recent threat activity (CVE probes, honeypot engagements, high threat-score detections).
     /// </summary>
-    Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null);
+    Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null);
 
     /// <summary>
     ///     Search detections by raw User-Agent substring match.

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
@@ -46,7 +48,10 @@ public class SbSummaryStatsViewComponent(
             });
         }
 
-        var summary = pageResult?.Summary ?? await eventStore.GetSummaryAsync(startTime, endTime, audience);
+        var scopedDomains = HttpContext?.RequestServices?
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(HttpContext);
+        var summary = pageResult?.Summary ?? await eventStore.GetSummaryAsync(startTime, endTime, audience, domains: scopedDomains);
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 

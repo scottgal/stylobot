@@ -392,6 +392,13 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             conditions.Add("d.signature = @sig");
             cmd.Parameters.AddWithValue("@sig", filter.SignatureId);
         }
+        if (filter?.Domains is { Count: > 0 })
+        {
+            var (domainPred, domainParams) = BuildDomainPredicate(filter.Domains, "d");
+            conditions.Add(domainPred);
+            foreach (var (name, value) in domainParams)
+                cmd.Parameters.AddWithValue(name, value);
+        }
 
         if (conditions.Count > 0)
             sql += " WHERE " + string.Join(" AND ", conditions);
@@ -1664,7 +1671,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             : "probable scanner",
     };
 
-    public async Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+    public async Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -1689,6 +1696,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             sql += " AND timestamp <= @end";
             cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
         }
+
+        if (domains is { Count: > 0 })
+            sql += " AND " + BuildDomainPredicate(domains, "d");
 
         sql += " ORDER BY timestamp DESC LIMIT @count";
         cmd.Parameters.AddWithValue("@count", count);

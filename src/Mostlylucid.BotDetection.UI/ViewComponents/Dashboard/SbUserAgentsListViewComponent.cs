@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
@@ -52,7 +54,10 @@ public class SbUserAgentsListViewComponent(
         else if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
         {
             // Parameter-driven: bypass cache, aggregate directly from the store.
-            all = await userAgentAggregator.ComputeAsync(audience, startTime, endTime);
+            var scopedDomains = HttpContext?.RequestServices?
+                .GetService<IDashboardDomainScope>()
+                ?.GetSelectedDomains(HttpContext);
+            all = await userAgentAggregator.ComputeAsync(audience, startTime, endTime, domains: scopedDomains);
         }
         else
         {

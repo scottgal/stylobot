@@ -273,6 +273,7 @@ public sealed record DashboardFilter
     public bool HighRiskOnly { get; init; }
     public int? Limit { get; init; } = 100;
     public int? Offset { get; init; } = 0;
+    public IReadOnlyList<string>? Domains { get; init; }
 }
 
 /// <summary>

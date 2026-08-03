@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -27,9 +29,13 @@ public class SbThreatsListViewComponent(IDashboardEventStore eventStore, StyloBo
             });
         }
 
+        var scopedDomains = HttpContext?.RequestServices?
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(HttpContext);
+
         IReadOnlyList<ThreatEntry> allThreats = pageResult?.ThreatsRaw is { } composedThreats
             ? composedThreats
-            : await eventStore.GetThreatsAsync(pageSize * 10);
+            : await eventStore.GetThreatsAsync(pageSize * 10, domains: scopedDomains);
 
         var totalCount = allThreats.Count;
         var threats = allThreats

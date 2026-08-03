@@ -281,7 +281,7 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return GetOrFetchAsync(query, () => _api.GetEnvelopeAsync<DashboardEndpointDetail>(query)!);
     }
 
-    public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+    public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null)
     {
         var query = BuildRangedQuery("/api/v1/threats", count, startTime, endTime);
         return GetOrFetchAsync(query, async () =>
