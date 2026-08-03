@@ -191,7 +191,7 @@ public sealed class DashboardMaterializerCoordinatorRefreshCadenceTests
         var slow = true;
         var cache = new DashboardContentCache(async (_, _, _) =>
             {
-                if (slow) await Task.Delay(50);
+                if (slow) await Task.Delay(100); // robust: well above budget even on fast CI runners
                 return Result();
             },
             () => tick, Options.Create(new DashboardMaterializerOptions()));
@@ -205,7 +205,7 @@ public sealed class DashboardMaterializerCoordinatorRefreshCadenceTests
                 GlobalMinIntervalSeconds = 1, // tiny -- keeps the envelope due well within the 10s we advance below
                 AggregateBaseIntervalSeconds = 1,
                 LiveBaseIntervalSeconds = 1,
-                RefreshCostBudgetMs = 10, // a single 50ms compose already exceeds this several times over
+                RefreshCostBudgetMs = 10, // a single 100ms compose exceeds this by 10x
                 AdaptiveCostSmoothingAlpha = 1.0, // isolate escalation/relaxation, no smoothing lag
             }),
             sched, timeProvider: time);
@@ -215,26 +215,31 @@ public sealed class DashboardMaterializerCoordinatorRefreshCadenceTests
 
         Assert.Equal(1.0, coord.CurrentAdaptiveScaleFactor);
 
-        for (var i = 0; i < 3; i++)
-        {
-            tick++;
-            await sched.RaiseTickAsync(TickCadence.Tick10s);
-            time.Advance(TimeSpan.FromSeconds(10)); // comfortably past any interval*scaleFactor reached so far
-        }
-
-        var escalated = coord.CurrentAdaptiveScaleFactor;
-        Assert.True(escalated > 1.0, "repeated over-budget compose cost should have raised the scale factor");
-
-        // Now go fast: the compose returns immediately, so measured cost drops to ~0.
-        slow = false;
-        for (var i = 0; i < 5; i++)
+        // Run enough slow ticks to guarantee the EMA pushes the smoothed cost well past
+        // the RefreshCostBudgetMs threshold. With alpha=1.0 the smoothed cost jumps
+        // directly to 100ms after the first warm tick, but the coordinator may skip
+        // warming if the envelope isn't due yet -- so give it 6 ticks (60s of fake time)
+        // to absorb any scheduling jitter.
+        for (var i = 0; i < 6; i++)
         {
             tick++;
             await sched.RaiseTickAsync(TickCadence.Tick10s);
             time.Advance(TimeSpan.FromSeconds(10));
         }
 
-        Assert.True(coord.CurrentAdaptiveScaleFactor < escalated, "fast ticks should relax the scale factor back down");
+        var escalated = coord.CurrentAdaptiveScaleFactor;
+        Assert.True(escalated > 1.0, $"repeated over-budget compose cost should have raised the scale factor; actual={escalated}");
+
+        // Now go fast: the compose returns immediately, so measured cost drops to ~0.
+        slow = false;
+        for (var i = 0; i < 8; i++)
+        {
+            tick++;
+            await sched.RaiseTickAsync(TickCadence.Tick10s);
+            time.Advance(TimeSpan.FromSeconds(10));
+        }
+
+        Assert.True(coord.CurrentAdaptiveScaleFactor < escalated, $"fast ticks should relax the scale factor back down; escalated={escalated}, current={coord.CurrentAdaptiveScaleFactor}");
 
         await coord.StopAsync(default);
     }
