@@ -1,16 +1,22 @@
 /* StyloBot Component Styles - BEM + CSS Custom Properties
-   Theme-aware: adapts to light/dark via prefers-color-scheme.
-   Override with .sb-dark or .sb-light on any ancestor. */
+   Theme bridge: ONE token source = daisyUI --color-* (set per data-theme by
+   _ThemeBoot / the host). Every --sb-* surface/text/card/signal token below is an
+   ALIAS resolved per theme, so the FOSS dashboard, the marketing host and standalone
+   pages render identical values under all 21 daisyUI themes.
+   P0 unification 2026-08-03: replaces the hardcoded light values + the
+   prefers-color-scheme fork + the .sb-dark/.sb-light override classes. The theme
+   picker sets data-theme; the old fork fought it (light pick + dark OS left FOSS
+   widgets dark inside a light page) and only handled two themes. Pages that never
+   set data-theme resolve the daisyUI default theme — degraded but consistent;
+   _ThemeBoot is injected by every real page. */
 
 /* =============================================
-   Theme tokens (light by default)
+   Categorical / typography tokens — fixed by design, NOT theme semantics
+   (the risk ramp is a deliberate 7-stop categorical gradient; the sbap policy
+   score gradient uses the same discipline).
    ============================================= */
 
 :root {
-    --sb-color-human: #22c55e;
-    --sb-color-bot: #ef4444;
-    --sb-color-unknown: #94a3b8;
-
     --sb-color-risk-unknown: #94a3b8;
     --sb-color-risk-verylow: #22c55e;
     --sb-color-risk-low: #4ade80;
@@ -24,54 +30,34 @@
     --sb-font-family: system-ui, -apple-system, sans-serif;
     --sb-border-radius: 4px;
     --sb-pill-border-radius: 9999px;
-
-    /* Surface / text tokens - light theme */
-    --sb-surface: #f8fafc;
-    --sb-surface-alt: #fff;
-    --sb-border: #e2e8f0;
-    --sb-text: #1e293b;
-    --sb-text-muted: #475569;
-    --sb-text-faint: #94a3b8;
-    --sb-bar-track: #e2e8f0;
-    --sb-badge-mix-base: white;
 }
 
-/* Dark theme - auto via media query */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --sb-surface: #1e293b;
-        --sb-surface-alt: #0f172a;
-        --sb-border: #334155;
-        --sb-text: #e2e8f0;
-        --sb-text-muted: #94a3b8;
-        --sb-text-faint: #8b9eb8;
-        --sb-bar-track: #334155;
-        --sb-badge-mix-base: #0f172a;
-    }
-}
+/* =============================================
+   Theme bridge — aliases over the active daisyUI palette
+   ============================================= */
 
-/* Explicit dark override class */
-.sb-dark {
-    --sb-surface: #1e293b;
-    --sb-surface-alt: #0f172a;
-    --sb-border: #334155;
-    --sb-text: #e2e8f0;
-    --sb-text-muted: #94a3b8;
-    --sb-text-faint: #8b9eb8;
-    --sb-bar-track: #334155;
-    --sb-badge-mix-base: #0f172a;
-}
-
-/* Explicit light override class */
-.sb-light {
-    --sb-surface: #f8fafc;
-    --sb-surface-alt: #fff;
-    --sb-border: #e2e8f0;
-    --sb-text: #1e293b;
-    --sb-text-muted: #475569;
-    --sb-text-faint: #94a3b8;
-    --sb-bar-track: #e2e8f0;
-    --sb-badge-mix-base: white;
+:root, [data-theme] {
+    --sb-color-human:     var(--color-success);
+    --sb-color-bot:       var(--color-error);
+    --sb-color-unknown:   var(--color-base-content);
+    --sb-surface:         var(--color-base-200);
+    --sb-surface-alt:     var(--color-base-100);
+    --sb-card-bg:         var(--color-base-100);
+    --sb-card-border:     color-mix(in oklab, var(--color-base-content) 15%, transparent);
+    --sb-card-divider:    color-mix(in oklab, var(--color-base-content) 8%, transparent);
+    --sb-card-subtle:     color-mix(in oklab, var(--color-base-content) 55%, transparent);
+    --sb-card-text:       var(--color-base-content);
+    --sb-text:            var(--color-base-content);
+    --sb-text-muted:      color-mix(in oklab, var(--color-base-content) 60%, transparent);
+    --sb-text-faint:      color-mix(in oklab, var(--color-base-content) 40%, transparent);
+    --sb-border:          var(--color-base-300);
+    --sb-bar-track:       var(--color-base-300);
+    --sb-badge-mix-base:  var(--color-base-100);
+    --sb-accent:          var(--color-primary);
+    --sb-accent-strong:   var(--color-accent);
+    --sb-signal-pos:      var(--color-success);
+    --sb-signal-warn:     var(--color-warning);
+    --sb-signal-danger:   var(--color-error);
 }
 
 /* =============================================

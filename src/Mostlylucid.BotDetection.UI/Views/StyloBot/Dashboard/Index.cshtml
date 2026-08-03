@@ -32,20 +32,15 @@
 </script>
 <style nonce="@Model.CspNonce">
     [x-cloak] { display: none !important; }
+    /* The theme bridge now lives in sb-components.css (P0 unification 2026-08-03):
+       the --sb-surface/card/text/signal/accent aliases here were the same set and
+       drifted from the commercial palette. Only the brand tokens stay — they are
+       host-specific (the commercial marketing palette is the source for the site;
+       this shell is the FOSS-standalone fallback), and this page has no-fallback
+       consumers of them (pm-method chip, footer). */
     :root, [data-theme] {
-        --sb-surface:      var(--color-base-200);
-        --sb-card-bg:      var(--color-base-100);
-        --sb-card-border:  color-mix(in oklch, var(--color-base-content) 15%, transparent);
-        --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
-        --sb-card-subtle:  var(--color-base-300);
         --sb-brand-muted:  color-mix(in oklch, var(--color-base-content) 55%, transparent);
         --sb-brand-strong: var(--color-base-content);
-        --sb-accent:       var(--color-accent);
-        --sb-accent-alt:   var(--color-primary);
-        --sb-accent-strong:var(--color-success);
-        --sb-signal-pos:   var(--color-success);
-        --sb-signal-warn:  var(--color-warning);
-        --sb-signal-danger:var(--color-error);
     }
     .sb-link { color: var(--sb-accent); text-decoration: none; }
     .sb-link:hover { text-decoration: underline; }
