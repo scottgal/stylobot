@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.StyloExtract.Internals;
 using Mostlylucid.BotDetection.StyloExtract.Options;
@@ -16,11 +17,14 @@ namespace Mostlylucid.BotDetection.StyloExtract.Actions;
 /// </summary>
 public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
 {
+    private const string Representation = "html";
+
     private readonly StyloExtractActionOptions _options;
     private readonly ResponseBodyCapture _capture;
     private readonly CacheControlWriter _cacheWriter;
     private readonly MarkdownResponseCache _cache;
     private readonly ILogger<ContentCacheActionPolicy> _logger;
+    private readonly IReadOnlySet<string> _allowedQueryKeys;
 
     public ContentCacheActionPolicy(
         IOptionsFactory<StyloExtractActionOptions> optionsFactory,
@@ -33,6 +37,7 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
         _cacheWriter = cacheWriter;
         _logger = logger;
         _cache = new MarkdownResponseCache(_options.TransformedContentCache);
+        _allowedQueryKeys = _options.TransformedContentCache.AllowedQueryKeys;
     }
 
     public string Name => "content-cache";
@@ -45,7 +50,10 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
         if (!HttpMethods.IsGet(context.Request.Method))
             return ActionResult.Allowed("content-cache: non-GET bypass");
 
-        var lease = await _cache.AcquireAsync(BuildKey(context.Request), cancellationToken).ConfigureAwait(false);
+        var key = CacheKeyBuilder.Build(context.Request, Representation,
+            _options.VersionSaltForCache(), _allowedQueryKeys);
+
+        var lease = await _cache.AcquireAsync(key, cancellationToken).ConfigureAwait(false);
         if (lease.Cached is { } cached)
         {
             context.Response.StatusCode = StatusCodes.Status200OK;
@@ -53,6 +61,9 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
             context.Response.ContentLength = cached.Length;
             _cacheWriter.Apply(context, _options.Cache);
             await context.Response.Body.WriteAsync(cached, cancellationToken).ConfigureAwait(false);
+            // A cache hit is NOT from the upstream — mark it so DegradationAtom
+            // doesn't record a synthetic upstream 200.
+            context.MarkResponseFromStyloBot();
             return ActionResult.Blocked(StatusCodes.Status200OK, "content-cache: cache hit");
         }
 
@@ -77,15 +88,6 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
             return Task.CompletedTask;
         });
         return ActionResult.Allowed("content-cache: interceptor installed");
-    }
-
-    private string BuildKey(HttpRequest request)
-    {
-        var host = request.Host.Host.ToLowerInvariant();
-        var path = request.Path.Value ?? "/";
-        var query = request.Query.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-            .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value.ToString())}");
-        return $"content|{_options.VersionSaltForCache()}|{host}|{path}|{string.Join("&", query)}";
     }
 
     public ValueTask DisposeAsync() => _cache.DisposeAsync();

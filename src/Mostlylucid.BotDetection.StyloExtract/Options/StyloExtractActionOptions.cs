@@ -89,4 +89,12 @@ public sealed class TransformedContentCacheOptions
     public TimeSpan SlidingExpiration { get; set; } = TimeSpan.FromMinutes(2);
     public TimeSpan AbsoluteExpiration { get; set; } = TimeSpan.FromMinutes(15);
     public string VersionSalt { get; set; } = "v1";
+
+    /// <summary>
+    ///     Query parameter names to include in the cache key (case-insensitive).
+    ///     Any param not in this set is dropped from the key, preventing cache
+    ///     fragmentation from tracking parameters, random seeds, etc.
+    ///     Default: empty (no query variance).
+    /// </summary>
+    public HashSet<string> AllowedQueryKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

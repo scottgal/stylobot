@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.StyloExtract.Internals;
 using Mostlylucid.BotDetection.StyloExtract.Options;
@@ -26,6 +27,7 @@ namespace Mostlylucid.BotDetection.StyloExtract.Actions;
 /// </summary>
 public sealed class ExtractMarkdownActionPolicy : IActionPolicy
 {
+    private const string Representation = "markdown";
     internal const string InterceptorInstalledItemKey = "StyloExtract.MarkdownInterceptorInstalled";
     private readonly ILayoutExtractor _extractor;
     // Startup snapshot only (FOSS hard rule: no runtime options-reload). Named options have no
@@ -37,6 +39,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
     private readonly ResponseBodyCapture _capture;
     private readonly CacheControlWriter _cacheWriter;
     private readonly MarkdownResponseCache _markdownCache;
+    private readonly IReadOnlySet<string> _allowedQueryKeys;
 
     public ExtractMarkdownActionPolicy(
         ILayoutExtractor extractor,
@@ -52,6 +55,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
         _capture = capture;
         _cacheWriter = cacheWriter;
         _markdownCache = markdownCache ?? new MarkdownResponseCache(_options.TransformedContentCache);
+        _allowedQueryKeys = _options.TransformedContentCache.AllowedQueryKeys;
     }
 
     /// <inheritdoc />
@@ -77,7 +81,10 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
             return ActionResult.Allowed("extract-markdown: interceptor already installed");
 
         var lease = HttpMethods.IsGet(context.Request.Method)
-            ? await _markdownCache.AcquireAsync(BuildCacheKey(context.Request, opts), cancellationToken).ConfigureAwait(false)
+            ? await _markdownCache.AcquireAsync(
+                CacheKeyBuilder.Build(context.Request, Representation,
+                    opts.VersionSaltForCache(), _allowedQueryKeys),
+                cancellationToken).ConfigureAwait(false)
             : MarkdownCacheLease.Bypass;
         if (lease.Cached is { } cached)
         {
@@ -86,6 +93,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
             context.Response.ContentLength = cached.Length;
             _cacheWriter.Apply(context, opts.Cache);
             await context.Response.Body.WriteAsync(cached, cancellationToken).ConfigureAwait(false);
+            context.MarkResponseFromStyloBot();
             return ActionResult.Blocked(StatusCodes.Status200OK, "extract-markdown: cache hit");
         }
 
@@ -140,19 +148,6 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
         {
             return null;
         }
-    }
-
-    private static string BuildCacheKey(HttpRequest request, StyloExtractActionOptions options)
-    {
-        var host = request.Host.Host.ToLowerInvariant();
-        var path = request.Path.Value ?? "/";
-        // Preserve content variance. The override itself only selects the representation,
-        // so it is stripped to share a cache entry with an AI-policy request.
-        var query = request.Query
-            .Where(pair => !pair.Key.Equals(options.QueryParamName, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-            .Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value.ToString())}");
-        return $"markdown|{options.VersionSaltForCache()}|{options.Profile}|{host}|{path}|{string.Join("&", query)}";
     }
 
     // Strip CR/LF from request paths before logging so a crafted request path cannot
