@@ -1407,10 +1407,12 @@ public class StyloBotDashboardMiddleware
     private static string WrapStandaloneDashboardPage(
         string content, string nonce, string basePath, DashboardShellModel model)
     {
-        var title = model.ActiveRow?.Area is { Length: > 0 } area
+        var rawTitle = model.ActiveRow?.Area is { Length: > 0 } area
             ? $"StyloBot — {char.ToUpperInvariant(area[0])}{area[1..]}"
             : "StyloBot Dashboard";
-        var version = model.Version ?? "";
+        var title = System.Net.WebUtility.HtmlEncode(rawTitle);
+        var version = System.Net.WebUtility.HtmlEncode(model.Version ?? "");
+        var encodedBasePath = System.Net.WebUtility.HtmlEncode(basePath);
         var encodedContent = content; // already HTML
 
         return string.Concat(
@@ -1435,7 +1437,7 @@ public class StyloBotDashboardMiddleware
             "<label for=\"dashboard-drawer\" class=\"btn btn-ghost drawer-button lg:hidden\">",
             "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"h-5 w-5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 6h16M4 12h16M4 18h7\"/></svg>",
             "</label>\n",
-            "<a href=\"", basePath, "\" class=\"flex items-center gap-2 text-lg no-underline\">",
+            "<a href=\"", encodedBasePath, "\" class=\"flex items-center gap-2 text-lg no-underline\">",
             "<img src=\"/_content/Mostlylucid.BotDetection.UI/stylowall.svg\" alt=\"\" class=\"h-6 w-6\">",
             "<span class=\"font-semibold tracking-tight\">stylo<span class=\"text-base-content/40 font-light\">·</span>bot</span>",
             "</a>\n</div>\n",
@@ -1453,11 +1455,11 @@ public class StyloBotDashboardMiddleware
             "<label for=\"dashboard-drawer\" aria-label=\"close sidebar\" class=\"drawer-overlay\"></label>\n",
             "<aside class=\"bg-base-100 w-56 min-h-full border-r border-base-300 p-3 text-sm\">\n",
             "<nav class=\"flex flex-col gap-1\">\n",
-            "<a href=\"", basePath, "/traffic\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Traffic</a>\n",
-            "<a href=\"", basePath, "/visitors\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Visitors</a>\n",
-            "<a href=\"", basePath, "/site\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Site</a>\n",
-            "<a href=\"", basePath, "/policies\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Policies</a>\n",
-            "<a href=\"", basePath, "/configuration\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Configuration</a>\n",
+            "<a href=\"", encodedBasePath, "/traffic\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Traffic</a>\n",
+            "<a href=\"", encodedBasePath, "/visitors\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Visitors</a>\n",
+            "<a href=\"", encodedBasePath, "/site\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Site</a>\n",
+            "<a href=\"", encodedBasePath, "/policies\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Policies</a>\n",
+            "<a href=\"", encodedBasePath, "/configuration\" class=\"btn btn-ghost btn-sm justify-start font-normal\">Configuration</a>\n",
             "</nav>\n</aside>\n</div>\n</div>\n</body>\n</html>"
         );
     }
