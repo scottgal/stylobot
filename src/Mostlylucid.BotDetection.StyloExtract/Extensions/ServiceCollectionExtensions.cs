@@ -36,6 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IActionPolicy, ExtractPassthroughActionPolicy>();
         services.TryAddSingleton<CacheControlWriter>();
         services.TryAddSingleton<ResponseBodyCapture>();
+        services.TryAddSingleton<ContentCacheTelemetry>();
         services.TryAddSingleton<MarkdownResponseCache>(sp =>
         {
             var factory = sp.GetRequiredService<IOptionsFactory<StyloExtractActionOptions>>();

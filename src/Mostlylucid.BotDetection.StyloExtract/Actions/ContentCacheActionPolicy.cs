@@ -25,12 +25,14 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
     private readonly MarkdownResponseCache _cache;
     private readonly ILogger<ContentCacheActionPolicy> _logger;
     private readonly IReadOnlySet<string> _allowedQueryKeys;
+    private readonly ContentCacheTelemetry _telemetry;
 
     public ContentCacheActionPolicy(
         IOptionsFactory<StyloExtractActionOptions> optionsFactory,
         ResponseBodyCapture capture,
         CacheControlWriter cacheWriter,
-        ILogger<ContentCacheActionPolicy> logger)
+        ILogger<ContentCacheActionPolicy> logger,
+        ContentCacheTelemetry? telemetry = null)
     {
         _options = optionsFactory.Create(Name);
         _capture = capture;
@@ -38,6 +40,7 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
         _logger = logger;
         _cache = new MarkdownResponseCache(_options.TransformedContentCache);
         _allowedQueryKeys = _options.TransformedContentCache.AllowedQueryKeys;
+        _telemetry = telemetry ?? new ContentCacheTelemetry();
     }
 
     public string Name => "content-cache";
@@ -56,6 +59,7 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
         var lease = await _cache.AcquireAsync(key, cancellationToken).ConfigureAwait(false);
         if (lease.Cached is { } cached)
         {
+            _telemetry.RecordHit(Name);
             context.Response.StatusCode = StatusCodes.Status200OK;
             context.Response.ContentType = "text/html; charset=utf-8";
             context.Response.ContentLength = cached.Length;
@@ -71,6 +75,15 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
         {
             try
             {
+                // Evaluate cacheability AFTER upstream has written headers.
+                if (!CacheabilityEvaluator.IsCacheable(context, "text/html; charset=utf-8"))
+                {
+                    _telemetry.RecordBypass(Name, "response not cacheable");
+                    _cache.Discard(lease);
+                    return html; // Pass through unchanged.
+                }
+
+                _telemetry.RecordMiss(Name);
                 var body = Encoding.UTF8.GetBytes(html);
                 _cache.Publish(lease, body);
                 return html;
@@ -78,6 +91,7 @@ public sealed class ContentCacheActionPolicy : IActionPolicy, IAsyncDisposable
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "content-cache: capture failed for {Path}", context.Request.Path);
+                _telemetry.RecordStoreFailure(Name);
                 _cache.Discard(lease);
                 return null;
             }

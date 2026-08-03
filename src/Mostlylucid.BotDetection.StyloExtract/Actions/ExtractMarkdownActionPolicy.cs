@@ -40,6 +40,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
     private readonly CacheControlWriter _cacheWriter;
     private readonly MarkdownResponseCache _markdownCache;
     private readonly IReadOnlySet<string> _allowedQueryKeys;
+    private readonly ContentCacheTelemetry _telemetry;
 
     public ExtractMarkdownActionPolicy(
         ILayoutExtractor extractor,
@@ -47,7 +48,8 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
         ILogger<ExtractMarkdownActionPolicy> logger,
         ResponseBodyCapture capture,
         CacheControlWriter cacheWriter,
-        MarkdownResponseCache? markdownCache = null)
+        MarkdownResponseCache? markdownCache = null,
+        ContentCacheTelemetry? telemetry = null)
     {
         _extractor = extractor;
         _options = optionsFactory.Create(Name);
@@ -56,6 +58,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
         _cacheWriter = cacheWriter;
         _markdownCache = markdownCache ?? new MarkdownResponseCache(_options.TransformedContentCache);
         _allowedQueryKeys = _options.TransformedContentCache.AllowedQueryKeys;
+        _telemetry = telemetry ?? new ContentCacheTelemetry();
     }
 
     /// <inheritdoc />
@@ -88,6 +91,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
             : MarkdownCacheLease.Bypass;
         if (lease.Cached is { } cached)
         {
+            _telemetry.RecordHit(Name);
             context.Response.StatusCode = StatusCodes.Status200OK;
             context.Response.ContentType = "text/markdown; charset=utf-8";
             context.Response.ContentLength = cached.Length;
@@ -107,6 +111,14 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
         {
             try
             {
+                // Evaluate cacheability AFTER upstream has written headers.
+                if (!CacheabilityEvaluator.IsCacheable(context))
+                {
+                    _telemetry.RecordBypass(Name, "response not cacheable");
+                    _markdownCache.Discard(lease);
+                    return null; // Pass through unchanged.
+                }
+
                 var result = await _extractor.ExtractAsync(html, sourceUri, extractionOptions, cancellationToken);
                 var mdBytes = Encoding.UTF8.GetBytes(result.Markdown);
 
@@ -116,6 +128,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
 
                 _cacheWriter.Apply(context, opts.Cache);
                 _markdownCache.Publish(lease, mdBytes);
+                _telemetry.RecordMiss(Name);
 
                 return result.Markdown;
             }
@@ -124,6 +137,7 @@ public sealed class ExtractMarkdownActionPolicy : IActionPolicy
                 _logger.LogWarning(ex,
                     "extract-markdown: extraction failed for {Path}; returning original HTML",
                     LogSanitize(context.Request.Path.Value));
+                _telemetry.RecordStoreFailure(Name);
                 _markdownCache.Discard(lease);
                 return null; // Signal pass-through.
             }
