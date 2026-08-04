@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Mostlylucid.BotDetection.StyloExtract.Tests;
 
-public sealed class ContentCacheActionPolicyTests
+public sealed class ContentCacheSearchActionPolicyTests
 {
     [Fact]
     public async Task Second_matching_request_short_circuits_with_cached_html()

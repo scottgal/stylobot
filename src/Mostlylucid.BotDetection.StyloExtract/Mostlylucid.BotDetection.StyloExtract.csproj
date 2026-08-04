@@ -15,7 +15,7 @@
 
         <!-- NuGet Package Metadata -->
         <PackageId>Mostlylucid.BotDetection.StyloExtract</PackageId>
-        <Description>StyloExtract integration pack for Mostlylucid.BotDetection. Provides four named IActionPolicy implementations (extract-markdown, extract-headers, extract-sidecar, extract-passthrough) that operators reference by name from EndpointPolicy rules or [BotAction] attributes. Requires Mostlylucid.StyloExtract.AspNetCore.</Description>
+        <Description>StyloExtract integration pack for Mostlylucid.BotDetection. Provides five named IActionPolicy implementations (content-cache-search, extract-markdown-cache-ai, extract-headers, extract-sidecar, extract-passthrough) that operators reference by name from EndpointPolicy rules or [BotAction] attributes. Requires Mostlylucid.StyloExtract.AspNetCore.</Description>
         <PackageTags>bot-detection;styloextract;action-policy;markdown;html-extraction;anti-scraping</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>

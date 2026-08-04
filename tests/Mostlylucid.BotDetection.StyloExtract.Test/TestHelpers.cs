@@ -2,8 +2,10 @@ using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.StyloExtract.Actions;
+using Mostlylucid.BotDetection.StyloExtract.ContentCache;
 using Mostlylucid.BotDetection.StyloExtract.Internals;
 using Mostlylucid.BotDetection.StyloExtract.Options;
 using StyloExtract.Abstractions;
@@ -20,7 +22,8 @@ internal static class Evidence
         {
             BotProbability = prob,
             Confidence = 0.9,
-            RiskBand = RiskBand.High
+            RiskBand = RiskBand.High,
+            PrimaryBotType = BotType.AiBot
         };
 
     internal static AggregatedEvidence Human() =>
@@ -160,17 +163,24 @@ internal static class HttpContextBuilder
 // ---------------------------------------------------------------------------
 internal static class PolicyFactory
 {
-    internal static ExtractMarkdownActionPolicy Markdown(
+    internal static ExtractMarkdownCacheAiActionPolicy Markdown(
         ILayoutExtractor? extractor = null,
         StyloExtractActionOptions? opts = null,
         MarkdownResponseCache? cache = null)
-        => new(
+    {
+        var effectiveOpts = opts ?? new StyloExtractActionOptions();
+        effectiveOpts.TransformedContentCache.Enabled = true;
+        return new(
             extractor ?? new FakeExtractor(),
-            new StaticOptions(opts),
-            NullLogger<ExtractMarkdownActionPolicy>.Instance,
+            new StaticOptions(effectiveOpts),
+            NullLogger<ExtractMarkdownCacheAiActionPolicy>.Instance,
             new ResponseBodyCapture(),
             new CacheControlWriter(),
-            cache);
+            cache ?? new MarkdownResponseCache(effectiveOpts.TransformedContentCache),
+            new ContentCache.CacheKeyBuilder(),
+            new ContentCache.CacheabilityEvaluator(),
+            new ContentCache.ContentCacheTelemetry());
+    }
 
     internal static ExtractHeadersActionPolicy Headers(
         ILayoutExtractor? extractor = null,
@@ -182,12 +192,20 @@ internal static class PolicyFactory
             new ResponseBodyCapture(),
             new CacheControlWriter());
 
-    internal static ContentCacheActionPolicy ContentCache(StyloExtractActionOptions? opts = null)
-        => new(
-            new StaticOptions(opts),
+    internal static ContentCacheSearchActionPolicy ContentCache(StyloExtractActionOptions? opts = null)
+    {
+        var effectiveOpts = opts ?? new StyloExtractActionOptions();
+        effectiveOpts.TransformedContentCache.Enabled = true;
+        return new(
+            new StaticOptions(effectiveOpts),
+            NullLogger<ContentCacheSearchActionPolicy>.Instance,
             new ResponseBodyCapture(),
             new CacheControlWriter(),
-            NullLogger<ContentCacheActionPolicy>.Instance);
+            new MarkdownResponseCache(effectiveOpts.TransformedContentCache),
+            new ContentCache.CacheKeyBuilder(),
+            new ContentCache.CacheabilityEvaluator(),
+            new ContentCache.ContentCacheTelemetry());
+    }
 
     internal static ExtractSidecarActionPolicy Sidecar(StyloExtractActionOptions? opts = null)
         => new(

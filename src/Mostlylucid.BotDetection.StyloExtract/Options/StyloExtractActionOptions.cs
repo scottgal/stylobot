@@ -91,10 +91,14 @@ public sealed class TransformedContentCacheOptions
     public string VersionSalt { get; set; } = "v1";
 
     /// <summary>
-    ///     Query parameter names to include in the cache key (case-insensitive).
-    ///     Any param not in this set is dropped from the key, preventing cache
-    ///     fragmentation from tracking parameters, random seeds, etc.
-    ///     Default: empty (no query variance).
+    ///     Query parameter names whose values participate in the content-cache key (the "selected
+    ///     query values" of the cache-key spec; case-insensitive). Any param not in this set is
+    ///     dropped from the key, preventing cache fragmentation from tracking parameters, random
+    ///     seeds, etc.
+    ///     Default: empty = EVERY query parameter is significant (back-compat-safe: a wrong
+    ///     cross-query entry — e.g. serving <c>?q=cat</c> search results for <c>?q=dog</c> — is worse
+    ///     than a lower hit rate). Operators list keys only when they can name the variance, e.g.
+    ///     <c>["q", "page"]</c>.
     /// </summary>
     public HashSet<string> AllowedQueryKeys { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

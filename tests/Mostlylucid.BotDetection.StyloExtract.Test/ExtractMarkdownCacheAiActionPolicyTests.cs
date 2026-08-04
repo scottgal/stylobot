@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Mostlylucid.BotDetection.StyloExtract.Tests;
 
-public sealed class ExtractMarkdownActionPolicyTests
+public sealed class ExtractMarkdownCacheAiActionPolicyTests
 {
     private const string Html = "<html><body><h1>Hello</h1><p>World</p></body></html>";
     private const string Markdown = "# Hello\n\nWorld\n";
@@ -27,7 +27,7 @@ public sealed class ExtractMarkdownActionPolicyTests
     public async Task Name_is_extract_markdown()
     {
         var policy = PolicyFactory.Markdown();
-        policy.Name.Should().Be("extract-markdown");
+        policy.Name.Should().Be("extract-markdown-cache-ai");
     }
 
     [Fact]
