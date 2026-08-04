@@ -116,5 +116,7 @@ public class BotListDatabaseSelfHealingSchemaTests : IDisposable
             => Task.FromResult(new List<BotPattern>());
         public Task<List<SecurityToolPattern>> GetSecurityToolPatternsAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(new List<SecurityToolPattern>());
+        public Task<IReadOnlyList<int>> GetVpnAsnsAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<int>>(Array.Empty<int>());
     }
 }

@@ -124,7 +124,7 @@ public sealed class DetectionBroadcastUpstreamStatusCaptureTests
             => throw new NotImplementedException();
         public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
             => throw new NotImplementedException();
-        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null)
             => throw new NotImplementedException();
         public Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20)
             => throw new NotImplementedException();

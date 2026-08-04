@@ -57,7 +57,7 @@ public sealed class BehavioralAtom : DetectorAtomBase
         : base(name: "Behavioral", category: "Behavioral")
     {
         _logger = logger;
-        _detector = new BehavioralDetector();
+        _detector = new BehavioralDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<BehavioralDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()), null!, null);
         _options = options.Value;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;

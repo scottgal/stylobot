@@ -224,7 +224,7 @@ public sealed class TrafficRowContentCacheIntegrationTests : IAsyncDisposable
             return Task.FromResult(new List<DashboardTimeSeriesPoint>());
         }
 
-        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(new List<ThreatEntry>());
 
         public Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null, CancellationToken ct = default)

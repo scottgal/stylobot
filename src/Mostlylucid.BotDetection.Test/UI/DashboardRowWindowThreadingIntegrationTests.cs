@@ -265,7 +265,7 @@ public sealed class DashboardRowWindowThreadingIntegrationTests : IAsyncDisposab
             });
         }
 
-        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null)
         {
             ThreatsCalls.Add((startTime, endTime));
             return Task.FromResult(new List<ThreatEntry>());

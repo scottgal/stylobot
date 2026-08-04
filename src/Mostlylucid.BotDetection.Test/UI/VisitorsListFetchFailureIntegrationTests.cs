@@ -112,7 +112,7 @@ public sealed class VisitorsListFetchFailureIntegrationTests : IAsyncDisposable
             string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(new List<DashboardEndpointStats>());
 
-        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+        public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(new List<ThreatEntry>());
 
         public Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default)

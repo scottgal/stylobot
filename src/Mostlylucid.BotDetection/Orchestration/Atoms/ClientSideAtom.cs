@@ -65,7 +65,7 @@ public sealed class ClientSideAtom : DetectorAtomBase
         : base(name: "ClientSide", category: "ClientSide")
     {
         _logger = logger;
-        _detector = new ClientSideDetector();
+        _detector = new ClientSideDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<ClientSideDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()), null!, null, null);
         _population = population;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;

@@ -80,7 +80,7 @@ public sealed class DashboardEventStoreBackedEndpointPerfBaselineTests
             System.DateTime? startTime = null, System.DateTime? endTime = null)
             => throw new System.NotSupportedException();
         public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20,
-            System.DateTime? startTime = null, System.DateTime? endTime = null)
+            System.DateTime? startTime = null, System.DateTime? endTime = null, IReadOnlyList<string>? domains = null)
             => throw new System.NotSupportedException();
         public Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20)
             => throw new System.NotSupportedException();

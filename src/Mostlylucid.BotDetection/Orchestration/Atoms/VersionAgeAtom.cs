@@ -40,7 +40,7 @@ public sealed class VersionAgeAtom : DetectorAtomBase
         : base(name: "VersionAge", category: "VersionAge")
     {
         _logger = logger;
-        _detector = new VersionAgeDetector();
+        _detector = new VersionAgeDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<VersionAgeDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()), null!);
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
     }

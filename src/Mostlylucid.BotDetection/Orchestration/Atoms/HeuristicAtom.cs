@@ -49,7 +49,7 @@ public sealed class HeuristicAtom : DetectorAtomBase
         : base(name: "Heuristic", category: "HeuristicEarly")
     {
         _logger = logger;
-        _detector = new HeuristicDetector();
+        _detector = new HeuristicDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<HeuristicDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()));
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
     }
