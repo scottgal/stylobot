@@ -766,9 +766,10 @@ public sealed class SessionStore
     private readonly ConcurrentDictionary<string, FingerprintContext?> _activeSignatures = new();
 
     // Safety cap on the shadow index. The session cache is the real bound; this only
-    // guards against callback lag under extreme cardinality. Generous so it never trims
-    // a live working set.
-    private const int ActiveSignaturesMaxEntries = 100_000;
+    // guards against callback lag under extreme cardinality. Default 20,000 —
+    // at 56k sigs/30min the old 100k cap would OOM at ~70min. Configurable via
+    // BotDetection:SessionStore:ActiveSignaturesMaxEntries.
+    private readonly int _activeSignaturesMaxEntries;
 
     /// <summary>Test hook: number of signatures in the active-session shadow index.</summary>
     internal int ActiveSignatureCount => _activeSignatures.Count;
@@ -784,13 +785,15 @@ public sealed class SessionStore
         ILogger<SessionStore> logger,
         TimeSpan? sessionGapThreshold = null,
         int maxSnapshotsPerSignature = 10,
-        int maxRequestsPerSession = 200)
+        int maxRequestsPerSession = 200,
+        int activeSignaturesMaxEntries = 20_000)
     {
         _cache = cache;
         _logger = logger;
         _sessionGapThreshold = sessionGapThreshold ?? TimeSpan.FromMinutes(30);
         _maxSnapshotsPerSignature = maxSnapshotsPerSignature;
         _maxRequestsPerSession = maxRequestsPerSession;
+        _activeSignaturesMaxEntries = activeSignaturesMaxEntries > 0 ? activeSignaturesMaxEntries : 20_000;
     }
 
     /// <summary>
@@ -884,9 +887,14 @@ public sealed class SessionStore
     /// </summary>
     private void EvictActiveSignaturesIfNeeded()
     {
-        if (_activeSignatures.Count <= ActiveSignaturesMaxEntries) return;
+        if (_activeSignatures.Count <= _activeSignaturesMaxEntries) return;
         // Knock 10% off so we don't re-evict on the very next insert.
-        var overflow = _activeSignatures.Count - ActiveSignaturesMaxEntries + ActiveSignaturesMaxEntries / 10;
+        var target = _activeSignaturesMaxEntries - _activeSignaturesMaxEntries / 10;
+        var overflow = _activeSignatures.Count - target;
+        if (overflow <= 0) return;
+
+        // LFU eviction: ConcurrentDictionary iteration order is roughly insertion
+        // order — the oldest entries come first. Drop the first `overflow` entries.
         var drops = 0;
         foreach (var kv in _activeSignatures)
         {

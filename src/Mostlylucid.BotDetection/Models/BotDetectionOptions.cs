@@ -4419,6 +4419,7 @@ public sealed class SelfMaintenanceOptions
     /// <summary>Max entries in the session vector hot cache. Default: 2000.</summary>
     public int SessionCacheSize { get; set; } = 2_000;
 
+
     /// <summary>Max entries in the intent classification hot cache. Default: 1000.</summary>
     public int IntentCacheSize { get; set; } = 1_000;
 

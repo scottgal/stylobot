@@ -318,7 +318,20 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // Legacy Analysis.SessionStore (per-session sliding window of vectors)
         // still used by SessionVectorAtom. Distinct from the new
         // Orchestration.Sessions.SessionStore (shared per-domain sink).
-        services.TryAddSingleton<Analysis.SessionStore>();
+        services.TryAddSingleton<Analysis.SessionStore>(sp =>
+        {
+            // Read from config or env: BotDetection__SessionStore__ActiveSignaturesMaxEntries
+            var max = 20_000;
+            var cfg = sp.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
+            if (cfg is not null && int.TryParse(cfg["BotDetection:SessionStore:ActiveSignaturesMaxEntries"], out var cfgMax) && cfgMax > 0)
+                max = cfgMax;
+            else if (int.TryParse(Environment.GetEnvironmentVariable("STYLOBOT_SESSION_STORE_MAX_SIGNATURES"), out var envMax) && envMax > 0)
+                max = envMax;
+            return new Analysis.SessionStore(
+                sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Analysis.SessionStore>>(),
+                activeSignaturesMaxEntries: max);
+        });
         // Client-side fingerprint population tracker (browser fingerprint
         // observed-value distribution).
         services.TryAddSingleton<ClientSide.FingerprintPopulationTracker>();
