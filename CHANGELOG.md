@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [8.7.0] - 2026-08-03
+## [8.7.0] - 2026-08-04
 
-8.7 ships FOSS dashboard view-authentication, a self-contained HTML shell for standalone binaries,
-content-cache hardening, a revamped CLI live table, and the v8.7 AOT baseline.
+8.7 ships FOSS dashboard view-authentication, self-contained HTML shell, content-cache hardening
+with shared base class, VPN/proxy detection (MaxMind Anonymous IP + ASN seeds), a revamped CLI
+live table, theme bridge unification, and the v8.7 AOT baseline. 4,870 tests pass.
 
 ### Added
 
@@ -57,22 +58,40 @@ content-cache hardening, a revamped CLI live table, and the v8.7 AOT baseline.
   locked-by-default rationale, demo mode pattern (public read-only, write gated at commercial
   layer), and all override points documented.
 
+- **Content-cache refactored to shared base class.** Extracted `ContentCacheActionPolicyBase`
+  with shared cache-hit/miss flow, `ContentCache/` namespace (`CacheKeyBuilder`,
+  `CacheabilityEvaluator`, `IContentCacheTelemetry`), and split `content-cache-search` (HTML,
+  all traffic) from `extract-markdown-cache-ai` (Markdown, AI scrapers only via `BotType.AiBot`
+  eligibility gate). Gateway config and `BotTypeActionPolicies` updated to new names.
+- **CLI options audited.** `--enable-api`, `--origin-tunnel`, `--profile`, `--no-deps-check`
+  added to help text. Man page updated: v8.7.0, 67 detectors, `AiBot → extract-markdown`.
+  25 CLI formatting tests added (`FormatLatency` µs→s, `FormatAgo` now→24h).
 ### Fixed
 
-- **Deflaked adaptive scale factor test.** `Adaptive_scale_factor_rises_after_repeated_slow_ticks_and_relaxes_after_fast_ones`
-  bumped `Task.Delay` from 50ms→100ms and increased iterations (3→6 slow, 5→8 fast) for CI
-  reliability. Added actual/expected values to assertion messages.
-- **StringComparison.Ordinal** in `HandleViewUnauthenticatedAsync` — two `StartsWith` calls
-  were culture-sensitive; both now use `StringComparison.Ordinal`.
-- **Auth mode conflict guard.** `AddStyloBotDashboard` throws `InvalidOperationException` when
-  both `RequireAuthentication` and `Auth:Mode=Login` are configured — they are mutually exclusive.
+- **Deflaked adaptive scale factor test.** 50ms→100ms delay, more iterations.
+- **StringComparison.Ordinal** in `HandleViewUnauthenticatedAsync`.
+- **Auth mode conflict guard.** `InvalidOperationException` when both modes enabled.
+- **VPN detection P0.** `MaxMindGeoLocationService` now loads the GeoIP2 Anonymous IP MMDB.
+  `geo.is_vpn` / `geo.is_hosting` were hardcoded `false` — now populated when the DB is present.
+  Startup warning when absent (was silent false for every consumer).
+- **VPN detection P1.** Replaced hardcoded `DatacenterPrefixes` / `KnownDatacenterAsns` word
+  lists with YAML seed files + VPN-egress ASN seed list + free tn3w/IPSet feed via
+  `BotListFetcher`/`BotListDatabase`. Catches consumer VPN exits (NordVPN/ExpressVPN/etc.).
+- **IJa3ReferenceIndex registered.** TLS corpus checks were dead in every deployment — one-line
+  `TryAddSingleton` fix. 4 dead detector DI registrations removed (atom migration artefacts);
+  atoms now self-instantiate their detector instances.
+- **P0 theme bridge.** `sb-components.css` unified to daisyUI `--color-*` palette, replacing
+  hardcoded light values + `prefers-color-scheme` fork + `.sb-dark`/`.sb-light` classes.
+  Widgets now track `data-theme` exactly.
+- **P1 card tokens.** `--sb-card-radius`, `--sb-card-shadow`, `.sb-widget-card` envelope class
+  with header/body/footer convention + `data-sb-widget` identity.
+- **Fingerprint profile bar moved to top** of signature detail page. Empty-signal state is
+  now an error callout (`role=alert`).
 
 ### AOT baseline
 
-- `stylobot` Console AOT publish passes with zero regressions. All 1230 build warnings are
-  pre-existing (LLM provider JSON serialization, Serilog, LLamaSharp, native linker).
-  Dashboard auth code (`DashboardPasswordHasher`, `DashboardViewCredentialVerifier`,
-  `DashboardAuthOptions`, cookie scheme registration) is fully AOT-compatible.
+- `stylobot` Console AOT publish passes with zero regressions. Auth code fully AOT-compatible.
+  4,870 tests pass.
 
 ## [8.6.0] - 2026-07-31
 
