@@ -74,16 +74,30 @@ public static class PolicyDispatchServiceExtensions
         // detection-only host (Demo, BDF rig, minimal LearningFeedbackLoop test)
         // doesn't pull in the dashboard. Without these TryAddSingleton lines
         // every PolicyActionDispatcher activation throws at boot.
-        // YamlPolicyRuleStore.FromEmbeddedResources loads the bundled FOSS
-        // seed; commercial Postgres pack overrides via TryAdd-loses semantics.
-        services.TryAddSingleton<Rules.IPolicyRuleStore>(_ =>
+        // YamlPolicyRuleStore loads the bundled FOSS seed by default.
+        // When BotDetection:Policies:RulesDirectory is configured (or
+        // --config-dir is passed), FromDirectory watches that directory
+        // on disk with FileSystemWatcher + 250ms debounce — operators
+        // can version-control policies and mount via Docker/K8s volumes.
+        // Commercial Postgres pack overrides via TryAdd-loses semantics.
+        services.TryAddSingleton<Rules.IPolicyRuleStore>(sp =>
         {
+            var cfg = sp.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
+            var dir = cfg?["BotDetection:Policies:RulesDirectory"];
+            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            {
+                var store = Rules.YamlPolicyRuleStore.FromDirectory(dir,
+                    sp.GetService<Microsoft.Extensions.Logging.ILogger<Rules.YamlPolicyRuleStore>>());
+                store.InitializeAsync().GetAwaiter().GetResult();
+                return store;
+            }
+
             var asm = typeof(Rules.PolicyRule).Assembly;
-            var store = Rules.YamlPolicyRuleStore.FromEmbeddedResources(
+            var fallback = Rules.YamlPolicyRuleStore.FromEmbeddedResources(
                 asm,
                 "Mostlylucid.BotDetection.Policies.Rules.SeedRules.");
-            store.InitializeAsync().GetAwaiter().GetResult();
-            return store;
+            fallback.InitializeAsync().GetAwaiter().GetResult();
+            return fallback;
         });
         services.TryAddSingleton<Resolution.IPolicyResolver, Resolution.DefaultPolicyResolver>();
 
