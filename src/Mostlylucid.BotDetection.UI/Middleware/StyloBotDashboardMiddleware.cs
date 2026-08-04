@@ -1749,6 +1749,13 @@ public class StyloBotDashboardMiddleware
         var summary = summaryTask.Result;
         var countriesData = countriesTask.Result;
         var endpointsData = endpointsTask.Result;
+        // P0: endpoints MUST render inline on SSR. The TagHelper-driven VC checks
+        // DashboardEndpointsFirstPaintContext before calling the event store. Stash
+        // the already-fetched SSR data so the VC renders synchronously — no second
+        // store call, no empty/warming placeholder on first paint.
+        if (endpointsData.Count > 0)
+            Dashboard.DashboardEndpointsFirstPaintContext.Set(context,
+                new SsrEndpointsFirstPaintReader(endpointsData));
         var allUserAgents = userAgentsTask.Result;
 
         // M2: investigate surface deleted. The Investigation view model on the
@@ -7349,6 +7356,22 @@ public class StyloBotDashboardMiddleware
             Packs = registry.Packs,
             SignatureDetailContent = model,
         };
+    }
+
+    /// <summary>
+    ///     Lightweight first-paint reader that returns pre-fetched SSR endpoints data.
+    ///     Registered on the request before the view renders so the TagHelper-driven
+    ///     SbEndpointsListViewComponent renders inline with the page instead of making
+    ///     a second store call (or rendering an empty warming placeholder).
+    /// </summary>
+    private sealed class SsrEndpointsFirstPaintReader : Dashboard.IDashboardEndpointsFirstPaintReader
+    {
+        private readonly List<DashboardEndpointStats> _data;
+        public SsrEndpointsFirstPaintReader(List<DashboardEndpointStats> data) => _data = data;
+        public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
+            int count, DateTime? startTime, DateTime? endTime, string? audienceFilter,
+            IReadOnlyList<string>? domains, CancellationToken cancellationToken = default)
+            => Task.FromResult(_data);
     }
 
     private static async Task WriteSignatureNotFoundAsync(HttpContext context, string signature, string basePath)
