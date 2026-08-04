@@ -78,10 +78,9 @@ public sealed class AiAtom : DetectorAtomBase
         _logger.LogDebug("AI detector running for request {RequestId} (risk={Risk:F2}, detectors={Count})",
             sessionId, currentRisk, detectorCount);
 
-        // Placeholder body carried over from the contributor -- real AI
-        // wiring plugs an ONNX session / LLM here.
-        await Task.Delay(10, ct).ConfigureAwait(false);
-
+        // Production AI wiring (ONNX session / LLM) is a follow-on — the AiContributor
+        // in the LLM project handles that. This atom runs late-stage risk confirmation
+        // without artificial latency.
         if (currentRisk > HighRiskThreshold)
         {
             return Single(new DetectionContribution
