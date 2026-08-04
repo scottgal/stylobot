@@ -66,6 +66,14 @@ emits:
     - key: ip.is_datacenter
       type: bool
       description: Client IP belongs to a known datacenter / cloud ASN
+    - key: ip.is_vpn
+      type: bool
+      description: >-
+        Client IP's ASN is in the vpn_egress_asns seed/feed list (consumer-VPN
+        hosting/transit ASNs, e.g. M247/AS9009). Weak contextual prior, not a block.
+    - key: ip.vpn_asn
+      type: int
+      description: ASN of the VPN egress network when ip.is_vpn is true
     - key: ip.is_local
       type: bool
       description: Client IP is RFC1918 / loopback / link-local
@@ -142,16 +150,40 @@ defaults:
     # Loopback IPs (127.0.0.1, ::1) get human_indicated bonus (from confidence.human_indicated)
     # because only the local machine can originate direct loopback connections.
     private_ip_penalty: 0.0   # 192.168.x.x, 10.x.x.x - neutral (internal services, dev machines, corporate proxies)
-    # Datacenter ranges (simplified prefixes)
+    # Datacenter ranges (simplified prefixes). Union of the legacy code catalog
+    # (removed from IpAtom) and this manifest — the manifest is now the ONLY
+    # source of truth. IpAtom reads these via DetectorConfigProvider, so
+    # appsettings overrides and the commercial config editor apply.
     datacenter_ranges:
-      AWS: ["3.", "13.", "18.", "35.", "52.", "54."]
-      Google: ["34.", "35."]
-      Azure: ["13.", "20.", "40.", "52."]
-      DigitalOcean: ["104.131.", "104.236.", "159.65.", "167.99."]
-      Linode: ["45.33.", "45.56.", "45.79."]
-      Vultr: ["45.32.", "45.63.", "45.76.", "45.77."]
-      OVH: ["51.38.", "51.68.", "51.77.", "51.91."]
-      Hetzner: ["65.21.", "95.216.", "135.181.", "168.119."]
+      AWS: ["3.", "13.", "15.", "18.", "35.", "52.", "54.", "99."]
+      Google: ["34.", "35.", "130.", "146."]
+      Azure: ["13.", "20.", "40.", "52.", "65.52.", "65.55."]
+      DigitalOcean: ["104.131.", "104.236.", "159.65.", "167.99.", "138.197.", "167.71.", "206.189."]
+      Linode: ["45.33.", "45.56.", "45.79.", "50.116.", "69.164.", "72.14.", "96.126."]
+      Vultr: ["45.32.", "45.63.", "45.76.", "45.77.", "66.42.", "78.141.", "95.179.", "104.156.", "108.61.", "136.244.", "140.82.", "149.28.", "207.148.", "209.250."]
+      OVH: ["51.38.", "51.68.", "51.77.", "51.83.", "51.89.", "51.91.", "51.161.", "51.178.", "51.195.", "51.210.", "54.37."]
+      Hetzner: ["5.9.", "23.88.", "46.4.", "65.21.", "65.108.", "65.109.", "78.46.", "78.47.", "85.10.", "88.198.", "88.99.", "95.216.", "116.202.", "116.203.", "128.140.", "135.181.", "136.243.", "138.201.", "142.132.", "144.76.", "148.251.", "157.90.", "159.69.", "162.55.", "167.235.", "168.119.", "176.9.", "178.63.", "195.201.", "213.133.", "213.239."]
+    # Consumer VPN egress ASNs — the hosting/transit networks consumer VPN
+    # providers actually exit from (per the 2023 academic characterization of
+    # the VPN ecosystem: M247/AS9009 alone carries 27 providers incl. NordVPN,
+    # Mozilla VPN, Norton Secure VPN). ASN lookup is already Team Cymru DNS
+    # (IAsnLookupService) on the IpAtom — this seed is checked against the
+    # RESULTING ASN, so it catches VPN exits that are NOT in datacenter_ranges
+    # (the current gap) and adds the ip.is_vpn signal on top of datacenter hits.
+    # Extend freely — YAML is the source of truth (no code change needed).
+    vpn_egress_asns:
+      - 9009      # M247 — NordVPN, Mozilla VPN, Norton, +24 more
+      - 60068     # M247 — NordVPN, CyberGhost
+      - 212238    # Datacamp/CDN77 — ExpressVPN, Surfshark, PIA
+      - 206216    # Datacamp
+      - 16509     # Amazon — Norton Secure VPN, SurfEasy
+      - 14061     # DigitalOcean — Surfshark, PIA
+      - 16276     # OVH — ProtonVPN, Windscribe
+      - 24940     # Hetzner — ProtonVPN
+    # Confidence delta for a VPN egress ASN hit. Deliberately a weak contextual
+    # prior (VPN != bot): enough to shape rate limiting and sensitive-endpoint
+    # escalation, never enough to dominate the verdict on its own.
+    vpn_egress_confidence: 0.15
     # Datacenter IP base confidence
     datacenter_confidence: 0.6
     # ISP/residential IP human confidence (weak positive human signal)

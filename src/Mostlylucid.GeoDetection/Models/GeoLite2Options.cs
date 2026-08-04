@@ -66,6 +66,17 @@ public class GeoLite2Options
     public bool FallbackToSimple { get; set; } = true;
 
     /// <summary>
+    ///     Optional path to the GeoIP2 Anonymous IP / Anonymous Plus MMDB database.
+    ///     The free GeoLite2 City database carries NO anonymity traits, so without
+    ///     this file the VPN/proxy/Tor/hosting flags stay false. When the file is
+    ///     present, MaxMindGeoLocationService opens a second reader and populates
+    ///     GeoLocation.IsVpn / IsProxy / IsTor / IsHosting from its traits.
+    ///     Download from https://www.maxmind.com/ (paid) or use a GeoLite2
+    ///     anonymous-data mirror; weekly updates mirror GeoLite2UpdateService.
+    /// </summary>
+    public string? AnonymousDatabasePath { get; set; }
+
+    /// <summary>
     ///     Returns true if auto-download is properly configured
     /// </summary>
     public bool IsAutoDownloadConfigured => AccountId.HasValue && !string.IsNullOrEmpty(LicenseKey);

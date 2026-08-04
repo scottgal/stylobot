@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -44,19 +45,11 @@ namespace Mostlylucid.BotDetection.Orchestration.Atoms;
 /// </remarks>
 public sealed class IpAtom : DetectorAtomBase
 {
-    // TODO: migrate to YAML per feedback_no_word_lists.
-    private static readonly Dictionary<string, string[]> DatacenterPrefixes = new()
-    {
-        { "AWS", ["3.", "15.", "18.", "54.", "99."] },
-        { "Azure", ["20.", "40.", "65.52.", "65.55."] },
-        { "Google Cloud", ["34.", "130.", "146."] },
-        { "DigitalOcean", ["104.131.", "104.236.", "159.65.", "138.197.", "167.71.", "206.189."] },
-        { "Linode", ["45.33.", "45.56.", "50.116.", "69.164.", "72.14.", "96.126."] },
-        { "OVH", ["51.38.", "51.68.", "51.77.", "51.83.", "51.89.", "51.91.", "51.161.", "51.178.", "51.195.", "51.210.", "54.37."] },
-        { "Vultr", ["45.32.", "45.63.", "45.76.", "45.77.", "66.42.", "78.141.", "95.179.", "104.156.", "108.61.", "136.244.", "140.82.", "149.28.", "207.148.", "209.250."] },
-        { "Hetzner", ["5.9.", "23.88.", "46.4.", "65.21.", "65.108.", "65.109.", "78.46.", "78.47.", "85.10.", "88.198.", "88.99.", "95.216.", "116.202.", "116.203.", "128.140.", "135.181.", "136.243.", "138.201.", "142.132.", "144.76.", "148.251.", "157.90.", "159.69.", "162.55.", "167.235.", "168.119.", "176.9.", "178.63.", "195.201.", "213.133.", "213.239."] }
-    };
-
+    // Datacenter prefix ranges live in the ip.detector.yaml manifest
+    // (datacenter_ranges) — read via DetectorConfigProvider so appsettings
+    // overrides and the commercial config editor apply. The legacy hardcoded
+    // catalog was folded into the manifest as a union (one source of truth,
+    // per feedback_no_word_lists).
     private readonly BoundedCache<string, bool> _cidrCache = new(maxSize: 10_000, defaultTtl: TimeSpan.FromHours(1));
     private readonly SemaphoreSlim _cidrLock = new(1, 1);
     private IReadOnlyList<string>? _cachedCidrRanges;
@@ -64,6 +57,7 @@ public sealed class IpAtom : DetectorAtomBase
 
     private readonly IAsnLookupService? _asnLookup;
     private readonly IBotListDatabase? _botListDatabase;
+    private readonly IBotListFetcher? _botListFetcher;
     private readonly ILogger<IpAtom> _logger;
     private readonly IProxyEnvironment? _proxyEnvironment;
     private readonly IDetectorConfigProvider _configProvider;
@@ -76,6 +70,7 @@ public sealed class IpAtom : DetectorAtomBase
         IHttpContextAccessor httpContextAccessor,
         IBotListDatabase? botListDatabase = null,
         IAsnLookupService? asnLookup = null,
+        IBotListFetcher? botListFetcher = null,
         IProxyEnvironment? proxyEnvironment = null,
         IOptions<BotDetectionOptions>? options = null)
         : base(name: "Ip", category: "IP")
@@ -85,6 +80,7 @@ public sealed class IpAtom : DetectorAtomBase
         _httpContextAccessor = httpContextAccessor;
         _botListDatabase = botListDatabase;
         _asnLookup = asnLookup;
+        _botListFetcher = botListFetcher;
         _proxyEnvironment = proxyEnvironment;
         _options = options;
     }
@@ -97,6 +93,7 @@ public sealed class IpAtom : DetectorAtomBase
     private double DatacenterConfidence => _configProvider.GetParameter(Name, "datacenter_confidence", 0.6);
     private double IspHumanConfidence => _configProvider.GetParameter(Name, "isp_human_confidence", 0.15);
     private double WeightBase => _configProvider.GetDefaults(Name).Weights.Base;
+    private double VpnEgressConfidence => _configProvider.GetParameter(Name, "vpn_egress_confidence", 0.15);
 
     public override async Task<IReadOnlyList<DetectionContribution>> DetectAsync(
         SignalSink sink,
@@ -195,7 +192,7 @@ public sealed class IpAtom : DetectorAtomBase
 
         if (!isLocal)
         {
-            (isDatacenter, datacenterName) = CheckDatacenterPrefix(clientIp);
+            (isDatacenter, datacenterName) = CheckDatacenterPrefix(clientIp, DatacenterRanges());
 
             if (_asnLookup is not null)
             {
@@ -221,6 +218,27 @@ public sealed class IpAtom : DetectorAtomBase
                                 datacenterName, asnInfo.Asn, asnInfo.OrgName);
                             isDatacenter = false;
                             datacenterName = null;
+                        }
+
+                        // VPN egress ASN check — manifest seeds (vpn_egress_asns)
+                        // merged with the free online feed (IBotListFetcher.
+                        // GetVpnAsnsAsync, tn3w/IPSet). Catches consumer-VPN
+                        // exits (M247/AS9009 etc.) the datacenter lists miss.
+                        // Weak contextual prior (vpn_egress_confidence): shapes
+                        // rate limiting + sensitive-endpoint escalation, never
+                        // dominates the verdict on its own.
+                        if (await IsVpnEgressAsnAsync(asnInfo.Asn, ct))
+                        {
+                            sink.Raise($"{SignalKeys.IpIsVpn}:true", sessionId);
+                            sink.Raise($"ip.vpn_asn:{asnInfo.Asn}", sessionId);
+                            contributions.Add(new DetectionContribution
+                            {
+                                DetectorName = Name,
+                                Category = Category,
+                                ConfidenceDelta = VpnEgressConfidence,
+                                Weight = 1.0,
+                                Reason = $"VPN egress ASN: {asnInfo.OrgName ?? $"AS{asnInfo.Asn}"} (AS{asnInfo.Asn})"
+                            });
                         }
                     }
                 }
@@ -357,9 +375,87 @@ public sealed class IpAtom : DetectorAtomBase
     // atoms (WebhookSensor) resolve the same CLIENT ip without duplicating this fallback chain.
     private string ResolveClientIp(HttpContext context) => ClientIpResolver.Resolve(context, _proxyEnvironment);
 
-    private static (bool isDatacenter, string? name) CheckDatacenterPrefix(string ip)
+    /// <summary>
+    ///     Datacenter prefix ranges from the ip.detector.yaml manifest
+    ///     (datacenter_ranges), read through DetectorConfigProvider so
+    ///     appsettings overrides and the commercial config editor apply.
+    ///     VYaml deserializes the nested vendor→prefixes object as a generic
+    ///     IDictionary — parsed defensively here.
+    /// </summary>
+    private IReadOnlyDictionary<string, string[]> DatacenterRanges()
     {
-        foreach (var (name, prefixes) in DatacenterPrefixes)
+        var result = new Dictionary<string, string[]>();
+        var parameters = _configProvider.GetDefaults(Name).Parameters;
+        if (parameters.TryGetValue("datacenter_ranges", out var raw) && raw is IDictionary dict)
+        {
+            foreach (DictionaryEntry entry in dict)
+            {
+                var vendor = entry.Key?.ToString() ?? "";
+                var prefixes = entry.Value switch
+                {
+                    IEnumerable<string> strs => strs.ToArray(),
+                    IEnumerable<object> objs => objs
+                        .Select(o => o?.ToString())
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .Select(s => s!)
+                        .ToArray(),
+                    _ => Array.Empty<string>()
+                };
+                if (prefixes.Length > 0) result[vendor] = prefixes;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    ///     True when the ASN is in the manifest vpn_egress_asns seeds OR the
+    ///     free online feed (tn3w/IPSet datacenter_asns.json via
+    ///     IBotListFetcher, IMemoryCache-cached). A dead feed degrades to
+    ///     seeds-only — never throws into the hot path.
+    /// </summary>
+    private async Task<bool> IsVpnEgressAsnAsync(int asn, CancellationToken ct)
+    {
+        var parameters = _configProvider.GetDefaults(Name).Parameters;
+        if (parameters.TryGetValue("vpn_egress_asns", out var raw) && raw is not null)
+            foreach (var seed in FlattenAsns(raw))
+                if (seed == asn)
+                    return true;
+
+        if (_botListFetcher is not null)
+        {
+            try
+            {
+                var feed = await _botListFetcher.GetVpnAsnsAsync(ct);
+                return feed.Contains(asn);
+            }
+            catch
+            {
+                // Feed unreachable — seeds already checked above.
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<int> FlattenAsns(object raw)
+    {
+        if (raw is IEnumerable<object> objs)
+        {
+            foreach (var o in objs)
+                if (int.TryParse(o?.ToString(), out var n))
+                    yield return n;
+        }
+        else if (raw is IEnumerable<int> ints)
+        {
+            foreach (var n in ints)
+                yield return n;
+        }
+    }
+
+    private static (bool isDatacenter, string? name) CheckDatacenterPrefix(
+        string ip, IReadOnlyDictionary<string, string[]> ranges)
+    {
+        foreach (var (name, prefixes) in ranges)
         {
             foreach (var prefix in prefixes)
             {

@@ -17,7 +17,16 @@ internal sealed class StaticHttpContextAccessor(HttpContext context) : IHttpCont
 internal sealed class StubDetectorConfigProvider : IDetectorConfigProvider
 {
     public DetectorManifest? GetManifest(string detectorName) => null;
-    public DetectorDefaults GetDefaults(string detectorName) => new();
+    public DetectorDefaults GetDefaults(string detectorName) => new()
+    {
+        Parameters = new()
+        {
+            // Mirrors the ip.detector.yaml seeds so IpAtomContractTests can
+            // exercise the ip.is_vpn emit path (ASN 9009 = M247, the canonical
+            // consumer-VPN egress ASN). Other atoms ignore this parameter.
+            ["vpn_egress_asns"] = new object[] { 9009 }
+        }
+    };
     public T GetParameter<T>(string detectorName, string parameterName, T defaultValue) => defaultValue;
 
     public Task<T> GetParameterAsync<T>(string detectorName, string parameterName,

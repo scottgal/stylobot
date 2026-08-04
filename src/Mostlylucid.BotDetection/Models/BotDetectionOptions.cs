@@ -3284,6 +3284,26 @@ public class DataSourcesOptions
     };
 
     // ==========================================
+    // VPN egress ASN source (anonymizer detection)
+    // ==========================================
+
+    /// <summary>
+    ///     Consumer VPN / datacenter ASN list from tn3w/IPSet (free, auto-updated
+    ///     GitHub dataset: 1.7M+ IPs, VPN provider lists incl. ExpressVPN,
+    ///     Surfshark, ProtonVPN, PIA, CyberGhost, Mullvad + datacenter ASNs).
+    ///     JSON array of ASN numbers (no "AS" prefix). Feeds IpAtom's ip.is_vpn
+    ///     signal: an IP whose Team Cymru ASN is in this list is a likely VPN
+    ///     exit. The YAML vpn_egress_asns seeds in ip.detector.yaml remain as
+    ///     the offline fallback when this feed is unreachable.
+    /// </summary>
+    public DataSourceConfig VpnAsns { get; set; } = new()
+    {
+        Enabled = true,
+        Url = "https://raw.githubusercontent.com/tn3w/IPSet/master/datacenter_asns.json",
+        Description = "tn3w/IPSet datacenter ASNs - consumer VPN + hosting ASN list (JSON array of ints)"
+    };
+
+    // ==========================================
     // Browser Version Sources (Age detection)
     // ==========================================
 

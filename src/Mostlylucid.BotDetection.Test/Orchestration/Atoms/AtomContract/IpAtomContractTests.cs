@@ -63,10 +63,10 @@ public sealed class IpAtomContractTests
         public Task<AsnInfo?> LookupAsync(string ipAddress, CancellationToken ct = default)
             => Task.FromResult<AsnInfo?>(new AsnInfo
             {
-                Asn = 15169,
-                OrgName = "Google LLC",
+                Asn = 9009,
+                OrgName = "M247 Ltd",
                 IsDatacenter = true,
-                ProviderName = "Google Cloud",
+                ProviderName = "M247",
             });
     }
 }

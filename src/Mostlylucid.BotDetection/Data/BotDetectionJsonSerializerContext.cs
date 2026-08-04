@@ -15,6 +15,7 @@ namespace Mostlylucid.BotDetection.Data;
     GenerationMode = JsonSourceGenerationMode.Metadata)]
 // Simple types
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(List<int>))]
 // AWS types
 [JsonSerializable(typeof(BotListFetcher.AwsIpRangesResponse))]
 [JsonSerializable(typeof(BotListFetcher.AwsPrefix))]

@@ -39,6 +39,16 @@ public interface IBotListFetcher
     Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetDatacenterIpRangesByVendorAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    ///     Fetches the consumer-VPN / hosting ASN list from the configured
+    ///     VpnAsns data source (tn3w/IPSet datacenter_asns.json by default —
+    ///     JSON array of ASN numbers). Cached with the same CacheDuration as
+    ///     the other list fetches. Returns an empty list when the source is
+    ///     disabled or the fetch fails (callers fall back to the YAML
+    ///     vpn_egress_asns seeds in ip.detector.yaml).
+    /// </summary>
+    Task<IReadOnlyList<int>> GetVpnAsnsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     ///     Fetches Matomo bot patterns with metadata (name, category, url).
     ///     Only fetches if Matomo source is enabled in configuration.
     /// </summary>
@@ -484,6 +494,49 @@ public partial class BotListFetcher : IBotListFetcher
         {
             _logger.LogWarning(ex, "Failed to fetch Matomo patterns from {Url}, using fallback", sources.Matomo.Url);
             return GetFallbackMatomoPatterns();
+        }
+    }
+
+
+    /// <summary>
+    ///     Fetches the VPN / hosting ASN list from the VpnAsns data source
+    ///     (tn3w/IPSet datacenter_asns.json — free, auto-updated, JSON array of
+    ///     ASN numbers). Feeds IpAtom's ip.is_vpn signal via the Team Cymru ASN
+    ///     result. On failure returns an empty list so the manifest
+    ///     vpn_egress_asns seeds remain the fallback — a dead feed degrades
+    ///     detection, never crashes the hot path.
+    /// </summary>
+    public async Task<IReadOnlyList<int>> GetVpnAsnsAsync(CancellationToken cancellationToken = default)
+    {
+        const string cacheKey = "bot_list_vpn_asns";
+
+        if (_cache.TryGetValue<List<int>>(cacheKey, out var cached) && cached != null) return cached;
+
+        var sources = _options.DataSources;
+        if (!sources.VpnAsns.Enabled || string.IsNullOrEmpty(sources.VpnAsns.Url))
+        {
+            _logger.LogDebug("VpnAsns data source is disabled");
+            return Array.Empty<int>();
+        }
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(_options.ListDownloadTimeoutSeconds);
+
+            var json = await client.GetStringAsync(sources.VpnAsns.Url, cancellationToken);
+            var asns = JsonSerializer.Deserialize(json, BotDetectionJsonSerializerContext.Default.ListInt32);
+            var result = asns ?? new List<int>();
+
+            _logger.LogInformation("Fetched {Count} VPN/hosting ASNs from {Url}", result.Count, sources.VpnAsns.Url);
+
+            _cache.Set(cacheKey, result, CacheDuration);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to fetch VPN ASN list from {Url}, using manifest seeds", sources.VpnAsns.Url);
+            return Array.Empty<int>();
         }
     }
 

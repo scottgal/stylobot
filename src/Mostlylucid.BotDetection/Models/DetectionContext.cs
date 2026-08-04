@@ -322,6 +322,14 @@ public static partial class SignalKeys
     /// <summary>Bool: true when the client IP resolves to a known datacenter / cloud provider ASN.</summary>
     public const string IpIsDatacenter = "ip.is_datacenter";
 
+    /// <summary>
+    ///     Bool: true when the client IP's ASN is in the manifest's vpn_egress_asns
+    ///     seed list (consumer-VPN hosting/transit ASNs, e.g. M247/AS9009). A weak
+    ///     contextual prior — VPN != bot — written by IpAtom from the Team Cymru
+    ///     ASN lookup, independent of the geo layer's geo.is_vpn.
+    /// </summary>
+    public const string IpIsVpn = "ip.is_vpn";
+
     /// <summary>Bool: true when the client IP is RFC1918 / loopback / link-local (test or internal traffic).</summary>
     public const string IpIsLocal = "ip.is_local";
 
