@@ -167,6 +167,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    --llm-url <url>             Custom provider base URL");
     Console.WriteLine("    --model <name>              Model name (overrides provider default)");
     Console.WriteLine("    --config <path>             Path to appsettings.json override");
+    Console.WriteLine("    --config-dir <path>         Load YAML policy/application files from directory");
     Console.WriteLine("    --log-level <level>         Minimum log level (default: Warning)");
     Console.WriteLine("    --verbose                   Show all log output (disables live table)");
     Console.WriteLine("    --skip-dependencies-check   Skip first-run downloads (bot list, GeoIP,");
@@ -574,6 +575,9 @@ try
     builder.Configuration.AddJsonFile($"appsettings.{mode}.json", true, false);
     if (configPath != null)
         builder.Configuration.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: false);
+    // Docker/K8s secrets: /run/secrets/<key> files → config keys. Standard in
+    // containerized deployments; no-op when the directory doesn't exist.
+    builder.Configuration.AddKeyPerFile("/run/secrets", optional: true, reloadOnChange: false);
     builder.Configuration.AddEnvironmentVariables();
     builder.Configuration.AddEnvironmentVariables("STYLOBOT_");
 
@@ -898,6 +902,19 @@ try
 
     // Load signatures from JSON-L files on startup
     await SignatureLoaderService.LoadSignaturesFromJsonL(app.Services, Log.Logger);
+
+    // --config-dir: drop YAML policy/application files in a directory.
+    // Operators can version-control policies and mount them via Docker/K8s.
+    var configDirPath = GetArg(cmdArgs, "--config-dir");
+    if (!string.IsNullOrWhiteSpace(configDirPath) && Directory.Exists(configDirPath))
+    {
+        var yamlStore = app.Services.GetService<Mostlylucid.BotDetection.Policies.Templates.YamlTemplateStore>();
+        if (yamlStore is not null)
+        {
+            var apps = yamlStore.LoadApplicationsFromDirectory(configDirPath);
+            Log.Information("Loaded {Count} policy application(s) from {Dir}", apps.Count, configDirPath);
+        }
+    }
 
     // Use Forwarded Headers middleware FIRST to extract real client IP
     app.UseForwardedHeaders();
@@ -1672,6 +1689,8 @@ static void ShowManPage()
         [bold]--llm-url[/] <url>                Custom provider base URL
         [bold]--model[/] <name>                 Override default model for provider
         [bold]--config[/] <path>                Custom appsettings.json
+        [bold]--config-dir[/] <path>            Load YAML policy/application files from directory
+                                               (version-control policies, mount via Docker/K8s)
         [bold]--log-level[/] <level>            Minimum log level (default: Warning)
         [bold]--verbose[/]                      Full log output (disables live table)
         [bold]--enable-api[/]                   Expose /api/v1/* REST endpoints + SignalR hub
@@ -1731,6 +1750,8 @@ static void ShowManPage()
         KNOWN_PROXIES        Trusted proxy IPs (comma-separated)
         STYLOBOT_ALLOW_PUBLIC_METRICS
                              Allow remote scraping of /metrics
+        /run/secrets/<key>   Docker/K8s secrets mounted as config keys
+                             (e.g. /run/secrets/STYLOBOT_LLM_KEY → STYLOBOT_LLM_KEY)
 
     [bold]CONFIGURATION[/]
         Config priority (highest first):
