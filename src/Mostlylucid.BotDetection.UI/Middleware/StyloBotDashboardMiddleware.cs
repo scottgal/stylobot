@@ -6455,7 +6455,24 @@ public class StyloBotDashboardMiddleware
 
         if (detections.Count == 0)
         {
-            await WriteSignatureNotFoundAsync(context, decodedSignature, basePath);
+            // The signature exists in the aggregated `signatures` table (Top Bots links
+            // here) but raw detections were pruned by retention. Don't 404 — render the
+            // page with available data: signature lookup, sparkline, and visitor cache
+            // still work. Only the per-detection table will be empty.
+            var emptyModel = await BuildEmptyDetectionsSignatureModelAsync(
+                context, decodedSignature, basePath, navBasePath, cspNonce);
+            if (emptyModel is null)
+            {
+                await WriteSignatureNotFoundAsync(context, decodedSignature, basePath);
+                return;
+            }
+            var emptyHtml = await _razorViewRenderer.RenderViewToStringAsync(
+                "/Views/StyloBot/Dashboard/Index.cshtml", emptyModel, context, isMainPage: true);
+            if (!emptyHtml.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase)
+                && !emptyHtml.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+                emptyHtml = WrapStandaloneDashboardPage(emptyHtml, cspNonce, basePath, emptyModel);
+            context.Response.ContentType = "text/html";
+            await context.Response.WriteAsync(emptyHtml);
             return;
         }
 
@@ -7267,6 +7284,71 @@ public class StyloBotDashboardMiddleware
                 <a href="{basePath}" class="btn btn-sm btn-ghost mt-4">Back to dashboard</a>
             </div></body></html>
             """);
+    }
+
+    /// <summary>
+    ///     Builds a signature detail shell model when detections have been pruned by
+    ///     retention but the aggregated signature still exists. Top Bots links to
+    ///     signatures whose raw detections are past the retention window; instead of
+    ///     404, render the page with available data (sparkline, visitor cache, lookup).
+    ///     Returns null when NO data source has the signature — that's a genuine 404.
+    /// </summary>
+    private async Task<DashboardShellModel?> BuildEmptyDetectionsSignatureModelAsync(
+        HttpContext context, string signature, string basePath, string navBasePath, string cspNonce)
+    {
+        // Check every available data source for this signature.
+        var sigDetailLookup = await _eventStore.LoadSignatureLookupAsync();
+        if (!sigDetailLookup.TryGetValue(signature, out var botName))
+            return null; // genuinely unknown — 404
+
+        var visitorCache = context.RequestServices.GetService<SignatureAggregateCache>();
+        var visitor = visitorCache?.GetVisitor(signature);
+        var sparkline = _signatureCache.GetSparkline(signature);
+
+        var registry = context.RequestServices.GetRequiredService<UI.Dashboard.IDashboardRowRegistry>();
+        var model = new SignatureDetailModel
+        {
+            SignatureId = signature,
+            BotName = botName ?? "Unknown Signature",
+            BotType = "Unknown",
+            BotProbability = visitor?.BotProbability ?? 0,
+            Confidence = visitor?.Confidence ?? 0,
+            RiskBand = "Unknown",
+            ThreatBand = "None",
+            HitCount = visitor?.Hits ?? 0,
+            LastSeen = visitor?.LastSeen ?? DateTime.MinValue,
+            UserAgent = visitor?.UserAgent ?? null,
+            CountryCode = visitor?.CountryCode ?? null,
+            CspNonce = cspNonce,
+            BasePath = basePath,
+            HubPath = _options.HubPath,
+            IsBot = (visitor?.BotProbability ?? 0) >= 0.5,
+            TopReasons = visitor?.TopReasons ?? [],
+        };
+
+        return new DashboardShellModel
+        {
+            CspNonce = cspNonce,
+            BasePath = basePath,
+            HubPath = _options.HubPath,
+            ActiveRow = new UI.Dashboard.DashboardRowRef("signature-detail"),
+            Version = DashboardVersion,
+            RenderShell = _options.RenderShell,
+            Summary = new SummaryStatsModel { BasePath = basePath, Summary = new() { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 } },
+            Visitors = new() { Visitors = [], Counts = new(), Filter = "all", SortField = "lastSeen", SortDir = "desc", Page = 1, PageSize = 24, TotalCount = 0, BasePath = basePath },
+            YourDetection = await BuildYourDetectionPartialModel(context),
+            Countries = new() { Countries = [], BasePath = basePath },
+            Endpoints = new() { Endpoints = [], BasePath = basePath },
+            Clusters = new() { Clusters = [], BasePath = basePath },
+            UserAgents = new() { UserAgents = [], BasePath = basePath },
+            TopBots = new() { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
+            Sessions = new() { Sessions = [], BasePath = basePath },
+            Threats = new() { BasePath = basePath },
+            License = BuildLicenseCardModel(context),
+            IsCommercial = IsCommercialMode(context),
+            Packs = registry.Packs,
+            SignatureDetailContent = model,
+        };
     }
 
     private static async Task WriteSignatureNotFoundAsync(HttpContext context, string signature, string basePath)
