@@ -114,6 +114,7 @@ public class GeoLocationStatistics
     public int CacheHits { get; set; }
     public int CachedEntries { get; set; }
     public bool DatabaseLoaded { get; set; }
+    public bool AnonymousDbLoaded { get; set; }
     public string? DatabasePath { get; set; }
     public DateTime? LastDatabaseUpdate { get; set; }
 }

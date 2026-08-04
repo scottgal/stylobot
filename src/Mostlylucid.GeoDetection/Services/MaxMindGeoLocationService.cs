@@ -24,6 +24,15 @@ public class MaxMindGeoLocationService : IGeoLocationService, IDisposable
 
     private DatabaseReader? _reader;
 
+    // Optional second reader over the GeoIP2 Anonymous IP / Anonymous Plus MMDB.
+    // GeoLite2 City has no anonymity traits; the free reader alone can never set
+    // IsVpn/IsProxy/IsTor/IsHosting, so consumers silently read false. When this
+    // reader is present, LookupCity populates the anonymizer flags from its traits;
+    // when absent, InitializeAnonymousReader logs a startup warning so the inert
+    // flags are an audible misconfiguration, not a silent one.
+    private DatabaseReader? _anonReader;
+    private bool _anonDbAvailable;
+
     // The fallback param is typed as the concrete SimpleGeoLocationService rather than
     // IGeoLocationService so the default DI container doesn't try to resolve the
     // fallback as IGeoLocationService — which is registered as this class, causing a
@@ -40,11 +49,13 @@ public class MaxMindGeoLocationService : IGeoLocationService, IDisposable
         _fallbackService = fallbackService;
 
         InitializeReader();
+        InitializeAnonymousReader();
     }
 
     public void Dispose()
     {
         _reader?.Dispose();
+        _anonReader?.Dispose();
         _readerLock.Dispose();
     }
 
@@ -123,6 +134,7 @@ public class MaxMindGeoLocationService : IGeoLocationService, IDisposable
             CacheHits = _stats.CacheHits,
             CachedEntries = _stats.CachedEntries,
             DatabaseLoaded = _reader != null,
+            AnonymousDbLoaded = _anonDbAvailable,
             DatabasePath = GetDatabasePath(),
             LastDatabaseUpdate = _lastReaderUpdate
         };
@@ -150,6 +162,41 @@ public class MaxMindGeoLocationService : IGeoLocationService, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initialize MaxMind database reader");
+        }
+    }
+
+    private void InitializeAnonymousReader()
+    {
+        try
+        {
+            // Resolve the Anonymous IP DB path: explicit config key first, then a
+            // well-known sibling file next to the City DB (GeoIP2-Anonymous-IP.mmdb).
+            var anonConfigPath = _options.AnonymousDatabasePath;
+            var anonPath = !string.IsNullOrWhiteSpace(anonConfigPath)
+                ? anonConfigPath
+                : Path.Combine(Path.GetDirectoryName(GetDatabasePath()) ?? ".", "GeoIP2-Anonymous-IP.mmdb");
+
+            if (File.Exists(anonPath))
+            {
+                _anonReader = new DatabaseReader(anonPath);
+                _anonDbAvailable = true;
+                _logger.LogInformation("MaxMind Anonymous IP database loaded from {Path} — VPN/proxy detection active", anonPath);
+            }
+            else
+            {
+                _anonDbAvailable = false;
+                _logger.LogWarning(
+                    "MaxMind Anonymous IP database not found at {Path}. " +
+                    "VPN/proxy/hosting detection is INERT — geo.is_vpn and geo.is_hosting will always be false. " +
+                    "Download from https://www.maxmind.com/en/geoip2-anonymous-ip-database " +
+                    "or set GeoDetection:MaxMind:AnonymousIpDatabasePath in config.",
+                    anonPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _anonDbAvailable = false;
+            _logger.LogError(ex, "Failed to initialize MaxMind Anonymous IP database reader — VPN detection is INERT");
         }
     }
 
@@ -224,6 +271,33 @@ public class MaxMindGeoLocationService : IGeoLocationService, IDisposable
         if (!_reader.TryCity(ip, out var cityResponse) || cityResponse == null)
             return null;
 
+        var isVpn = false;
+        var isHosting = false;
+        var isTor = false;
+        var isProxy = false;
+
+        // Resolve anonymizer flags from the Anonymous IP database when available.
+        // Without this DB, every signal consumer (BotTypeFilter, GeoChangeAtom,
+        // SignatureCoordinator, UrlSignalProjection) reads false for geo.is_vpn
+        // and geo.is_hosting — VPN detection is completely inert.
+        if (_anonDbAvailable && _anonReader is not null)
+        {
+            try
+            {
+                if (_anonReader.TryAnonymousIP(ip, out var anonResponse) && anonResponse is not null)
+                {
+                    isVpn = anonResponse.IsAnonymousVpn;
+                    isHosting = anonResponse.IsHostingProvider;
+                    isTor = anonResponse.IsTorExitNode;
+                    isProxy = anonResponse.IsPublicProxy;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Anonymous IP lookup failed for {IP} — VPN flags defaulted to false", ip);
+            }
+        }
+
         return new GeoLocation
         {
             CountryCode = cityResponse.Country.IsoCode ?? "XX",
@@ -234,9 +308,10 @@ public class MaxMindGeoLocationService : IGeoLocationService, IDisposable
             Latitude = cityResponse.Location?.Latitude,
             Longitude = cityResponse.Location?.Longitude,
             TimeZone = cityResponse.Location?.TimeZone,
-            // Note: IsVpn/IsHosting requires GeoIP2 Anonymous IP database (paid)
-            IsVpn = false,
-            IsHosting = false
+            IsVpn = isVpn,
+            IsHosting = isHosting,
+            IsTor = isTor,
+            IsProxy = isProxy
         };
     }
 
