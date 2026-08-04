@@ -417,6 +417,13 @@
     font-size: 0.75rem;
     color: var(--sb-text-muted);
 }
+/* Delta text inherits the tile's health band (P2 unification: the commercial
+   Site-Health tiles' semantic delta colours — faster=success, slower=warning,
+   slower+unhealthy=error — live here, driven by the same band that colours
+   the left border, instead of per-page hand-rolled colour classes). */
+.sb-stat-tile-good .sb-stat-tile-delta     { color: var(--sb-color-human); }
+.sb-stat-tile-caution .sb-stat-tile-delta  { color: var(--sb-color-risk-elevated); }
+.sb-stat-tile-danger .sb-stat-tile-delta   { color: var(--sb-color-bot); }
 
 .sb-stat-tile-foot {
     margin-top: 0.25em;
@@ -755,6 +762,30 @@
 .sb-h-half    { grid-row: span 5; }  /* ~14.75rem — small charts / short lists  */
 .sb-h-tall    { grid-row: span 7; }  /* ~20.75rem — charts / medium tables      */
 .sb-h-full    { grid-row: span 9; }  /* ~26.75rem — headline chart / long lists */
+
+/* ===========================================================================
+   Type scale (P2 unification) — the one set of text roles every widget uses.
+   Replaces the scattered arbitrary sizes (text-[9px]/[10px]/[11px]/[12px],
+   text-xs vs 0.75rem for the same role). One role = one size, everywhere,
+   in both builds (plain CSS — no @layer needed for Tailwind v3 or v4).
+   =========================================================================== */
+.sb-label {
+    font-size: 0.75rem;          /* micro-labels: stat-tile titles, table headers, chips */
+    line-height: 1.25;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+.sb-value {
+    font-size: 1.25rem;          /* headline numbers in stat tiles / counters */
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.sb-h-widget {
+    font-size: 0.875rem;         /* widget headings — ONE size for every widget header */
+    font-weight: 600;
+    line-height: 1.3;
+}
 
 /* ===========================================================================
    sb-widget-card — the ONE card envelope (P1 unification). Every widget surface
