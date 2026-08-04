@@ -228,7 +228,18 @@ else
                 <span class="font-bold @ThreatColor(Model.ThreatBand)">@($"{Model.ThreatScore.Value:F3}")</span>
             </div>
         }
-        @if (!string.IsNullOrEmpty(Model.Action))
+        @{
+            // ONE policy control (operator directive 2026-08-04): the slot IS the policy
+            // display. When the commercial slot renders content it REPLACES this read-only
+            // "Policy:" strip -- never both, or two displays of the same fact drift (the
+            // fingerprint-policy disconnect). On a FOSS-only host the empty slot leaves the
+            // strip as the fallback read-out, unchanged.
+            var policySlotHtml = PolicyActionSlot.Render(Model.SignatureId, Model.Action, Model.BotType, Model.IsBot);
+            var hasPolicySlot = policySlotHtml is Microsoft.AspNetCore.Html.HtmlString hs
+                ? !string.IsNullOrWhiteSpace(hs.Value)
+                : true;
+        }
+        @if (!hasPolicySlot && !string.IsNullOrEmpty(Model.Action))
         {
             <div class="flex items-center gap-1.5 text-xs" sb-tooltip="header.policy">
                 <span class="text-base-content/50">Policy:</span>
@@ -237,8 +248,9 @@ else
         }
         @* Commercial policy-action block (Allow/Block/Throttle/Transform). FOSS default
            (EmptySignaturePolicyActionSlot) renders nothing, so this is always safe to call --
-           the commercial host's real implementation is what makes it visible. *@
-        @PolicyActionSlot.Render(Model.SignatureId, Model.Action, Model.BotType, Model.IsBot)
+           the commercial host's real implementation is what makes it visible. One control,
+           two modes: the button shows the inherited/effective policy; the dropdown overrides. *@
+        @policySlotHtml
     </div>
 
     @* Fingerprint Profile — the page's identity card (TLS/protocol/consistency/headless/
