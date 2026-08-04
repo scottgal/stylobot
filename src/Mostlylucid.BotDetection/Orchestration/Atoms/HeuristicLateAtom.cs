@@ -44,14 +44,12 @@ public sealed class HeuristicLateAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public HeuristicLateAtom(
-        ILogger<HeuristicLateAtom> logger,
-        HeuristicDetector detector,
-        IDetectorConfigProvider configProvider,
+        ILogger<HeuristicLateAtom> logger,        IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "HeuristicLate", category: "HeuristicLate")
     {
         _logger = logger;
-        _detector = detector;
+        _detector = new HeuristicDetector();
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
     }

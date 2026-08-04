@@ -59,15 +59,13 @@ public sealed class ClientSideAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public ClientSideAtom(
-        ILogger<ClientSideAtom> logger,
-        ClientSideDetector detector,
-        FingerprintPopulationTracker population,
+        ILogger<ClientSideAtom> logger,        FingerprintPopulationTracker population,
         IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "ClientSide", category: "ClientSide")
     {
         _logger = logger;
-        _detector = detector;
+        _detector = new ClientSideDetector();
         _population = population;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;

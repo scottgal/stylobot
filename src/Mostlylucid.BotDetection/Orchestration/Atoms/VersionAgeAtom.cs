@@ -35,14 +35,12 @@ public sealed class VersionAgeAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public VersionAgeAtom(
-        ILogger<VersionAgeAtom> logger,
-        VersionAgeDetector detector,
-        IDetectorConfigProvider configProvider,
+        ILogger<VersionAgeAtom> logger,        IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "VersionAge", category: "VersionAge")
     {
         _logger = logger;
-        _detector = detector;
+        _detector = new VersionAgeDetector();
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
     }

@@ -50,16 +50,14 @@ public sealed class BehavioralAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public BehavioralAtom(
-        ILogger<BehavioralAtom> logger,
-        BehavioralDetector detector,
-        IMemoryCache cache,
+        ILogger<BehavioralAtom> logger,        IMemoryCache cache,
         IOptions<BotDetectionOptions> options,
         IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "Behavioral", category: "Behavioral")
     {
         _logger = logger;
-        _detector = detector;
+        _detector = new BehavioralDetector();
         _options = options.Value;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;

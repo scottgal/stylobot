@@ -299,11 +299,6 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Orchestration.Atoms.WaveformHistoryStore>();
         services.TryAddSingleton<Orchestration.Atoms.IWaveformHistoryStore>(
             sp => sp.GetRequiredService<Orchestration.Atoms.WaveformHistoryStore>());
-        // Detectors (legacy) still injected by 4 atoms. FOSS defaults.
-        services.TryAddSingleton<Detectors.HeuristicDetector>();
-        services.TryAddSingleton<Detectors.VersionAgeDetector>();
-        services.TryAddSingleton<Detectors.BehavioralDetector>();
-        services.TryAddSingleton<Detectors.ClientSideDetector>();
         // Similarity primitives.
         services.TryAddSingleton<Similarity.FeatureVectorizer>();
         services.TryAddSingleton<Similarity.IntentVectorizer>();
@@ -313,6 +308,7 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Services.IFediverseDomainVerifier, Services.FediverseDomainVerifier>();
         services.TryAddSingleton<Services.IBrowserVersionService>(sp => sp.GetRequiredService<BrowserVersionService>());
         services.TryAddSingleton<Services.IDnsResolver, Services.SystemDnsResolver>();
+        services.TryAddSingleton<Definitions.TlsReference.IJa3ReferenceIndex, Definitions.TlsReference.Ja3ReferenceIndex>();
         services.TryAddSingleton<Services.UaProfileStore>();
         services.TryAddSingleton<Services.CountryReputationTracker>();
         services.TryAddSingleton<Services.ReactiveSignalTracker>();
