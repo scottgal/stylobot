@@ -381,7 +381,7 @@ internal static class FingerprintNameComposer
     ///     Role (behaviour) comes from <see cref="DeriveBehavioralRole"/>; identity (org / ASN /
     ///     country / self-declared domain) from <see cref="DeriveIdentityQualifier"/>. At least
     ///     one is essentially always present in production; the trailing fingerprint-id and
-    ///     final "Unclassified Client" guards exist only so the method is total (never null /
+    ///     final "Unclassified" guard exists only so the method is total (never null /
     ///     empty / "Unknown") for the invariant test corpus.
     ///     </para>
     /// </summary>
@@ -406,7 +406,7 @@ internal static class FingerprintNameComposer
         // real name (catalog / browser / behavioural role) overrides it.
         if (!string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8)
             return $"Client {fingerprintId[..8]}";
-        return "Unclassified Client";
+        return "Unclassified";
     }
 
     /// <summary>
@@ -563,7 +563,7 @@ internal static class FingerprintNameComposer
             // Generic behavioural-synth residuals (no specific role found): overridable by a
             // later specific role / browser family / catalog name, so the visible label
             // upgrades from "Automated Client · Azure" to "Config Scanner · ..." on drift.
-            || baseName == "Unclassified Client"
+            || baseName == "Unclassified"
             || baseName.StartsWith("Automated Client", StringComparison.Ordinal)
             || baseName.StartsWith("Client ", StringComparison.Ordinal))
             return true;
