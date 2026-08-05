@@ -135,6 +135,19 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                 if (sf == SourceFilter.External && callerIsLocal.Value) continue;
             }
 
+            // SourceIps: specific IP/CIDR match against the connection remote IP.
+            if (compiled.SourceIpNets is { Count: > 0 })
+            {
+                var remoteIp = context.Connection.RemoteIpAddress;
+                if (remoteIp is null) continue;
+                var matched = false;
+                foreach (var net in compiled.SourceIpNets)
+                {
+                    if (net.Contains(remoteIp)) { matched = true; break; }
+                }
+                if (!matched) continue;
+            }
+
             // External matcher seam (C4a). After all baked-in fields match,
             // consult any registered extension whose RuleName appears in this
             // rule's Extensions. A false (or fail-closed) vote drops the rule.
@@ -242,6 +255,7 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
             }
 
             var sourceFilter = CompileSource(rule.Source);
+            var sourceIpNets = CompileSourceIps(rule.SourceIps);
 
             list.Add(new CompiledRule(
                 rule,
@@ -251,7 +265,8 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
                 NormaliseAny(rule.Transport),
                 NormaliseAny(rule.ProtocolVersion),
                 modeIn,
-                sourceFilter));
+                sourceFilter,
+                sourceIpNets));
         }
         _compiled = list.ToArray();
 
@@ -309,6 +324,26 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         return null; // Unknown values default to wildcard (same as "any").
     }
 
+    private static IReadOnlyList<System.Net.IPNetwork>? CompileSourceIps(List<string>? sourceIps)
+    {
+        if (sourceIps is not { Count: > 0 }) return null;
+        var nets = new List<System.Net.IPNetwork>(sourceIps.Count);
+        foreach (var s in sourceIps)
+        {
+            if (string.IsNullOrWhiteSpace(s)) continue;
+            if (s.Contains('/'))
+            {
+                if (System.Net.IPNetwork.TryParse(s, out var net))
+                    nets.Add(net);
+            }
+            else if (System.Net.IPAddress.TryParse(s, out var ip))
+            {
+                nets.Add(new System.Net.IPNetwork(ip, ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128));
+            }
+        }
+        return nets.Count > 0 ? nets : null;
+    }
+
     private static string? NormaliseMethod(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
@@ -354,7 +389,8 @@ internal sealed class ConfigEndpointPolicyResolver : IEndpointPolicyResolver
         string? Transport,
         string? ProtocolVersion,
         FrozenSet<string>? ModeIn,
-        SourceFilter? SourceFilter = null);
+        SourceFilter? SourceFilter = null,
+        IReadOnlyList<System.Net.IPNetwork>? SourceIpNets = null);
 
     private sealed class HostMatcher
     {

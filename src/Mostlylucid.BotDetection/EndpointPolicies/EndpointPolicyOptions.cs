@@ -109,6 +109,13 @@ public sealed class EndpointPolicyRule
     /// </summary>
     public string? Source { get; set; }
 
+    /// <summary>
+    ///     Specific source IPs or CIDR prefixes to match. The request's remote IP
+    ///     must be in this list for the rule to fire. Empty/null matches any IP.
+    ///     Example: <c>["192.168.0.15", "10.0.0.0/8"]</c>.
+    /// </summary>
+    public List<string>? SourceIps { get; set; }
+
     /// <summary>Named action policy to dispatch on match (block / throttle-stealth / challenge / logonly / allow).</summary>
     public string Action { get; set; } = "";
 
