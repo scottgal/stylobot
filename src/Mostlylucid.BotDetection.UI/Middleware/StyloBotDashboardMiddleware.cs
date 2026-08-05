@@ -1757,12 +1757,6 @@ public class StyloBotDashboardMiddleware
             Dashboard.DashboardEndpointsFirstPaintContext.Set(context,
                 new SsrEndpointsFirstPaintReader(endpointsData));
 
-        // P0: pre-heat widget content cache on SSR so HTMX sidebar widgets don't
-        // render empty on first load. Fire-and-forget — never blocks the page.
-        if (_materializerCoordinator is not null && _manifests is not null)
-        {
-            _ = PrewarmWidgetContentCacheAsync(visitorWindow);
-        }
         var allUserAgents = userAgentsTask.Result;
 
         // M2: investigate surface deleted. The Investigation view model on the
@@ -7378,29 +7372,6 @@ public class StyloBotDashboardMiddleware
     ///     HTMX requests from sidebar widgets hit a warm cache instead of going
     ///     cold to the store.
     /// </summary>
-    private async Task PrewarmWidgetContentCacheAsync(DashboardPageWindow window)
-    {
-        try
-        {
-            if (_contentCache is null || _manifests is null) return;
-            // The manifest source holds every widget's page key + window pairing.
-            // Warming these ensures that when HTMX asks for the batch endpoint
-            // right after page load, the composed page result is already cached.
-            foreach (var key in new[] { "dashboard.traffic", "dashboard.clusters", "dashboard.topbots", "dashboard.sessions", "dashboard.threats" })
-            {
-                var manifest = _manifests.For(key);
-                if (manifest is null) continue;
-                var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                try { await _contentCache.GetCurrentAsync(manifest, window, cts.Token); }
-                catch (OperationCanceledException) { /* timeout — best effort */ }
-                catch { /* individual manifest failure must not abort the batch */ }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "SSR content-cache pre-warm failed — widgets will self-fetch");
-        }
-    }
 
     private sealed class SsrEndpointsFirstPaintReader : Dashboard.IDashboardEndpointsFirstPaintReader
     {
