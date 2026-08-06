@@ -254,12 +254,19 @@ One new SQLite database, `webmcp.db`, owned by the enforcement component
 (gateway/sidecar/embedded), consistent with `feedback_upstream_not_state_authority`.
 
 ```sql
-documents(id INTEGER PRIMARY KEY, host, url, path, title, content_hash, etag,
-          last_modified, body, byte_len, indexed_utc, source)  -- source: passive|sitemap|manual
-                                                   -- `body` is the bounded extract, capped
-                                                   -- at Index:MaxExcerptBytes
-documents_fts USING fts5(title, body, content='documents', content_rowid='id',
-                         tokenize='porter unicode61')    -- bm25() ranking
+documents(id INTEGER PRIMARY KEY, host, url UNIQUE, path, title, content_hash,
+          etag, last_modified, byte_len, indexed_utc, source)  -- source: passive|sitemap|manual
+documents_fts USING fts5(title, body, tokenize='porter unicode61')  -- rowid = documents.id
+```
+
+`documents_fts` is a **standard** FTS5 table, not `content='documents'` external-content.
+External-content tables need manual index sync (`'delete'` command rows with the exact old
+values) and lose `snippet()` support in the contentless variant; a standard table owns
+`title`/`body` directly, so re-indexing a page is `DELETE FROM documents_fts WHERE rowid=?`
+followed by an insert. The body text therefore lives only in the FTS5 table — `documents`
+holds metadata only. `body` is capped at `Index:MaxExcerptBytes`.
+
+```sql
 tool_candidates(route_key, host, kind, source, first_seen, hit_count,
                 derived_schema_json, status)             -- status: candidate|promoted|rejected
 tools(name, host, kind, description, input_schema_json, binding_json, enabled, updated_utc)
@@ -294,7 +301,7 @@ The whole pack is fail-open; it can degrade to invisibility without affecting tr
 
 | Failure | Behaviour |
 |---|---|
-| Index unavailable/corrupt | `search_site` returns `-32000 index_unavailable`; other tools unaffected; normal traffic untouched |
+| Index unavailable/corrupt | `search_site` returns a `tools/call` result with `isError: true` (per MCP, tool failures are results the model can read, **not** JSON-RPC errors — the `-32000` band is reserved for protocol faults). Other tools unaffected; normal traffic untouched |
 | Injection throws | Original HTML served byte-identical (StyloExtract's existing posture) |
 | Upstream 5xx on `fetch_page` | Mapped to an MCP error with the upstream status; never a gateway 500 |
 | OpenAPI doc unreachable | Lane 1 empty; Lanes 2–3 still work (existing `ContinueOnFailure`) |
