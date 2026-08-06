@@ -1605,15 +1605,35 @@ public class StyloBotDashboardMiddleware
                         && !isRemoteHost
                         && _materializerCoordinator?.HasWarmedSuccessfully == true)
                     {
-                        // Cold-miss on a proven-healthy local materializer host: instant
-                        // warming paint. No explicit re-warm needed here -- the tick
-                        // materializer PREWARMS every dashboard.traffic window (PrewarmWindows
-                        // = 6h/24h/7d/30d) and warms any live envelope each tick, and
-                        // GetCurrentAsync above already marked this envelope live. So it warms
-                        // within a tick and the freshness beacon warm-replaces the widgets.
-                        // HasWarmedSuccessfully guarantees that tick loop is actually working,
-                        // so this can never warm forever.
+                        // Cold-miss on a proven-healthy materializer: instant warming paint.
+                        // The next tick warm-replaces the widgets via the freshness beacon.
                         shellWarming = true;
+                    }
+                    else if (candidatePage.IsWarming
+                             && !isRemoteHost
+                             && _materializerCoordinator?.HasWarmedSuccessfully == false)
+                    {
+                        // First request after cold start — the materializer hasn't populated
+                        // the cache yet. Do a synchronous warm RIGHT NOW so this page renders
+                        // with real data. Blocks the request, but only on first startup.
+                        _logger.LogInformation("Dashboard cache cold on first request — running synchronous warm");
+                        try
+                        {
+                            await _materializerCoordinator.MaterializeTickAsync(
+                                DateTimeOffset.UtcNow, context.RequestAborted);
+                            candidatePage = await _contentCache.GetCurrentAsync(
+                                trafficManifest, pageWindow, context.RequestAborted);
+                            if (!candidatePage.IsWarming && IsPageBundleCompleteEnoughToStash(candidatePage))
+                            {
+                                composedPage = candidatePage;
+                                context.Items["sb.dashboard.pageresult"] = candidatePage;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Synchronous warm failed — serving warming shell");
+                            shellWarming = true;
+                        }
                     }
                     // Remote compose can degrade to a non-null bundle with empty slices
                     // when the gateway endpoint is unavailable or returns an incomplete
