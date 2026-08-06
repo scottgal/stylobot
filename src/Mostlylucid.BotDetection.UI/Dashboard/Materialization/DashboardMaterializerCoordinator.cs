@@ -126,6 +126,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     public Task StartAsync(CancellationToken cancellationToken)
     {
         // Self-disable only when there's no tick fabric to subscribe to (viewer-mode host).
+        // Enabled is checked inside MaterializeTickAsync instead of gating the subscription --
+        // structurally simpler (one code path) even though FOSS has no runtime reload to benefit
+        // from it. Subscribing unconditionally costs one no-op Task per idle 10s tick when
+        // disabled -- negligible.
         if (_schedule is null) return Task.CompletedTask;
 
         try
@@ -140,24 +144,6 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         {
             _logger?.LogWarning(ex, "DashboardMaterializerCoordinator: failed to subscribe to Tick10s.");
         }
-
-        // Fire-and-forget the first warm tick immediately so the content cache is
-        // pre-populated before any request arrives. Without this, the ~10s gap
-        // between process start and the first Tick10s fire leaves every page load
-        // cold — widgets render empty, SSR falls through to the store. A failed
-        // initial warm logs at Warning and moves on; the schedule will retry.
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await MaterializeTickAsync(DateTimeOffset.UtcNow, cancellationToken);
-                _logger?.LogInformation("DashboardMaterializerCoordinator: initial warm tick completed");
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "DashboardMaterializerCoordinator: initial warm tick failed — schedule will retry");
-            }
-        }, cancellationToken);
 
         return Task.CompletedTask;
     }
