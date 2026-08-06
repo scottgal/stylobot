@@ -24,7 +24,7 @@ public sealed class DashboardMaterializerOptions
     public int RetentionRecentTicks { get; set; } = 3;
 
     /// <summary>Max live envelopes the materializer will warm in a single tick (backpressure budget).</summary>
-    public int MaxPagesPerTick { get; set; } = 32;
+    public int MaxPagesPerTick { get; set; } = 64;
 
     /// <summary>
     ///     Wall-clock budget (milliseconds) for a single tick's sequential warm loop.
@@ -40,7 +40,7 @@ public sealed class DashboardMaterializerOptions
     ///     of cost. Default 8000ms -- comfortably under the 10s cadence so a tick that
     ///     hits budget still leaves the coordinator idle before the next one fires.
     /// </summary>
-    public int MaxTickDurationMs { get; set; } = 8000;
+    public int MaxTickDurationMs { get; set; } = 30_000;
 
     /// <summary>
     ///     An envelope is "live" (kept warm by the materializer) for this many ticks
