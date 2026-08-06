@@ -532,6 +532,10 @@ public static class StyloBotDashboardServiceExtensions
         // that producer arm.
         services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DashboardFreshnessBridge>();
 
+        // Detection retention pruner: DELETE rows older than DetectionRetention (default 30d).
+        // Prevents unbounded accumulation of raw per-request data in detections table.
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DetectionRetentionPruner>();
+
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
         // packs replace this with a Redis-fanned implementation so an edit on
         // one node reaches every other node's connected browsers. The hosted

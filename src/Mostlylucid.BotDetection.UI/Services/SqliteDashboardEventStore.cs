@@ -20,6 +20,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     private readonly string _connectionString;
+    internal string ConnectionString => _connectionString;
     private readonly ILogger<SqliteDashboardEventStore> _logger;
     private readonly TimeSpan _detectionRetention;
     private readonly double _botFloor;
