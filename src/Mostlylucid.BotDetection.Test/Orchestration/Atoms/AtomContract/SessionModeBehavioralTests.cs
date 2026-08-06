@@ -31,9 +31,8 @@ public sealed class SessionModeBehavioralTests
     {
         var opts = Options.Create(new BotDetectionOptions()); // EnableAdvancedPatternDetection = true
         var cache = new MemoryCache(new MemoryCacheOptions());
-        var detector = new BehavioralDetector(NullLogger<BehavioralDetector>.Instance, opts, cache);
         return new BehavioralAtom(
-            NullLogger<BehavioralAtom>.Instance, detector, cache, opts,
+            NullLogger<BehavioralAtom>.Instance, cache, opts,
             new StubDetectorConfigProvider(), new StaticHttpContextAccessor(http));
     }
 

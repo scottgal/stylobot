@@ -38,7 +38,7 @@ public class FingerprintNameComposerUnknownTerminalTests
         var name = FingerprintNameComposer.Compose(signals, fingerprintId: null, userAgent: null);
 
         AssertNeverUnknown(name, "empty request");
-        Assert.Equal("Unclassified Client", name);
+        Assert.Equal("Unclassified", name);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class FingerprintNameComposerUnknownTerminalTests
         var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abc", userAgent: null);
 
         AssertNeverUnknown(name, "short fingerprint id");
-        Assert.Equal("Unclassified Client", name);
+        Assert.Equal("Unclassified", name);
     }
 
     [Fact]
@@ -214,7 +214,7 @@ public class FingerprintNameComposerUnknownTerminalTests
         // specific role / browser / catalog name must win via hysteresis.
         Assert.True(FingerprintNameComposer.IsFallback("Automated Client · Azure"));
         Assert.True(FingerprintNameComposer.IsFallback("Client abcdef12"));
-        Assert.True(FingerprintNameComposer.IsFallback("Unclassified Client"));
+        Assert.True(FingerprintNameComposer.IsFallback("Unclassified"));
 
         // A specific behavioural role is NOT a fallback -- it is a real, informative name.
         Assert.False(FingerprintNameComposer.IsFallback("Config Scanner · paloaltonetworks.com"));

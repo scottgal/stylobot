@@ -151,13 +151,13 @@ public class DeterministicBotNameTests
         // Updated contract (2026-07-30, "Unknown is not a valid state"): the composer is the
         // SOLE writer of Fingerprint.DisplayName and must never emit "Unknown". With literally
         // nothing to compose from (no UA, no network identity, no fingerprint id) the terminal
-        // is "Unclassified Client" -- IsFallback recognises it so a real Priority 1-3 name still
+        // is "Unclassified" -- IsFallback recognises it so a real Priority 1-3 name still
         // wins on a later request.
         var signals = new Dictionary<string, object?>();
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Equal("Unclassified Client", name);
+        Assert.Equal("Unclassified", name);
         Assert.DoesNotContain("Unknown", name!, StringComparison.OrdinalIgnoreCase);
     }
 

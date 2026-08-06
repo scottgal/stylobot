@@ -423,4 +423,55 @@ public sealed class DashboardMaterializerCoordinatorTests
             public void Dispose() => _onDispose();
         }
     }
+
+    [Fact]
+    public async Task HasWarmedSuccessfully_starts_false_becomes_true_after_first_tick()
+    {
+        long tick = 1;
+        var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()),
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions()), sched);
+
+        // Before start: has never warmed
+        Assert.False(coord.HasWarmedSuccessfully);
+
+        await coord.StartAsync(default);
+        // Make an envelope live so it gets warmed
+        await cache.GetAsync(Traffic, Window(), tick, default);
+        tick++;
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        // After first successful tick: warmed
+        Assert.True(coord.HasWarmedSuccessfully);
+
+        await coord.StopAsync(default);
+    }
+
+    [Fact]
+    public async Task HasWarmedSuccessfully_stays_false_when_tick_fails()
+    {
+        long tick = 1;
+        var cache = new DashboardContentCache((_, _, _) => Task.FromException<DashboardPageResult>(new InvalidOperationException("fail")),
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions()), sched);
+
+        await coord.StartAsync(default);
+        Assert.False(coord.HasWarmedSuccessfully);
+
+        // Make an envelope live, then fire a tick — the compose throws
+        await cache.GetAsync(Traffic, Window(), tick, default);
+        tick++;
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        // After a failed tick: still false
+        Assert.False(coord.HasWarmedSuccessfully);
+
+        await coord.StopAsync(default);
+    }
 }
