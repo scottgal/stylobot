@@ -108,11 +108,15 @@ public class SbEndpointsListViewComponent(
             var firstPaintReader = string.IsNullOrEmpty(audience) && startTime.HasValue
                 ? DashboardEndpointsFirstPaintContext.Get(HttpContext)
                 : null;
-            data = firstPaintReader is not null
+            var usedFirstPaint = firstPaintReader is not null;
+            data = usedFirstPaint
                 ? await firstPaintReader.GetEndpointStatsAsync(
                     500, startTime, endTime, audience, scopedDomains, HttpContext?.RequestAborted ?? default)
                 : await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience, scopedDomains);
-            if (data.Count == 0)
+            // Only check the warming signal when we hit the real store — the first-paint
+            // reader already has pre-fetched data from the SSR pass. A genuinely empty
+            // result from the reader means there ARE no endpoints, not that they're warming.
+            if (!usedFirstPaint && data.Count == 0)
             {
                 var windowedDomainTag = scopedDomains is { Count: 1 } ? scopedDomains[0] : null;
                 isWarming = DashboardWarmingSignal.IsWarming(HttpContext, "endpoints", windowedDomainTag);

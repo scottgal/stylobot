@@ -1753,9 +1753,12 @@ public class StyloBotDashboardMiddleware
         // DashboardEndpointsFirstPaintContext before calling the event store. Stash
         // the already-fetched SSR data so the VC renders synchronously — no second
         // store call, no empty/warming placeholder on first paint.
-        if (endpointsData.Count > 0)
-            Dashboard.DashboardEndpointsFirstPaintContext.Set(context,
-                new SsrEndpointsFirstPaintReader(endpointsData));
+        // Always set the first-paint reader — even with empty data.
+        // When the reader is present, the VC renders the pre-fetched data
+        // (which may be legitimately empty) instead of making a second store
+        // call that would trigger the WarmingSignal and show a spinner.
+        Dashboard.DashboardEndpointsFirstPaintContext.Set(context,
+            new SsrEndpointsFirstPaintReader(endpointsData));
 
         var allUserAgents = userAgentsTask.Result;
 
