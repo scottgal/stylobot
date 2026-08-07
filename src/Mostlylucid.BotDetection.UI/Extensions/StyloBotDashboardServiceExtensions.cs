@@ -534,7 +534,15 @@ public static class StyloBotDashboardServiceExtensions
 
         // Detection retention pruner: DELETE rows older than DetectionRetention (default 30d).
         // Prevents unbounded accumulation of raw per-request data in detections table.
+        // Tick1h subscriber on the schedule coordinator (the "erase" dial of the
+        // forgetting curve).
         services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DetectionRetentionPruner>();
+
+        // Detection compression fold: nulls per-request detail columns on aged
+        // low-importance detection rows (single temporal store — importance-based
+        // absorption, no bucket tables). Tick5m subscriber; no-op unless
+        // TemporalStore:CompressionEnabled is set (raw behavior is the default).
+        services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DetectionCompressionFold>();
 
         // B6 -- Policy Stack live-update beacon. SignalR by default; commercial
         // packs replace this with a Redis-fanned implementation so an edit on

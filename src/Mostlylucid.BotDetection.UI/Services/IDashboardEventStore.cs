@@ -180,6 +180,32 @@ public interface IDashboardEventStore
     Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default);
 
     /// <summary>
+    ///     Compression fold (temporal-store absorption): nulls the per-request
+    ///     detail columns on aged low-importance detection rows, in importance
+    ///     order, in batches of at most <paramref name="batchSize"/>. Two passes:
+    ///     (1) rows older than <paramref name="hotCutoff"/> whose stored
+    ///     importance weight is below <paramref name="importanceFloor"/>;
+    ///     (2) rows older than <paramref name="fullAbsorptionCutoff"/> regardless
+    ///     of importance (full absorption — old rows are summaries of themselves).
+    ///     The classification/aggregate columns (counts, bot probability, risk
+    ///     band, action, threat, domain) are never touched, so dashboard reads
+    ///     return identical shapes with or without compression; only the verbose
+    ///     per-request detail ages out. Idempotent — folding an already-folded
+    ///     row is a no-op. Returns the number of rows folded this call.
+    ///     <para>
+    ///     Default implementation returns 0: FOSS SQLite implements the fold;
+    ///     other store implementations own their own fold (the default keeps
+    ///     fakes and non-SQLite stores compiling unchanged).
+    ///     </para>
+    /// </summary>
+    Task<int> FoldAgedDetectionsAsync(
+        DateTime hotCutoff,
+        DateTime fullAbsorptionCutoff,
+        double importanceFloor,
+        int batchSize,
+        CancellationToken ct = default) => Task.FromResult(0);
+
+    /// <summary>
     ///     Fetch every widget's data for a page in a single call.
     ///     Only the <see cref="Models.DatasetKind"/>s listed in
     ///     <paramref name="request"/>.<see cref="Models.DashboardBatchRequest.Datasets"/> are fetched;

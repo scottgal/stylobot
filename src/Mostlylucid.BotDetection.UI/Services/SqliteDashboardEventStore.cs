@@ -23,6 +23,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     internal string ConnectionString => _connectionString;
     private readonly ILogger<SqliteDashboardEventStore> _logger;
     private readonly TimeSpan _detectionRetention;
+    // Startup snapshot of the forgetting-curve blend (FOSS no-reload rule).
+    // Defaults (CompressionEnabled=false, weights 0.5/0.3/0.2) apply when the
+    // caller didn't bind StyloBotDashboardOptions at all.
+    private readonly Configuration.TemporalStoreOptions _temporalStore;
     private readonly double _botFloor;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -44,6 +48,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // detection-only gateway path) don't bind StyloBotDashboardOptions.
         // Default to the historical 7-day retention when absent.
         _detectionRetention = dashboardOptions?.Value.DetectionRetention ?? TimeSpan.FromDays(7);
+        _temporalStore = dashboardOptions?.Value.TemporalStore ?? new Configuration.TemporalStoreOptions();
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct = default)
@@ -90,7 +95,14 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 // origin call -- honeypot/blocked/throttled traffic never reaches
                 // MapReverseProxy, so the gateway's UpstreamStatusTransform never runs for
                 // them. That NULL is the meaningful signal, not missing data.
-                ("detections", "upstream_status_code", "INTEGER")
+                ("detections", "upstream_status_code", "INTEGER"),
+                // Write-time importance weight for the compression fold
+                // (DetectionImportance / TemporalStoreOptions). The fold orders
+                // the aged region by this and nulls detail columns on
+                // low-importance rows; NOT NULL DEFAULT 0 so pre-migration rows
+                // are the lowest-importance tier (fold first — correct: they're
+                // also the oldest).
+                ("detections", "importance_weight", "REAL NOT NULL DEFAULT 0")
             })
             {
                 var colExists = false;
@@ -210,10 +222,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
                     status_code, user_agent_raw, risk_justification, domain, host, referrer_host, ua_device_class, response_bytes,
-                    is_verified_bot, upstream_status_code)
+                    is_verified_bot, upstream_status_code, importance_weight)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
                     @threat, @band, @status, @uaRaw, @justification, @domain, @host, @refHost, @deviceClass, @responseBytes,
-                    @verifiedBot, @upstreamStatus)
+                    @verifiedBot, @upstreamStatus, @importance)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -241,6 +253,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@responseBytes", (object?)detection.ResponseBytes ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@verifiedBot", detection.IsVerifiedBot ? 1 : 0);
             cmd.Parameters.AddWithValue("@upstreamStatus", (object?)detection.UpstreamStatusCode ?? DBNull.Value);
+            // Write-time importance weight (DetectionImportance): computed once
+            // here, stored on the row, consumed by the compression fold. The
+            // options blend weights are startup-snapshot (FOSS no-reload).
+            cmd.Parameters.AddWithValue("@importance",
+                DetectionImportance.ComputeWeight(
+                    detection.BotProbability,
+                    detection.ThreatScore,
+                    detection.Action,
+                    _temporalStore));
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -2270,6 +2291,82 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             _writeLock.Release();
         }
+    }
+
+    public async Task<int> FoldAgedDetectionsAsync(
+        DateTime hotCutoff,
+        DateTime fullAbsorptionCutoff,
+        double importanceFloor,
+        int batchSize,
+        CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+
+            // The per-request detail columns the fold nulls. Everything the
+            // dashboard aggregates on (counts, bot_probability, risk_band,
+            // action, threat_score, domain/host, and the numeric KPI columns
+            // response_bytes/processing_time_ms) is deliberately untouched, so
+            // reads return identical shapes with or without compression. SQLite
+            // treats re-nulling a NULL column as a no-op, so both passes are
+            // idempotent.
+            const string detailSet =
+                "method = NULL, path = NULL, user_agent_raw = NULL, referrer_host = NULL, " +
+                "ua_device_class = NULL, risk_justification = NULL";
+
+            var total = 0;
+
+            // Pass 1: the low-importance aged region (HotWindow..FullAbsorptionAge).
+            // Lowest importance first — the fold drains the least important rows
+            // before the merely-old ones, per the temporal-store ordering rule.
+            total += await FoldBatchAsync(
+                conn, detailSet, hotCutoff, importanceFloor, batchSize, ct);
+
+            // Pass 2: full absorption — everything past FullAbsorptionAge folds
+            // regardless of importance (an old row is its own summary).
+            total += await FoldBatchAsync(
+                conn, detailSet, fullAbsorptionCutoff, null, batchSize, ct);
+
+            return total;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private static async Task<int> FoldBatchAsync(
+        SqliteConnection conn,
+        string detailSet,
+        DateTime cutoff,
+        double? floor,
+        int batchSize,
+        CancellationToken ct)
+    {
+        var floorClause = floor is null ? string.Empty : " AND importance_weight < @floor";
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            UPDATE detections
+               SET {detailSet}
+             WHERE id IN (
+                   SELECT id
+                     FROM detections
+                    WHERE timestamp < @cutoff{floorClause}
+                      -- Drain marker: only rows that still hold their detail fold.
+                      -- Without this the lowest-importance rows re-match forever
+                      -- (folding them is a no-op) and the batch never advances.
+                      AND method IS NOT NULL
+                    ORDER BY importance_weight ASC, timestamp ASC
+                    LIMIT @batch)
+            """;
+        cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
+        if (floor is not null) cmd.Parameters.AddWithValue("@floor", floor.Value);
+        cmd.Parameters.AddWithValue("@batch", Math.Max(batchSize, 1));
+        return await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task RecordDegradationSnapshotAsync(
