@@ -711,7 +711,8 @@ public static class StyloBotDashboardServiceExtensions
             var detOpts = sp.GetService<IOptions<Mostlylucid.BotDetection.Models.BotDetectionOptions>>()?.Value;
             return new SignatureAggregateCache(sp.GetRequiredService<StyloBotDashboardOptions>())
             {
-                MaxEntries = detOpts?.SignatureCacheSize is > 0 ? detOpts.SignatureCacheSize : 5_000
+                MaxEntries = detOpts?.SelfMaintenance?.SignatureCacheSize is > 0
+                    ? detOpts.SelfMaintenance.SignatureCacheSize : 5_000
             };
         });
 
