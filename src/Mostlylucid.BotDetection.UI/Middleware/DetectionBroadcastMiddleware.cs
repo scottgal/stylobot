@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Caching.Memory;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
@@ -135,6 +136,10 @@ public partial class DetectionBroadcastMiddleware
     private static partial System.Text.RegularExpressions.Regex EmailPattern();
     private readonly ILogger<DetectionBroadcastMiddleware> _logger;
     private readonly RequestDelegate _next;
+    private readonly IMemoryCache? _writeThrottle;
+
+    /// <summary>Minimum interval between persist writes for the same signature.</summary>
+    private static readonly TimeSpan MinPersistInterval = TimeSpan.FromSeconds(60);
 
     // Caps the world-map attack-arc firehose to at most one arc per
     // AttackArcMinIntervalMs across the whole process. The arc is decorative;
@@ -156,10 +161,12 @@ public partial class DetectionBroadcastMiddleware
 
     public DetectionBroadcastMiddleware(
         RequestDelegate next,
-        ILogger<DetectionBroadcastMiddleware> logger)
+        ILogger<DetectionBroadcastMiddleware> logger,
+        IMemoryCache? memoryCache = null)
     {
         _next = next;
         _logger = logger;
+        _writeThrottle = memoryCache;
     }
 
     public async Task InvokeAsync(
@@ -385,6 +392,16 @@ public partial class DetectionBroadcastMiddleware
         {
             try
             {
+                // Per-signature write throttle: only persist once per MinPersistInterval
+                // (60s). A fingerprint making 1000 requests/minute generates ONE row, not
+                // 1000. SignalR still broadcasts live; the dashboard aggregate cache stays
+                // authoritative. This prevents unbounded accumulation in dashboard_detections.
+                var sig = detectionCapture.PrimarySignature;
+                if (sig is not null && _writeThrottle is not null)
+                {
+                    if (_writeThrottle.TryGetValue(sig, out _)) return;
+                    _writeThrottle.Set(sig, true, MinPersistInterval);
+                }
                 await PersistDetectionAndSignatureAsync(detectionCapture, factorsCapture, eventStore);
             }
             catch (Exception ex)
