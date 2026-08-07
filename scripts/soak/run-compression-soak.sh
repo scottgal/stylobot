@@ -64,7 +64,7 @@ sample_db() {
   if [ -n "${DB_STATS_CMD:-}" ]; then
     out="$(eval "$DB_STATS_CMD" 2>/dev/null || true)"
   else
-    out="$(sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$SOAK_HOST" \
+    out="$(SSHPASS="$SSH_PASS" sshpass -e ssh -o StrictHostKeyChecking=accept-new "$SSH_USER@$SOAK_HOST" \
       "sqlite3 ~/stylobot/data/dashboard.db 'SELECT COUNT(*) FROM detections;' 2>/dev/null; stat -c%s ~/stylobot/data/dashboard.db 2>/dev/null" 2>/dev/null || true)"
   fi
   echo "$out" | tr '\n' ' ' | awk '{ if ($1 != "" && $2 != "") print $1, $2; else print "0 0" }'
