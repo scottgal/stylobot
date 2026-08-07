@@ -708,12 +708,11 @@ public static class StyloBotDashboardServiceExtensions
         // Write-through signature cache - single source of truth for top bots
         services.AddSingleton<SignatureAggregateCache>(sp =>
         {
-            var cache = new SignatureAggregateCache(
-                sp.GetRequiredService<StyloBotDashboardOptions>());
-            var detOpts = sp.GetService<IOptions<BotDetection.Models.BotDetectionOptions>>()?.Value;
-            if (detOpts?.SignatureCacheSize is > 0)
-                cache.MaxEntries = detOpts.SignatureCacheSize;
-            return cache;
+            var detOpts = sp.GetService<IOptions<Mostlylucid.BotDetection.Models.BotDetectionOptions>>()?.Value;
+            return new SignatureAggregateCache(sp.GetRequiredService<StyloBotDashboardOptions>())
+            {
+                MaxEntries = detOpts?.SignatureCacheSize is > 0 ? detOpts.SignatureCacheSize : 5_000
+            };
         });
 
         // Stateless UA aggregator - used by broadcaster beacon + view components with params
