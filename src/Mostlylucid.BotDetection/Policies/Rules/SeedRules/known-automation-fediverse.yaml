@@ -1,0 +1,14 @@
+# Known-good automation: Fediverse instances (Mastodon, Pleroma, Misskey, etc.).
+# FediverseDomainVerifier corroborates via WebFinger + host-meta discovery.
+# These are legitimate social-media link-preview and federation traffic —
+# high request rate but benign intent. Detection runs; generous rate limits.
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+scope:
+  kind: endpoint
+predicate: "bot.type = fediverse_bot and score.bot_probability < 0.6"
+action:
+  kind: rate-limit
+  max_rpm: 120
+  burst: 20
+mode: live
+notes: "Fediverse/Mastodon instances — benign social-media automation"

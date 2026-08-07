@@ -1,0 +1,14 @@
+# Known-good automation: Docker/OCI registry clients (Harbor, container registries).
+# Recognized by RegistryClientSensor via protocol fingerprints + UA corroboration.
+# Detection runs; enforcement is tuned for blob push/pull throughput.
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+scope:
+  kind: endpoint
+  path_template: "/v2/*"
+predicate: "bot.type = registry_client and score.bot_probability < 0.6"
+action:
+  kind: rate-limit
+  max_rpm: 300
+  burst: 50
+mode: live
+notes: "Docker/OCI registry — benign automation, higher RPM for blob push/pull"
