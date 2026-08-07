@@ -91,9 +91,12 @@ log "load driver: scripts/soak/k6-plateau.js (existing corpus — humans/bots/at
 read -r base_rows base_bytes <<< "$(sample_db)"
 log "baseline: rows=$base_rows bytes=$base_bytes"
 
-# Drive sustained load in the background (the plateau driver ramps up and
-# holds levels through MAX_RPS).
-k6 run scripts/soak/k6-plateau.js \
+# Drive sustained load for the FULL soak duration in the background. The
+# plateau driver's stages ramp up and hold levels; --duration extends the run
+# so the final level's rate keeps flowing until the soak ends (without it the
+# finite stage script finishes in ~15min and the sampling loop would measure
+# an idle gateway).
+k6 run scripts/soak/k6-plateau.js --duration "${DURATION_HOURS}h" \
   --env TARGET="$TARGET" --env API_KEY="$API_KEY" --env MAX_RPS="$RPS" \
   > "$OUTDIR/$LABEL-k6.log" 2>&1 &
 K6_PID=$!
@@ -116,21 +119,41 @@ done
 
 wait "$K6_PID" || log "k6 exited nonzero — see $OUTDIR/$LABEL-k6.log"
 
-# Verdict: after the first two warm-up windows the fold must be holding a
-# steady state — total growth over the remainder must be a small fraction of
-# what the raw pipeline would accumulate at $RPS rps (throttled to ~1
-# row/min/signature, that is still thousands of rows per window).
-read -r warm_rows _ <<< "$(tail -n +3 "$OUTDIR/$LABEL-samples.tsv" | sed -n '2p')"
-read -r final_rows _ <<< "$(tail -n 1 "$OUTDIR/$LABEL-samples.tsv")"
-warm_rows="${warm_rows:-$base_rows}"
-growth_after_warmup=$((final_rows - warm_rows))
-windows_after=$((SAMPLES - 2))
-max_plateau_growth=$((RPS * 60 * windows_after * SAMPLE_MINUTES / 3600))
+# Verdict — the plateau is RELATIVE, not absolute: rows younger than HotWindow
+# (default 2h) are never touched, so the table grows at the raw throttled rate
+# during the warm-up phase and must COLLAPSE once the fold has caught up. A
+# working fold holds near-zero growth per window in the plateau phase; a
+# broken/off fold keeps growing at the warm-up rate (an RPS-based absolute
+# bound would miss that, since the write throttle caps raw rows below it).
+# Warm-up = HotWindow minutes + 2 catch-up windows.
+hot_minutes="${HOT_WINDOW_MINUTES:-120}"
+WARMUP_WINDOWS=$((hot_minutes / SAMPLE_MINUTES + 2))
 
-if [ "$growth_after_warmup" -le "$max_plateau_growth" ]; then
-  log "PASS: plateau held — +${growth_after_warmup} rows over $windows_after windows (raw pipeline would add ~$max_plateau_growth)"
-else
-  log "FAIL: no plateau — +${growth_after_warmup} rows over $windows_after windows (raw pipeline ~$max_plateau_growth); fold not absorbing"
-fi
+awk -v warmup="$WARMUP_WINDOWS" -v sample="$SAMPLE_MINUTES" '
+  NR == 1 { next }                       # header
+  { rows[NR-1] = $2 }
+  END {
+    if (NR - 1 <= warmup + 1) {
+      print "INVALID: not enough samples to judge a plateau (need > warm-up windows)"; exit 1
+    }
+    warm_start = rows[1]
+    warm_end = rows[warmup + 1]
+    plateau_end = rows[NR-1]
+    warm_growth = warm_end - warm_start
+    plateau_growth = plateau_end - warm_end
+    warm_avg = warm_growth / warmup
+    plateau_windows = (NR - 1) - (warmup + 1)
+    plateau_avg = plateau_growth / plateau_windows
+    if (warm_growth <= 0) {
+      print "INVALID: no growth during warm-up — load not reaching the gateway or throttle not persisting"; exit 1
+    }
+    printf "warm_avg=%.1f rows/window plateau_avg=%.1f rows/window\n", warm_avg, plateau_avg
+    if (plateau_avg < warm_avg / 2) {
+      print "PASS: plateau held — growth collapsed to <50% of the warm-up rate"
+    } else {
+      print "FAIL: no plateau — growth after warm-up still >=50% of the raw rate; fold not absorbing"
+    }
+  }
+' "$OUTDIR/$LABEL-samples.tsv" | tee -a "$OUTDIR/$LABEL.log"
 
 log "artifacts: $OUTDIR/$LABEL-samples.tsv, $OUTDIR/$LABEL-k6.log, $OUTDIR/$LABEL.log"
