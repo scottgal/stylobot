@@ -35,12 +35,14 @@ public sealed class VersionAgeAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public VersionAgeAtom(
-        ILogger<VersionAgeAtom> logger,        IDetectorConfigProvider configProvider,
+        ILogger<VersionAgeAtom> logger,
+        VersionAgeDetector detector,
+        IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "VersionAge", category: "VersionAge")
     {
         _logger = logger;
-        _detector = new VersionAgeDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<VersionAgeDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()), null!);
+        _detector = detector;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
     }

@@ -59,13 +59,15 @@ public sealed class ClientSideAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public ClientSideAtom(
-        ILogger<ClientSideAtom> logger,        FingerprintPopulationTracker population,
+        ILogger<ClientSideAtom> logger,
+        ClientSideDetector detector,
+        FingerprintPopulationTracker population,
         IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "ClientSide", category: "ClientSide")
     {
         _logger = logger;
-        _detector = new ClientSideDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<ClientSideDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()), null!, null, null);
+        _detector = detector;
         _population = population;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;

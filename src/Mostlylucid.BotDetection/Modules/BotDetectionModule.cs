@@ -299,6 +299,15 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Orchestration.Atoms.WaveformHistoryStore>();
         services.TryAddSingleton<Orchestration.Atoms.IWaveformHistoryStore>(
             sp => sp.GetRequiredService<Orchestration.Atoms.WaveformHistoryStore>());
+        // Detectors (internal helpers — injected by atoms that wrap them).
+        // Three atoms need real DI-backed dependencies that can't be null'd:
+        // BehavioralAtom needs IMemoryCache, VersionAgeAtom needs IBrowserVersionService,
+        // ClientSideAtom needs IBrowserFingerprintStore. Self-instantiating with null
+        // for these caused an NRE storm on prod (run193, 460+ NREs in 3 min, SIGSEGV).
+        services.TryAddSingleton<Detectors.BehavioralDetector>();
+        services.TryAddSingleton<Detectors.VersionAgeDetector>();
+        services.TryAddSingleton<Detectors.ClientSideDetector>();
+
         // Similarity primitives.
         services.TryAddSingleton<Similarity.FeatureVectorizer>();
         services.TryAddSingleton<Similarity.IntentVectorizer>();

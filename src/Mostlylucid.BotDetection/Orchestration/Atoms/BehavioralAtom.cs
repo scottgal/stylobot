@@ -50,14 +50,16 @@ public sealed class BehavioralAtom : DetectorAtomBase
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     public BehavioralAtom(
-        ILogger<BehavioralAtom> logger,        IMemoryCache cache,
+        ILogger<BehavioralAtom> logger,
+        BehavioralDetector detector,
+        IMemoryCache cache,
         IOptions<BotDetectionOptions> options,
         IDetectorConfigProvider configProvider,
         IHttpContextAccessor httpContextAccessor)
         : base(name: "Behavioral", category: "Behavioral")
     {
         _logger = logger;
-        _detector = new BehavioralDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<BehavioralDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()), null!, null);
+        _detector = detector;
         _options = options.Value;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
