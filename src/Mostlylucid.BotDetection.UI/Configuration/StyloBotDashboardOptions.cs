@@ -441,6 +441,15 @@ public sealed class TemporalStoreOptions
     ///     hosts with a different scale set it here.
     /// </summary>
     public double ThreatScoreNormalizer { get; set; } = 1.0;
+
+    /// <summary>
+    ///     Fusion gate: rows whose threat score is at or above this ceiling are
+    ///     never fused into a summary row — threat rows keep their own row (and
+    ///     detail until <see cref="FullAbsorptionAge"/>) so the threats feed and
+    ///     evidence trail stay exact. Rows below the ceiling fuse like any other
+    ///     low-importance row. Default 0.5.
+    /// </summary>
+    public double FusionThreatCeiling { get; set; } = 0.5;
 }
 
 public sealed class AdminOptions

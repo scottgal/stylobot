@@ -12,22 +12,50 @@ adds the *compression* half of the forgetting curve.
 
 ## Shape: one store, no bucket tables
 
-There is exactly **one table** and **one row shape**. Aging never creates summary rows,
-bucket tables, or materialized aggregates. A row's resolution is a monotone function of
-(age × inverse importance):
+There is exactly **one table** and **one row shape**. Aging never creates summary row
+*types*, bucket tables, or materialized aggregates — but a summary row CAN be a fused
+version of the rows it absorbed, within the same table. A row's resolution is a
+monotone function of (age × inverse importance), with two tiers:
 
 - Rows younger than `HotWindow` (default 2h) keep full per-request detail.
 - Past `HotWindow`, rows whose write-time importance is below `ImportanceFloor`
-  (default 0.4) are **folded**: the verbose per-request TEXT detail columns are nulled.
-- Past `FullAbsorptionAge` (default 48h), every row folds regardless of importance —
-  an old row is its own summary.
+  (default 0.4) are **fused**: one summary row per (signature, hour-bucket, domain,
+  country, bot_type) carrying exact aggregate counters (`hit_count`, `bot_count`,
+  `bytes_sum`, `ms_sum`, `ms_max`), and the absorbed rows are **deleted** — this is
+  what actually bounds table growth. Importance decides WHO fuses; the hour bucket
+  decides the fusion GRANULARITY. Enforcement rows (block/challenge/throttle/rate/
+  honeypot/simulation actions) and threat rows (score at/above
+  `FusionThreatCeiling`, default 0.5) are exempt — they are the audit trail and the
+  evidence feed, and keep their own row.
+- Past `FullAbsorptionAge` (default 48h), the rows that did NOT fuse (important,
+  enforcement, threat) lose their detail columns — an old row is its own summary.
 - Rows still live until `DetectionRetention` (default 30d) deletes them — the fold is
   the *compress* dial, retention the *erase* dial of the same forgetting curve.
 
-The folded row keeps everything the dashboard aggregates on: counts, bot probability,
-confidence, risk band, action, threat score/band, domain/host, and the numeric KPI
-columns (`response_bytes`, `processing_time_ms`). Dashboard reads therefore return
-identical shapes with or without compression — only the drill-down detail ages out.
+The fused/summarised row keeps everything the dashboard aggregates on: counts, bot
+probability, confidence, risk band, action, threat score/band, domain/host, and the
+numeric KPI columns (`response_bytes`, `processing_time_ms`). Dashboard reads return
+identical shapes AND identical values with or without compression — count queries
+weight fused rows by their counters (`SUM(hit_count)`), drill-downs exclude them
+(`fused = 0`). Only the per-request drill-down detail ages out.
+
+### The fusion key and exactness
+
+Fused rows group by (signature, hour-bucket, domain, country, bot_type), so
+domain-filtered reads, country stats, the bot/human split (via `bot_count` computed
+with the same floor the reads use), and internal-traffic exclusion (via the key's
+`bot_type`) stay EXACT. Risk-band distributions read the signatures table, and visitor
+segment counts are `COUNT(DISTINCT signature)` over a signatures join — both exact
+with fused rows. Fused rows anchor their timestamp to the hour bucket start, so
+time-series bucketing lands them in their own bucket. A group split across fold ticks
+(one batch boundary) merges into the existing fused row instead of duplicating.
+
+### Why not plain time-bucket aggregation?
+
+The operator's correction stands: no separate bucket tables, no materialized
+aggregates. Fusion keeps ONE store and ONE row shape — the summary row IS a row of the
+same table with the same columns, flagged `fused = 1`. The time bucket appears only as
+the fusion granularity for the low-importance tier, never as a storage tier.
 
 ## Importance — computed once at write time
 
@@ -58,15 +86,25 @@ than a fleet-scale store would).
 `DetectionCompressionFold` subscribes to `ScheduleCoordinator` `Tick5m`
 (`CostHint.Low`) and drives `IDashboardEventStore.FoldAgedDetectionsAsync` — the
 audited store API (the interface default is a no-op returning 0, so non-SQLite
-stores and test fakes compile unchanged). Two sub-passes per tick, each
-`ORDER BY importance_weight ASC, timestamp ASC LIMIT FoldBatchSize`:
+stores and test fakes compile unchanged). Two PARTITIONED sub-passes per tick, each
+`ORDER BY importance_weight ASC, timestamp ASC LIMIT FoldBatchSize` — no row is ever
+claimed by both:
 
-1. Rows older than `HotWindow` with weight below `ImportanceFloor`.
-2. Rows older than `FullAbsorptionAge` (all weights).
+1. **Fusion** (rows older than `HotWindow`, weight below `ImportanceFloor`,
+   non-enforcement, threat below the ceiling): group + representative + counters,
+   delete the absorbed rows. The representative becomes the fused summary row
+   (detail cleared, timestamp anchored to the bucket start).
+2. **Full absorption** (rows older than `FullAbsorptionAge` that are NOT
+   fusion-eligible — weight at/above the floor, enforcement, or threat): detail
+   columns nulled.
+
+The partition matters: if pass 2 could null a fusion-eligible row's `method` before
+pass 1 fused it, the row would lose its drain marker and never fuse (the original
+bug, caught by the 30-day plateau test).
 
 The `importance_weight, timestamp` composite index (`idx_det_compression`) serves
-both passes. The drain marker `method IS NOT NULL` skips already-folded rows so the
-batch always advances to new rows. The fold is idempotent and single-flight
+both passes. The drain marker `method IS NOT NULL` skips already-folded/fused rows
+so the batch always advances to new rows. The fold is idempotent and single-flight
 (one subscriber, one batch window per tick — the one-at-a-time slow path; no
 fire-and-forget bursts contending the writer).
 
@@ -74,6 +112,27 @@ Foldable detail columns (nulled): `method`, `path`, `user_agent_raw`,
 `referrer_host`, `ua_device_class`, `risk_justification`. Everything else survives.
 Reads use their existing missing-value conventions (NULL method reads as `""`, NULL
 path as `/`).
+
+## Read path
+
+Count queries (summary, time-series, top-bots, domain stats, country stats/detail,
+investigation summary + country) weight fused rows by their counters via shared
+fused-aware SQL expressions (`CASE WHEN fused = 1 THEN hit_count ELSE 1 END` etc.)
+and let fused rows pass audience filters (their split lives in the counters).
+Drill-downs (detections list, endpoint stats, per-signature endpoints, threats,
+investigation detail) exclude fused rows (`fused = 0`) — they are not real events.
+`GetVisitorSegmentCountsAsync` needs no change (distinct signatures over the
+signatures join), and honeypot rows never fuse (enforcement-exempt).
+
+## Long-period stability (soak)
+
+The 30-day plateau test in the test suite proves the steady state deterministically
+(fusion + retention bound the table while counts stay exact). For the real thing,
+`scripts/soak/run-compression-soak.sh` drives the existing k6 corpus against an
+isolated gateway with `CompressionEnabled=true` for hours, sampling row count + DB
+file size per window, and asserts the plateau: growth after warm-up must collapse to
+a small fraction of the raw pipeline's accumulation. Run by the deploy lane on an
+isolated rig (the script refuses :8190/staging).
 
 ## Tick wiring
 
@@ -103,7 +162,8 @@ Both self-disable on viewer-mode hosts with no coordinator, mirroring
         "BotScoreWeight": 0.5,
         "ThreatScoreWeight": 0.3,
         "ActionWeight": 0.2,
-        "ThreatScoreNormalizer": 1.0
+        "ThreatScoreNormalizer": 1.0,
+        "FusionThreatCeiling": 0.5
       }
     }
   }

@@ -58,4 +58,33 @@ public static class DetectionImportance
         if (a.Contains("rate", StringComparison.Ordinal)) return 0.4;
         return 0.0;
     }
+
+    /// <summary>
+    ///     The single source of truth for the enforcement keyword set — used by
+    ///     <see cref="IsEnforcementAction"/> here AND by the fold's SQL
+    ///     predicates in <c>SqliteDashboardEventStore</c> (which builds its
+    ///     LIKE predicates from this array), so the C# gate and the SQL gate can
+    ///     never drift apart.
+    /// </summary>
+    public static readonly string[] EnforcementActionKeywords =
+        ["block", "challenge", "honeypot", "simulation", "throttle", "rate"];
+
+    /// <summary>
+    ///     True when the action policy name is an enforcement action — the
+    ///     compression fold's fusion gate: enforcement rows are the audit trail
+    ///     (the design's "enforcement actions keep detail") and are never fused
+    ///     into summary rows; they keep their own row, detail-nulled at full
+    ///     absorption, until retention deletes them. Shares the keyword set with
+    ///     <see cref="ActionBonus"/> (a test pins the two together).
+    /// </summary>
+    public static bool IsEnforcementAction(string? action)
+    {
+        if (string.IsNullOrWhiteSpace(action)) return false;
+        var a = action.ToLowerInvariant();
+        foreach (var keyword in EnforcementActionKeywords)
+        {
+            if (a.Contains(keyword, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
 }

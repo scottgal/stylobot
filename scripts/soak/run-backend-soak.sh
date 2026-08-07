@@ -31,6 +31,17 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 LABEL="${BACKEND}-${STAMP}"
 mkdir -p "$OUTDIR"
 
+# HARD GUARD: :8190 is staging.stylobot.net's live gateway, not an isolated rig —
+# soaking it puts load on real staging traffic. Never target it from this script.
+# Point TARGET at a dedicated isolated commercial-gateway instance instead.
+case "$TARGET" in
+  *:8190*|*staging.stylobot.net*)
+    echo "REFUSING: TARGET=$TARGET is staging (:8190 / staging.stylobot.net), not an isolated soak rig." >&2
+    echo "Stand up a dedicated commercial gateway + fresh Postgres on its own port and point TARGET there." >&2
+    exit 3
+    ;;
+esac
+
 SSH_OPTS=(-o StrictHostKeyChecking=no -o PreferredAuthentications=password
           -o PubkeyAuthentication=no -o ConnectTimeout=8)
 ssh15() { sshpass -p "$SSH_PASS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SOAK_HOST" "$@"; }

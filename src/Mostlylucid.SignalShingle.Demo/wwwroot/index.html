@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Signal Shingle demo</title>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+<script src="/_content/Mostlylucid.SignalShingle/signal-shingle.js"></script></head>
+<body><h1>Signal Shingle</h1><p>This fragment refreshes by SignalR dirty beacon, then fetches HTML.</p>
+<div data-signal-shingle-key="clock" x-data="signalShingle()" x-init="connect($el)"><p>Warming clock…</p></div>
+</body></html>
