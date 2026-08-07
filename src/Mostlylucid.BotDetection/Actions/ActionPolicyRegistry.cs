@@ -205,6 +205,8 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
             RateLimitActionOptions.Social, _tokenBucketStore, this, _adaptiveScaling));
         RegisterPolicy(new RateLimitActionPolicy("rate-limit-monitoring",
             RateLimitActionOptions.Monitoring, _tokenBucketStore, this, _adaptiveScaling));
+        RegisterPolicy(new RateLimitActionPolicy("rate-limit-registry",
+            RateLimitActionOptions.Registry, _tokenBucketStore, this, _adaptiveScaling));
 
         // Sticky-deny: per-key violation counter that escalates from the
         // configured UnderThresholdAction (default throttle-status) to a hard

@@ -104,6 +104,20 @@ public sealed class RateLimitActionOptions
         OverLimitAction = "throttle-status",
         KeyBy = RateLimitKey.Signature,
     };
+
+    /// <summary>
+    ///     Docker/OCI registry clients (Harbor, container registries).
+    ///     600 req/min, burst 100 — generous allowance for image pull bursts
+    ///     (a cluster booting pulls many blobs in rapid succession).
+    ///     Keyed by signature so the same authenticated client session stays together.
+    /// </summary>
+    public static RateLimitActionOptions Registry => new()
+    {
+        RequestsPerMinute = 600,
+        BurstSize = 100,
+        OverLimitAction = "throttle-status",
+        KeyBy = RateLimitKey.Signature,
+    };
 }
 
 /// <summary>
