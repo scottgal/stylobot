@@ -15,7 +15,9 @@
 #     gateway's dashboard.db (defaults to a sqlite3 invocation on the SOAK_HOST
 #     path; override for your rig).
 #   * API_KEY: a debug/ops key (DisableLearningWrites) — soak traffic must not
-#     train the model (feedback_always_api_key_on_stylobot_traffic).
+#     train the model (feedback_always_api_key_on_stylobot_traffic). Defaults to
+#     the Infisical staging gateway-debug-api-key (/stylobot-gateway), fetched
+#     in-process; the script refuses to soak keyless.
 #
 # Env overrides:
 #   TARGET      (default http://192.168.0.15:8190 — override for your isolated rig)
@@ -29,7 +31,6 @@ set -euo pipefail
 DURATION_HOURS="${1:-6}"
 RPS="${2:-150}"
 TARGET="${TARGET:-http://192.168.0.15:8190}"
-API_KEY="${API_KEY:-staging-test-website-key-do-not-use-elsewhere}"
 SOAK_HOST="${SOAK_HOST:-192.168.0.15}"
 SSH_USER="${SSH_USER:-claude}"
 SSH_PASS="${SSH_PASS:-Cl4ude2026!}"
@@ -38,6 +39,19 @@ OUTDIR="${OUTDIR:-soak-results}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 LABEL="compression-${STAMP}"
 mkdir -p "$OUTDIR"
+
+# HARD RULE: every request must carry X-SB-Api-Key — keyless traffic poisons
+# the detection corpus (feedback_always_api_key_on_stylobot_traffic). When
+# API_KEY is not overridden, fetch the gateway debug key from Infisical staging
+# (path /stylobot-gateway, key gateway-debug-api-key) IN-PROCESS; never log or
+# echo it. Refuse to soak keyless if the fetch fails.
+if [ -z "${API_KEY:-}" ]; then
+  API_KEY="$(infisical secrets get gateway-debug-api-key --env=staging --path=/stylobot-gateway --plain 2>/dev/null || true)"
+fi
+if [ -z "${API_KEY:-}" ]; then
+  echo "API_KEY not set and Infisical fetch (staging /stylobot-gateway gateway-debug-api-key) failed — refusing to soak keyless." >&2
+  exit 1
+fi
 
 # HARD GUARD: :8190 is staging.stylobot.net's live gateway, not an isolated rig —
 # soaking it puts load on real staging traffic. Never target it from this script.
