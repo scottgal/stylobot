@@ -221,6 +221,29 @@ public sealed class StyloBotDashboardOptions
     public int AttackArcMinIntervalMs { get; set; } = 100;
 
     /// <summary>
+    ///     Temporal-store compression knobs (detection aging / forgetting curve).
+    ///     Bound from <c>StyloBot:Dashboard:TemporalStore</c>.
+    ///     <para>
+    ///     Detection rows keep full per-request detail while younger than
+    ///     <see cref="TemporalStoreOptions.HotWindow"/>. Past it, the compression
+    ///     fold progressively nulls the verbose per-request detail columns
+    ///     (UA, path, justification) on LOW-importance rows — importance is
+    ///     computed once at write time and stored on the row — and on ALL rows
+    ///     once they pass <see cref="TemporalStoreOptions.FullAbsorptionAge"/>.
+    ///     The classification/aggregate columns (counts, bot probability, risk
+    ///     band, action, threat, domain) are never touched, so dashboard reads
+    ///     return identical shapes with or without compression; only the
+    ///     per-request drill-down detail ages out. Rows still live until
+    ///     <see cref="DetectionRetention"/> deletes them.
+    ///     </para>
+    ///     <para>
+    ///     <see cref="TemporalStoreOptions.CompressionEnabled"/> defaults to
+    ///     <c>false</c>: today's raw behavior until a host opts in and validates.
+    ///     </para>
+    /// </summary>
+    public TemporalStoreOptions TemporalStore { get; set; } = new();
+
+    /// <summary>
     ///     Custom authorization filter (evaluated before policy).
     ///     Signature: Func&lt;HttpContext, Task&lt;bool&gt;&gt;
     ///     Return true to allow access, false to deny.
@@ -345,6 +368,88 @@ public sealed class StyloBotDashboardOptions
     ///     existence isn't advertised.
     /// </summary>
     public AdminOptions Admin { get; set; } = new();
+}
+
+/// <summary>
+///     Temporal-store forgetting-curve knobs. One store, one row shape — aging
+///     only nulls per-request detail columns by importance; there are no bucket
+///     tables and no summary row type. Every knob is operator-configurable;
+///     defaults are tuned for the FOSS single-host SQLite store (forgets faster
+///     than a fleet-scale store would).
+/// </summary>
+public sealed class TemporalStoreOptions
+{
+    /// <summary>
+    ///     Master switch for the compression fold. <c>false</c> (default) = today's
+    ///     raw behavior — every row keeps full detail until retention deletes it.
+    ///     Opt in per host once validated; the raw path stays forever.
+    /// </summary>
+    public bool CompressionEnabled { get; set; }
+
+    /// <summary>
+    ///     Rows younger than this keep full per-request resolution unconditionally.
+    ///     Past it, the fold starts absorbing. Default 2h.
+    /// </summary>
+    public TimeSpan HotWindow { get; set; } = TimeSpan.FromHours(2);
+
+    /// <summary>
+    ///     Hard floor: past this age every row is folded (detail columns nulled)
+    ///     regardless of importance — old rows are summaries of themselves.
+    ///     Still under <see cref="StyloBotDashboardOptions.DetectionRetention"/>.
+    ///     Default 48h.
+    /// </summary>
+    public TimeSpan FullAbsorptionAge { get; set; } = TimeSpan.FromHours(48);
+
+    /// <summary>
+    ///     Minimum importance weight that preserves per-request detail between
+    ///     <see cref="HotWindow"/> and <see cref="FullAbsorptionAge"/>. Rows with
+    ///     weight below the floor are folded as soon as they leave the hot window;
+    ///     rows at/above it keep detail until full absorption. SQLite (FOSS) sets
+    ///     the floor higher — compresses more eagerly. Range 0..1. Default 0.4.
+    /// </summary>
+    public double ImportanceFloor { get; set; } = 0.4;
+
+    /// <summary>
+    ///     Rows absorbed per fold tick (the one-at-a-time slow path). Low-importance
+    ///     rows drain first. Default 200 — at the fold's 5-minute cadence that is
+    ///     2400 rows/hour of steady-state compression.
+    /// </summary>
+    public int FoldBatchSize { get; set; } = 200;
+
+    /// <summary>
+    ///     Weight of the row's own bot probability in the write-time importance
+    ///     score (0..1, blend weights sum to 1). Default 0.5.
+    /// </summary>
+    public double BotScoreWeight { get; set; } = 0.5;
+
+    /// <summary>
+    ///     Weight of the row's threat score in the write-time importance score.
+    ///     Default 0.3.
+    /// </summary>
+    public double ThreatScoreWeight { get; set; } = 0.3;
+
+    /// <summary>
+    ///     Weight of the enforcement action (block/challenge/throttle/rate-limit)
+    ///     in the write-time importance score — enforcement rows are the audit
+    ///     trail and keep detail longest. Default 0.2.
+    /// </summary>
+    public double ActionWeight { get; set; } = 0.2;
+
+    /// <summary>
+    ///     Threat-score scale at which a threat score counts as full threat. The
+    ///     pipeline's threat scores are already normalized 0..1, so default 1.0;
+    ///     hosts with a different scale set it here.
+    /// </summary>
+    public double ThreatScoreNormalizer { get; set; } = 1.0;
+
+    /// <summary>
+    ///     Fusion gate: rows whose threat score is at or above this ceiling are
+    ///     never fused into a summary row — threat rows keep their own row (and
+    ///     detail until <see cref="FullAbsorptionAge"/>) so the threats feed and
+    ///     evidence trail stay exact. Rows below the ceiling fuse like any other
+    ///     low-importance row. Default 0.5.
+    /// </summary>
+    public double FusionThreatCeiling { get; set; } = 0.5;
 }
 
 public sealed class AdminOptions

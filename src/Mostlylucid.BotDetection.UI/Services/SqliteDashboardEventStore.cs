@@ -23,6 +23,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     internal string ConnectionString => _connectionString;
     private readonly ILogger<SqliteDashboardEventStore> _logger;
     private readonly TimeSpan _detectionRetention;
+    // Startup snapshot of the forgetting-curve blend (FOSS no-reload rule).
+    // Defaults (CompressionEnabled=false, weights 0.5/0.3/0.2) apply when the
+    // caller didn't bind StyloBotDashboardOptions at all.
+    private readonly Configuration.TemporalStoreOptions _temporalStore;
     private readonly double _botFloor;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -44,6 +48,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // detection-only gateway path) don't bind StyloBotDashboardOptions.
         // Default to the historical 7-day retention when absent.
         _detectionRetention = dashboardOptions?.Value.DetectionRetention ?? TimeSpan.FromDays(7);
+        _temporalStore = dashboardOptions?.Value.TemporalStore ?? new Configuration.TemporalStoreOptions();
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct = default)
@@ -90,7 +95,27 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 // origin call -- honeypot/blocked/throttled traffic never reaches
                 // MapReverseProxy, so the gateway's UpstreamStatusTransform never runs for
                 // them. That NULL is the meaningful signal, not missing data.
-                ("detections", "upstream_status_code", "INTEGER")
+                ("detections", "upstream_status_code", "INTEGER"),
+                // Write-time importance weight for the compression fold
+                // (DetectionImportance / TemporalStoreOptions). The fold orders
+                // the aged region by this and nulls detail columns on
+                // low-importance rows; NOT NULL DEFAULT 0 so pre-migration rows
+                // are the lowest-importance tier (fold first — correct: they're
+                // also the oldest).
+                ("detections", "importance_weight", "REAL NOT NULL DEFAULT 0"),
+                // Fusion (sparse-aggregate) columns: a fused row is a summary of
+                // the low-importance rows it absorbed — one row per
+                // (signature, hour-bucket, domain, country, bot_type) carrying
+                // the aggregate counters below. fused=1 marks it as NOT a real
+                // event: count reads weight it by its counters, drill-downs
+                // exclude it. Defaults keep raw rows at fused=0 / hit_count=1
+                // with zeroed counters (never read for raw rows).
+                ("detections", "fused", "INTEGER NOT NULL DEFAULT 0"),
+                ("detections", "hit_count", "INTEGER NOT NULL DEFAULT 1"),
+                ("detections", "bot_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("detections", "bytes_sum", "INTEGER NOT NULL DEFAULT 0"),
+                ("detections", "ms_sum", "REAL NOT NULL DEFAULT 0"),
+                ("detections", "ms_max", "REAL NOT NULL DEFAULT 0")
             })
             {
                 var colExists = false;
@@ -210,10 +235,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
                     status_code, user_agent_raw, risk_justification, domain, host, referrer_host, ua_device_class, response_bytes,
-                    is_verified_bot, upstream_status_code)
+                    is_verified_bot, upstream_status_code, importance_weight)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
                     @threat, @band, @status, @uaRaw, @justification, @domain, @host, @refHost, @deviceClass, @responseBytes,
-                    @verifiedBot, @upstreamStatus)
+                    @verifiedBot, @upstreamStatus, @importance)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -241,6 +266,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@responseBytes", (object?)detection.ResponseBytes ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@verifiedBot", detection.IsVerifiedBot ? 1 : 0);
             cmd.Parameters.AddWithValue("@upstreamStatus", (object?)detection.UpstreamStatusCode ?? DBNull.Value);
+            // Write-time importance weight (DetectionImportance): computed once
+            // here, stored on the row, consumed by the compression fold. The
+            // options blend weights are startup-snapshot (FOSS no-reload).
+            cmd.Parameters.AddWithValue("@importance",
+                DetectionImportance.ComputeWeight(
+                    detection.BotProbability,
+                    detection.ThreatScore,
+                    detection.Action,
+                    _temporalStore));
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -369,8 +403,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // per-request audit rows); the signatures row carries the latest
         // synthesised+contribution reasons that the signature detail page
         // and any per-request inspector renders.
+        // Drill-down: fused summary rows are NOT real events — exclude them.
         var sql = "SELECT d.*, s.top_reasons_json AS top_reasons_json FROM detections d LEFT JOIN signatures s ON d.signature = s.signature";
-        var conditions = new List<string>();
+        var conditions = new List<string> { "d.fused = 0" };
         await using var cmd = conn.CreateCommand();
 
         if (filter?.StartTime.HasValue == true)
@@ -535,6 +570,57 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         _                   => " AND bot_type IS NOT 'Internal'",
     };
 
+    // ---- Fused-row aggregation fragments -----------------------------------
+    // A fused row is a (signature, hour, domain, country, bot_type) summary of
+    // the low-importance rows it absorbed: it is NOT a real event, so every
+    // count aggregation must weight it by its counters, and drill-downs must
+    // exclude it (fused = 0). Fused rows always pass audience WHERE filters —
+    // their bot/human split lives in the counters — so aggregate queries wrap
+    // the raw audience predicate: "(fused = 1 OR <raw predicate>)".
+    private const string FusedTotalExpr   = "CASE WHEN fused = 1 THEN hit_count ELSE 1 END";
+    private const string FusedBytesExpr   = "CASE WHEN fused = 1 THEN bytes_sum ELSE COALESCE(response_bytes, 0) END";
+    private const string FusedMsSumExpr   = "CASE WHEN fused = 1 THEN ms_sum ELSE COALESCE(processing_time_ms, 0) END";
+    private const string FusedMsMaxExpr   = "CASE WHEN fused = 1 THEN ms_max ELSE processing_time_ms END";
+
+    /// <summary>
+    ///     WHERE clause that lets fused rows through regardless of audience —
+    ///     the raw audience predicate applies to raw rows; the fused row's own
+    ///     split is applied in the SELECT via the counter expressions.
+    /// </summary>
+    private static string FusedAudienceWhere(string? audienceFilter)
+    {
+        var raw = AudiencePredicate(audienceFilter);
+        if (raw.Length == 0) return string.Empty;
+        var body = raw.Substring(" AND ".Length);
+        return $" AND (fused = 1 OR ({body}))";
+    }
+
+    /// <summary>
+    ///     Bot-count expression for fused rows, audience-aware: for "bots" the
+    ///     fused row contributes its bot_count and the raw rows were pre-filtered
+    ///     to bots (count 1 each); for "humans" the fused row contributes 0 (its
+    ///     human portion counts via <see cref="FusedTotalExprFor"/>'s humans
+    ///     variant); otherwise the raw per-row floor CASE.
+    /// </summary>
+    private static string FusedBotsExpr(string? audienceFilter) => audienceFilter?.ToLowerInvariant() switch
+    {
+        "humans" => "CASE WHEN fused = 1 THEN 0 WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END",
+        "bots"   => "CASE WHEN fused = 1 THEN bot_count ELSE 1 END",
+        _        => "CASE WHEN fused = 1 THEN bot_count WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END",
+    };
+
+    /// <summary>
+    ///     Total-count expression, audience-aware: fused rows contribute their
+    ///     full hit_count for unfiltered reads, their bot/human portion for
+    ///     audience-filtered reads (the raw rows were pre-filtered, count 1).
+    /// </summary>
+    private static string FusedTotalExprFor(string? audienceFilter) => audienceFilter?.ToLowerInvariant() switch
+    {
+        "bots"   => "CASE WHEN fused = 1 THEN bot_count ELSE 1 END",
+        "humans" => "CASE WHEN fused = 1 THEN hit_count - bot_count ELSE 1 END",
+        _        => FusedTotalExpr,
+    };
+
     public async Task<DashboardSummary> GetSummaryAsync(
         DateTime? startTime = null,
         DateTime? endTime = null,
@@ -551,7 +637,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var hasUntil = endTime.HasValue;
 
         // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
-        var audiencePredicate = AudiencePredicate(audienceFilter);
+        // Fused rows always pass the WHERE; their split applies via the counter
+        // expressions in the SELECT (see FusedAudienceWhere / FusedBotsExpr).
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         // Request-level counts (one detection row per request — drives traffic charts).
@@ -563,15 +650,17 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using (var cmd = conn.CreateCommand())
         {
             var untilClause = hasUntil ? " AND timestamp < @until" : string.Empty;
+            var totalExpr = FusedTotalExprFor(audienceFilter);
+            var botsExpr = FusedBotsExpr(audienceFilter);
             cmd.CommandText = $"""
                 SELECT
-                    COUNT(*) AS total,
-                    SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bots,
-                    COALESCE(SUM(response_bytes), 0) AS bytes_out,
-                    AVG(processing_time_ms) AS avg_ms,
-                    MAX(processing_time_ms) AS max_ms
+                    SUM({totalExpr}) AS total,
+                    SUM({botsExpr}) AS bots,
+                    SUM({FusedBytesExpr}) AS bytes_out,
+                    SUM({FusedMsSumExpr}) / NULLIF(SUM({totalExpr}), 0) AS avg_ms,
+                    MAX({FusedMsMaxExpr}) AS max_ms
                 FROM detections
-                WHERE timestamp >= @since{untilClause}{audiencePredicate}{domainPredicate}
+                WHERE timestamp >= @since{untilClause}{FusedAudienceWhere(audienceFilter)}{domainPredicate}
                 """;
             cmd.Parameters.AddWithValue("@since", sinceStr);
             cmd.Parameters.AddWithValue("@botFloor", _botFloor);
@@ -680,7 +769,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var bucketSeconds = Math.Max((int)bucketSize.TotalSeconds, 1);
 
         // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
-        var audiencePredicate = AudiencePredicate(audienceFilter);
+        // Fused rows always pass the WHERE; their split applies via the counter
+        // expressions in the SELECT. Fused rows' timestamps are hour-bucket
+        // anchored, so the bucket math below lands them in their own bucket.
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         await using var conn = new SqliteConnection(_connectionString);
@@ -692,14 +783,14 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 strftime('%Y-%m-%dT%H:%M:%SZ',
                          (CAST(strftime('%s', timestamp) AS INTEGER) / @bucket) * @bucket,
                          'unixepoch') AS bucket,
-                SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bots,
-                SUM(CASE WHEN bot_probability < @botFloor THEN 1 ELSE 0 END) AS humans,
-                COUNT(*) AS total,
-                COALESCE(SUM(response_bytes), 0) AS bytes_out,
-                AVG(processing_time_ms) AS avg_ms,
-                MAX(processing_time_ms) AS max_ms
+                SUM({FusedBotsExpr(audienceFilter)}) AS bots,
+                SUM({FusedTotalExprFor(audienceFilter)}) - SUM({FusedBotsExpr(audienceFilter)}) AS humans,
+                SUM({FusedTotalExprFor(audienceFilter)}) AS total,
+                SUM({FusedBytesExpr}) AS bytes_out,
+                SUM({FusedMsSumExpr}) / NULLIF(SUM({FusedTotalExprFor(audienceFilter)}), 0) AS avg_ms,
+                MAX({FusedMsMaxExpr}) AS max_ms
             FROM detections
-            WHERE timestamp >= @start AND timestamp < @end{audiencePredicate}{domainPredicate}
+            WHERE timestamp >= @start AND timestamp < @end{FusedAudienceWhere(audienceFilter)}{domainPredicate}
             GROUP BY bucket
             ORDER BY bucket
             """;
@@ -976,7 +1067,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
         // Internal-exclusion + bot/human gate, shared with Postgres. Top-bots defaults to
         // bots-only (mirrors the commercial store), so a null audience maps to "bots".
-        var audiencePredicate = AudiencePredicate(audienceFilter ?? "bots");
+        // Fused rows always pass the WHERE; their split applies via the counter
+        // expressions in the SELECT.
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
 
         var timeWhere = new System.Text.StringBuilder();
@@ -1001,17 +1093,17 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    bot_name,
                    bot_type,
                    bot_probability,
-                   COUNT(*)              AS hit_count,
+                   SUM({FusedTotalExprFor(audienceFilter)})              AS hit_count,
                    MAX(timestamp)        AS last_seen,
                    AVG(threat_score)     AS threat_score,
                    action,
                    threat_band,
                    country_code,
-                   COALESCE(SUM(response_bytes), 0) AS bytes_out,
+                   SUM({FusedBytesExpr}) AS bytes_out,
                    is_bot,
                    user_agent_raw
             FROM detections
-            WHERE 1=1{audiencePredicate}{timeWhere}{domainPredicate}
+            WHERE 1=1{FusedAudienceWhere(audienceFilter)}{timeWhere}{domainPredicate}
             GROUP BY signature
             ORDER BY hit_count DESC
             LIMIT @count
@@ -1081,11 +1173,18 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
 
         await using var cmd = conn.CreateCommand();
+        // Fused rows are grouped by (signature, hour, domain, country, bot_type),
+        // so a fused row's bot_type is EXACTLY every absorbed row's bot_type —
+        // the internal-exclusion CASE stays fully correct (Internal fused rows
+        // are excluded like Internal raw rows).
         cmd.CommandText = $"""
             SELECT domain,
-                   SUM(CASE WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) as requests,
-                   SUM(CASE WHEN bot_probability >= @botFloor AND bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) as bots,
-                   CASE WHEN SUM(CASE WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) = 0
+                   SUM(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN hit_count
+                            WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) as requests,
+                   SUM(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN bot_count
+                            WHEN bot_probability >= @botFloor AND bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) as bots,
+                   CASE WHEN SUM(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN hit_count
+                                      WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) = 0
                         THEN 1 ELSE 0 END as is_internal
             FROM detections
             {where}
@@ -1122,18 +1221,19 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (startTime.HasValue) where.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
         // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
-        where.Append(AudiencePredicate(audienceFilter));
+        // Fused rows always pass the WHERE; their split applies in the SELECT.
+        where.Append(FusedAudienceWhere(audienceFilter));
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
         if (domainPredicate.Length > 0) where.Append(domainPredicate);
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
             SELECT country_code,
-                   COUNT(*) as total,
-                   SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) as bots,
-                   AVG(processing_time_ms) AS avg_ms,
-                   MAX(processing_time_ms) AS max_ms,
-                   COALESCE(SUM(response_bytes), 0) as bytes_out
+                   SUM({FusedTotalExprFor(audienceFilter)}) as total,
+                   SUM({FusedBotsExpr(audienceFilter)}) as bots,
+                   SUM({FusedMsSumExpr}) / NULLIF(SUM({FusedTotalExprFor(audienceFilter)}), 0) AS avg_ms,
+                   MAX({FusedMsMaxExpr}) AS max_ms,
+                   SUM({FusedBytesExpr}) as bytes_out
             FROM detections
             {where}
             GROUP BY country_code
@@ -1185,8 +1285,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
             SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN bot_probability >= @botFloor THEN 1 ELSE 0 END) AS bots
+                SUM({FusedTotalExpr}) AS total,
+                SUM({FusedBotsExpr(null)}) AS bots
             FROM detections
             WHERE country_code = @cc{timeFilter}
             """;
@@ -1229,8 +1329,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // to the is_bot column written by AddDetectionAsync (detection.IsBot ? 1 : 0).
         // "honeypot" is a path-shape filter applied post-query because IsHoneypot is derived
         // from HoneypotPathDefinitions.Classify, not a column on detections.
+        // Drill-down: fused rows lost their (method, path) shape — exclude them.
         var honeypotOnly = string.Equals(audienceFilter, "honeypot", StringComparison.OrdinalIgnoreCase);
-        var where = new System.Text.StringBuilder("WHERE 1=1");
+        var where = new System.Text.StringBuilder("WHERE fused = 0");
         if (startTime.HasValue) where.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
         // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
@@ -1385,6 +1486,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                   LIMIT 1)                                                                  AS dominant_action
             FROM detections
             WHERE signature = @sig
+              -- Drill-down: fused rows lost their (method, path) shape.
+              AND fused = 0
             GROUP BY method, path
             ORDER BY hits DESC
             LIMIT @top
@@ -1685,6 +1788,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             FROM detections
             WHERE (action = 'simulation-pack'
                    OR threat_band IN ('Critical', 'High'))
+              -- Drill-down feed: fused summary rows are not real events
+              -- (their representative threat band can match even though the
+              -- fusion gate kept their threat score below the ceiling).
+              AND fused = 0
             """;
 
         if (startTime.HasValue)
@@ -1881,14 +1988,18 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
         // ── Summary ──────────────────────────────────────────────────────────
         await using var summaryCmd = conn.CreateCommand();
+        // Fused rows weight the totals by their counters; the risk-band split
+        // attributes a fused row's hit_count to its representative's band (the
+        // fusion key doesn't carry risk_band — a documented approximation on
+        // old low-importance rows).
         summaryCmd.CommandText = $"""
             SELECT
-                COUNT(*) AS TotalDetections,
+                SUM({FusedTotalExpr}) AS TotalDetections,
                 MIN(timestamp) AS FirstSeen,
                 MAX(timestamp) AS LastSeen,
-                SUM(CASE WHEN risk_band = 'high'   THEN 1 ELSE 0 END) AS HighRisk,
-                SUM(CASE WHEN risk_band = 'medium' THEN 1 ELSE 0 END) AS MediumRisk,
-                SUM(CASE WHEN risk_band = 'low'    THEN 1 ELSE 0 END) AS LowRisk
+                SUM(CASE WHEN fused = 1 AND risk_band = 'high'   THEN hit_count WHEN risk_band = 'high'   THEN 1 ELSE 0 END) AS HighRisk,
+                SUM(CASE WHEN fused = 1 AND risk_band = 'medium' THEN hit_count WHEN risk_band = 'medium' THEN 1 ELSE 0 END) AS MediumRisk,
+                SUM(CASE WHEN fused = 1 AND risk_band = 'low'    THEN hit_count WHEN risk_band = 'low'    THEN 1 ELSE 0 END) AS LowRisk
             {baseSql}
             """;
         BindFilters(summaryCmd);
@@ -1924,7 +2035,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 d.processing_time_ms, d.status_code, d.user_agent_raw,
                 d.threat_score, d.threat_band,
                 d.domain, d.referrer_host, d.ua_device_class
-            {baseSql}
+            {baseSql} AND d.fused = 0
             ORDER BY d.timestamp DESC
             LIMIT @Limit OFFSET @Offset
             """;
@@ -2002,7 +2113,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 d.method, d.path,
                 COUNT(*) AS Count,
                 AVG(d.bot_probability) AS AvgBotProb
-            {baseSql}
+            -- Drill-down: fused rows lost their (method, path) shape.
+            {baseSql} AND d.fused = 0
             GROUP BY d.method, d.path
             ORDER BY Count DESC
             LIMIT 50
@@ -2026,11 +2138,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
         // ── Country breakdown ─────────────────────────────────────────────────
         await using var ctryCmd = conn.CreateCommand();
+        // Country IS part of the fusion key, so fused rows' counts are exact here.
         ctryCmd.CommandText = $"""
             SELECT
                 d.country_code,
-                COUNT(*) AS Count,
-                SUM(CASE WHEN d.bot_probability >= @botFloor THEN 1 ELSE 0 END) AS BotCount
+                SUM({FusedTotalExpr}) AS Count,
+                SUM({FusedBotsExpr(null)}) AS BotCount
             {baseSql} AND d.country_code IS NOT NULL
             GROUP BY d.country_code
             ORDER BY Count DESC
@@ -2271,6 +2384,309 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             _writeLock.Release();
         }
     }
+
+    public async Task<int> FoldAgedDetectionsAsync(
+        DateTime hotCutoff,
+        DateTime fullAbsorptionCutoff,
+        double importanceFloor,
+        int batchSize,
+        CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+
+            var total = 0;
+
+            // Pass 1 — FUSION (sparse aggregates): the low-importance aged region
+            // past HotWindow collapses into one summary row per
+            // (signature, hour-bucket, domain, country, bot_type). Importance
+            // decides WHO fuses, the hour bucket decides the FUSION GRANULARITY.
+            // Absorbed rows are DELETEd — this is what actually bounds table
+            // growth (the fold no longer just nulls detail, it removes rows).
+            total += await FuseBatchAsync(
+                conn, hotCutoff, importanceFloor, batchSize, ct);
+
+            // Pass 2 — FULL ABSORPTION: rows past FullAbsorptionAge that are NOT
+            // fusion-eligible (high importance, enforcement, or threat rows)
+            // lose their detail columns. The two passes PARTITION the aged
+            // population — pass 2 explicitly skips fusion-eligible rows — so
+            // pass 2 can never null a low-importance row's detail (and its
+            // method drain marker) before pass 1 fuses it. Fused rows are
+            // skipped by the method IS NOT NULL drain marker. The per-request
+            // detail columns the fold nulls. Everything the dashboard aggregates
+            // on (counts, bot_probability, risk_band, action, threat_score,
+            // domain/host, and the numeric KPI columns response_bytes/
+            // processing_time_ms) is deliberately untouched, so reads return
+            // identical shapes with or without compression. SQLite treats
+            // re-nulling a NULL column as a no-op, so the pass is idempotent.
+            total += await FoldBatchAsync(
+                conn, FoldDetailSet, fullAbsorptionCutoff, importanceFloor, batchSize, ct);
+
+            return total;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    // The per-request detail columns the fold nulls (pass 2) and the fusion
+    // clears on the surviving representative row. Mirrors DetectionImportance's
+    // enforcement keyword set — a test pins the two together.
+    private const string FoldDetailSet =
+        "method = NULL, path = NULL, user_agent_raw = NULL, referrer_host = NULL, " +
+        "ua_device_class = NULL, risk_justification = NULL";
+
+    /// <summary>
+    ///     Fusion exemption predicates, built from
+    ///     <see cref="DetectionImportance.EnforcementActionKeywords"/> — the
+    ///     single source of truth for the keyword set, so the C# gate
+    ///     (IsEnforcementAction) and the SQL gates can never drift apart.
+    ///     Enforcement rows (the audit trail — blocked/challenged/throttled/
+    ///     honeypot) and rows at/above the fusion threat ceiling (the evidence
+    ///     feed) are never fused; they keep their own row and detail until full
+    ///     absorption.
+    /// </summary>
+    private static readonly string NonEnforcementPredicate = BuildNotEnforcementPredicate();
+    private static readonly string EnforcementPredicate = BuildEnforcementPredicate();
+
+    private static string BuildNotEnforcementPredicate()
+    {
+        var nots = DetectionImportance.EnforcementActionKeywords
+            .Select(k => $"action NOT LIKE '%{k}%'");
+        return $"(action IS NULL OR ({string.Join(" AND ", nots)}))";
+    }
+
+    private static string BuildEnforcementPredicate()
+    {
+        var ors = DetectionImportance.EnforcementActionKeywords
+            .Select(k => $"action LIKE '%{k}%'");
+        return $"({string.Join(" OR ", ors)})";
+    }
+
+    private async Task<int> FuseBatchAsync(
+        SqliteConnection conn,
+        DateTime hotCutoff,
+        double importanceFloor,
+        int batchSize,
+        CancellationToken ct)
+    {
+        // Candidate drain: lowest-importance detail-carrying rows past the hot
+        // window, excluding enforcement + threat rows (those never fuse).
+        await using var sel = conn.CreateCommand();
+        sel.CommandText = $"""
+            SELECT id, signature, timestamp, domain, country_code, bot_type,
+                   importance_weight, bot_probability, response_bytes, processing_time_ms
+            FROM detections
+            WHERE timestamp < @hotCutoff
+              AND importance_weight < @floor
+              -- Drain marker: only rows that still hold their detail fuse.
+              AND method IS NOT NULL
+              AND {NonEnforcementPredicate}
+              AND (threat_score IS NULL OR threat_score < @threatCeiling)
+            ORDER BY importance_weight ASC, timestamp ASC
+            LIMIT @batch
+            """;
+        sel.Parameters.AddWithValue("@hotCutoff", hotCutoff.ToString("O"));
+        sel.Parameters.AddWithValue("@floor", importanceFloor);
+        sel.Parameters.AddWithValue("@threatCeiling", _temporalStore.FusionThreatCeiling);
+        sel.Parameters.AddWithValue("@batch", Math.Max(batchSize, 1));
+
+        var candidates = new List<FusionCandidate>();
+        await using (var reader = await sel.ExecuteReaderAsync(ct))
+        {
+            while (await reader.ReadAsync(ct))
+            {
+                candidates.Add(new FusionCandidate(
+                    Id: reader.GetInt64(0),
+                    Signature: reader.GetString(1),
+                    Timestamp: DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                    Domain: reader.IsDBNull(3) ? null : reader.GetString(3),
+                    CountryCode: reader.IsDBNull(4) ? null : reader.GetString(4),
+                    BotType: reader.IsDBNull(5) ? null : reader.GetString(5),
+                    Weight: reader.GetDouble(6),
+                    BotProbability: reader.GetDouble(7),
+                    ResponseBytes: reader.IsDBNull(8) ? (long?)null : reader.GetInt64(8),
+                    ProcessingTimeMs: reader.IsDBNull(9) ? (double?)null : reader.GetDouble(9)));
+            }
+        }
+
+        if (candidates.Count == 0) return 0;
+
+        // Group by (signature, hour-bucket, domain, country, bot_type). The
+        // representative is the highest-importance member (best attribute
+        // fidelity); the counters are exact over the absorbed rows.
+        var groups = new Dictionary<FusionKey, List<FusionCandidate>>();
+        foreach (var c in candidates)
+        {
+            var hourBucket = c.Timestamp.Ticks / TimeSpan.TicksPerHour;
+            var key = new FusionKey(c.Signature, hourBucket, c.Domain, c.CountryCode, c.BotType);
+            if (!groups.TryGetValue(key, out var list))
+                groups[key] = list = new List<FusionCandidate>();
+            list.Add(c);
+        }
+
+        await using var txn = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+        var fused = 0;
+
+        foreach (var (key, members) in groups)
+        {
+            var representative = members.MaxBy(c => c.Weight)!;
+            var hitCount = members.Count;
+            var botCount = members.Count(c => c.BotProbability >= _botFloor);
+            var bytesSum = members.Sum(c => c.ResponseBytes ?? 0);
+            var msSum = members.Sum(c => c.ProcessingTimeMs ?? 0);
+            var msMax = members.Max(c => c.ProcessingTimeMs ?? 0);
+            var bucketStart = new DateTime(key.HourBucket * TimeSpan.TicksPerHour, DateTimeKind.Utc);
+
+            // Merge into an existing fused row of the same key when one exists
+            // (e.g. a group split across two fold ticks): add to its counters
+            // instead of creating a second summary row. SQLite IS comparisons
+            // handle the NULL domain/country/bot_type members exactly.
+            await using var lookup = conn.CreateCommand();
+            lookup.Transaction = txn;
+            lookup.CommandText = """
+                SELECT id FROM detections
+                 WHERE fused = 1 AND signature = @sig AND timestamp = @bucket
+                   AND domain IS @domain AND country_code IS @country AND bot_type IS @botType
+                 LIMIT 1
+                """;
+            lookup.Parameters.AddWithValue("@sig", key.Signature);
+            lookup.Parameters.AddWithValue("@bucket", bucketStart.ToString("O"));
+            lookup.Parameters.AddWithValue("@domain", (object?)key.Domain ?? DBNull.Value);
+            lookup.Parameters.AddWithValue("@country", (object?)key.CountryCode ?? DBNull.Value);
+            lookup.Parameters.AddWithValue("@botType", (object?)key.BotType ?? DBNull.Value);
+            var existingId = await lookup.ExecuteScalarAsync(ct);
+
+            await using var upd = conn.CreateCommand();
+            upd.Transaction = txn;
+            if (existingId is not null)
+            {
+                upd.CommandText = """
+                    UPDATE detections
+                       SET hit_count = hit_count + @hit, bot_count = bot_count + @bots,
+                           bytes_sum = bytes_sum + @bytes, ms_sum = ms_sum + @ms,
+                           ms_max = MAX(ms_max, @msMax)
+                     WHERE id = @id
+                    """;
+                upd.Parameters.AddWithValue("@hit", hitCount);
+                upd.Parameters.AddWithValue("@bots", botCount);
+                upd.Parameters.AddWithValue("@bytes", bytesSum);
+                upd.Parameters.AddWithValue("@ms", msSum);
+                upd.Parameters.AddWithValue("@msMax", msMax);
+                upd.Parameters.AddWithValue("@id", (long)existingId);
+            }
+            else
+            {
+                // The representative becomes the summary row: counters set,
+                // timestamp anchored to the bucket start, detail cleared.
+                upd.CommandText = $"""
+                    UPDATE detections
+                       SET fused = 1,
+                           hit_count = @hit, bot_count = @bots,
+                           bytes_sum = @bytes, ms_sum = @ms, ms_max = @msMax,
+                           timestamp = @bucket,
+                           {FoldDetailSet}
+                     WHERE id = @id
+                    """;
+                upd.Parameters.AddWithValue("@hit", hitCount);
+                upd.Parameters.AddWithValue("@bots", botCount);
+                upd.Parameters.AddWithValue("@bytes", bytesSum);
+                upd.Parameters.AddWithValue("@ms", msSum);
+                upd.Parameters.AddWithValue("@msMax", msMax);
+                upd.Parameters.AddWithValue("@bucket", bucketStart.ToString("O"));
+                upd.Parameters.AddWithValue("@id", representative.Id);
+            }
+            await upd.ExecuteNonQueryAsync(ct);
+
+            // Absorbed rows are deleted — this is the row-count reduction.
+            await using var del = conn.CreateCommand();
+            del.Transaction = txn;
+            del.CommandText = "DELETE FROM detections WHERE id = @id";
+            var delId = del.CreateParameter();
+            delId.ParameterName = "@id";
+            del.Parameters.Add(delId);
+            foreach (var member in members)
+            {
+                if (existingId is not null || member.Id != representative.Id)
+                {
+                    delId.Value = member.Id;
+                    await del.ExecuteNonQueryAsync(ct);
+                }
+            }
+
+            fused += hitCount;
+        }
+
+        await txn.CommitAsync(ct);
+        return fused;
+    }
+
+    /// <summary>
+    ///     Full-absorption pass (pass 2): nulls the detail of rows past
+    ///     <paramref name="cutoff"/> that are NOT fusion-eligible — high
+    ///     importance (weight at/above the floor), enforcement, or threat rows.
+    ///     Fusion-eligible rows are explicitly excluded: they belong to pass 1's
+    ///     drain and must keep their <c>method</c> marker until fused, or the
+    ///     two passes would fight over the same population.
+    /// </summary>
+    private async Task<int> FoldBatchAsync(
+        SqliteConnection conn,
+        string detailSet,
+        DateTime cutoff,
+        double importanceFloor,
+        int batchSize,
+        CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            UPDATE detections
+               SET {detailSet}
+             WHERE id IN (
+                   SELECT id
+                     FROM detections
+                    WHERE timestamp < @cutoff
+                      -- Drain marker: only rows that still hold their detail fold.
+                      -- Without this the lowest-importance rows re-match forever
+                      -- (folding them is a no-op) and the batch never advances.
+                      AND method IS NOT NULL
+                      -- Partition: pass 2 owns everything pass 1 (fusion) does
+                      -- NOT claim — high-importance, enforcement, or threat rows.
+                      AND (importance_weight >= @floor
+                           OR {EnforcementPredicate}
+                           OR (threat_score IS NOT NULL AND threat_score >= @threatCeiling))
+                    ORDER BY importance_weight ASC, timestamp ASC
+                    LIMIT @batch)
+            """;
+        cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
+        cmd.Parameters.AddWithValue("@floor", importanceFloor);
+        cmd.Parameters.AddWithValue("@threatCeiling", _temporalStore.FusionThreatCeiling);
+        cmd.Parameters.AddWithValue("@batch", Math.Max(batchSize, 1));
+        return await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private readonly record struct FusionCandidate(
+        long Id,
+        string Signature,
+        DateTime Timestamp,
+        string? Domain,
+        string? CountryCode,
+        string? BotType,
+        double Weight,
+        double BotProbability,
+        long? ResponseBytes,
+        double? ProcessingTimeMs);
+
+    private readonly record struct FusionKey(
+        string Signature,
+        long HourBucket,
+        string? Domain,
+        string? CountryCode,
+        string? BotType);
 
     public async Task RecordDegradationSnapshotAsync(
         DegradationSnapshot snapshot, CancellationToken ct = default)

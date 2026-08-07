@@ -1,0 +1,45 @@
+name: validate-and-publish
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['signalshingle-v*']
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet test tests/Mostlylucid.SignalShingle.Tests/Mostlylucid.SignalShingle.Tests.csproj --configuration Release
+      - run: dotnet pack src/Mostlylucid.SignalShingle/Mostlylucid.SignalShingle.csproj --configuration Release --no-restore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: src/Mostlylucid.SignalShingle/bin/Release/*.nupkg
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/signalshingle-v')
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet pack src/Mostlylucid.SignalShingle/Mostlylucid.SignalShingle.csproj --configuration Release
+      - name: NuGet login (OIDC → temporary API key)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: mostlylucid
+      - run: dotnet nuget push src/Mostlylucid.SignalShingle/bin/Release/*.nupkg --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

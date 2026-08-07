@@ -86,7 +86,12 @@ Plus a one-paragraph read: is the ~100 RPS ceiling Postgres-read-path-specific (
 `44e20528`'s GetTopBots fix raise the Postgres ceiling, and does store-uniformity hold under load on both.
 
 ## Hygiene / hard rules
-- **Staging only** (`.15:8190`); NEVER soak prod (poisons the clean corpus).
+- **SUPERSEDED 2026-07-30:** `.15:8190` is staging.stylobot.net's live gateway (shared corpus, real
+  traffic), not an isolated rig — the poison-suppression key only protects the *learned model*, not
+  *capacity*. Soaking it, even keyed, adds real load to staging. Do not target `.15:8190` from any soak
+  run. Use a dedicated commercial gateway + fresh Postgres on their own ports instead
+  (`run-backend-soak.sh` now hard-refuses any TARGET containing `:8190` or `staging.stylobot.net`).
+- NEVER soak prod (poisons the clean corpus).
 - Sequential, not parallel (shared 1-CPU gateway).
 - Keyed on every request; recreate the gateway between runs; fresh store each run.
 - `deploy-` owns the `.15` execution (config swap, recreate, docker log capture); k6 runs from the dev box.
