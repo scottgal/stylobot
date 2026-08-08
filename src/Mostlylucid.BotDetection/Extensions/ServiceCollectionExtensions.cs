@@ -63,6 +63,14 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<DataSourceManifestLoader>();
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IConfigureOptions<BotDetectionOptions>, DataSourcesYamlDefaultsConfigurator>());
+
+        // The fetch registry itself: this package's own sources, plus whatever other packages
+        // (GeoDetection, commercial ThreatIntel/GatewayPlugin) register their own
+        // IFetchSourceContributor alongside. TryAddSingleton so calling AddBotDetection more than
+        // once doesn't duplicate the registry aggregator or this package's own contributor.
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IFetchSourceContributor, BotDetectionFetchSourceContributor>());
+        services.TryAddSingleton<IFetchSourceRegistry, FetchSourceRegistry>();
         return services;
     }
 

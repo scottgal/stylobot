@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data.Sources;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Xunit;
@@ -136,5 +137,34 @@ public class DataSourcesYamlDefaultsTests
 
         Assert.False(providers.CloudRanges.Fastly.Enabled);
         Assert.Equal("https://api.fastly.com/public-ip-list", providers.CloudRanges.Fastly.Url);
+    }
+
+    [Fact]
+    public void FetchSourceRegistry_declares_every_registered_source_with_no_duplicate_ids()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(BaseConfig()).Build();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddBotDetection(config);
+
+        var registry = services.BuildServiceProvider().GetRequiredService<IFetchSourceRegistry>();
+        var sources = registry.GetAll();
+
+        // 12 DataSources + WellKnownBots + 4 ThreatIntel providers + TlsCorpus + PublicKeyRegistry.
+        Assert.Equal(19, sources.Count);
+        Assert.Equal(sources.Select(s => s.Id).Distinct().Count(), sources.Count);
+
+        // Every source must carry a non-empty Purpose - an empty one is exactly the kind of
+        // "declared but not actually informative" entry the registry exists to prevent.
+        Assert.All(sources, s => Assert.False(string.IsNullOrWhiteSpace(s.Purpose), $"{s.Id} has no Purpose"));
+
+        var isBot = Assert.Single(sources, s => s.Id == "IsBot");
+        Assert.True(isBot.Enabled);
+        Assert.Equal("https://raw.githubusercontent.com/omrilotan/isbot/main/src/patterns.json", isBot.Url);
+
+        // TlsCorpus/PublicKeyRegistry have no shipped default - disabled, no URL, but still declared.
+        var tlsCorpus = Assert.Single(sources, s => s.Id == "TlsCorpus");
+        Assert.False(tlsCorpus.Enabled);
+        Assert.Null(tlsCorpus.Url);
     }
 }
