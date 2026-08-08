@@ -41,6 +41,95 @@ public sealed class DashboardMaterializationRegistrationTests
             new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
     }
 
+    /// <summary>
+    ///     Same wiring, but with <c>DashboardSourceOptions</c> present — i.e. a REMOTE-MODE
+    ///     host (marketing site / stylobot-ui), where <c>AddStyloBotDashboardRemote</c> runs
+    ///     before <c>AddStyloBotDashboard</c>.
+    /// </summary>
+    private static ServiceCollection RemoteModeServices()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddScoped<IDashboardPageComposer, FakeComposer>();
+        services.AddSingleton<IDashboardChangeCursor, FakeCursor>();
+        services.AddSingleton<IDashboardPageManifestSource, DefaultDashboardPageManifestSource>();
+        // The remote-mode marker the guard probes for.
+        services.AddSingleton(new Mostlylucid.BotDetection.UI.Adapters.Remote.DashboardSourceOptions());
+        services.AddDashboardMaterialization();
+        return services;
+    }
+
+    /// <summary>
+    ///     PROD DEFECT GUARD. Three website replicas, no session affinity, each running its
+    ///     own tick materializer with its own warm state — a request round-robined into
+    ///     whichever pod happened to be warm, so the dashboard showed stale/inconsistent data
+    ///     at random. The tick loop must not run on a remote-mode host.
+    /// </summary>
+    [Fact]
+    public void Remote_mode_host_does_not_register_the_tick_materializer()
+    {
+        var services = RemoteModeServices();
+
+        Assert.DoesNotContain(
+            services,
+            d => d.ServiceType == typeof(IHostedService)
+                 && d.ImplementationFactory is not null
+                 && d.ImplementationFactory.Method.ReturnType == typeof(DashboardMaterializerCoordinator));
+    }
+
+    /// <summary>
+    ///     THE OTHER HALF, and the reason this is guarded at the hosted service rather than
+    ///     at the <c>AddDashboardMaterialization()</c> call site: <c>TrafficController</c> and
+    ///     <c>VisitorsController</c> take <see cref="IDashboardContentCache"/> as a REQUIRED
+    ///     ctor parameter, so dropping the registration would 500 /dashboard/traffic and
+    ///     /dashboard/visitors on every request — trading an intermittent staleness bug for a
+    ///     certain outage on two of the pages that exhibited it.
+    ///     <para>
+    ///         Mirrors the <c>SignatureAggregateCacheWarmupService</c> precedent, whose own
+    ///         comment states the cache "stays registered (satisfies DI for middleware /
+    ///         view-components) but stays empty, so all read paths cleanly fall through to
+    ///         IDashboardEventStore".
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public async Task Remote_mode_host_still_registers_the_content_cache_so_controllers_resolve()
+    {
+        var services = RemoteModeServices();
+        // await using: the cache is IAsyncDisposable only (SlidingCacheAtom-backed), so the
+        // provider must be disposed async -- same as the sibling test below.
+        await using var provider = services.BuildServiceProvider(
+            new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+
+        Assert.NotNull(provider.GetService<IDashboardContentCache>());
+        // The coordinator singleton also stays resolvable for out-of-band MarkDirtyAsync
+        // callers; it simply never ticks.
+        Assert.NotNull(provider.GetService<DashboardMaterializerCoordinator>());
+    }
+
+    /// <summary>
+    ///     Parity guard: a LOCAL host must still get the tick materializer. Without this, a
+    ///     regression that skipped it everywhere would look green.
+    /// </summary>
+    [Fact]
+    public void Local_mode_host_still_registers_the_tick_materializer()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddScoped<IDashboardPageComposer, FakeComposer>();
+        services.AddSingleton<IDashboardChangeCursor, FakeCursor>();
+        services.AddSingleton<IDashboardPageManifestSource, DefaultDashboardPageManifestSource>();
+        // NO DashboardSourceOptions -> local host.
+        services.AddDashboardMaterialization();
+
+        Assert.Contains(
+            services,
+            d => d.ServiceType == typeof(IHostedService)
+                 && d.ImplementationFactory is not null
+                 && d.ImplementationFactory.Method.ReturnType == typeof(DashboardMaterializerCoordinator));
+    }
+
     [Fact]
     public async Task Content_cache_resolves_as_singleton_and_composes_through_a_scope()
     {
