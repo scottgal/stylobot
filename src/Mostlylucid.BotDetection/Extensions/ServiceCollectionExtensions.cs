@@ -31,7 +31,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<BotDetectionOptions>? configure = null)
     {
-        services.AddFetchSourceYamlDefaults();
+        services.AddFetchSourceYamlDefaults(configuration: null);
         if (configure is not null)
             services.Configure(configure);
         return services.AddBotDetectionModule();
@@ -46,7 +46,7 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         string sectionName = "BotDetection")
     {
-        services.AddFetchSourceYamlDefaults();
+        services.AddFetchSourceYamlDefaults(configuration);
         services.Configure<BotDetectionOptions>(configuration.GetSection(sectionName));
         return services.AddBotDetectionModule();
     }
@@ -58,7 +58,7 @@ public static class ServiceCollectionExtensions
     ///     <see cref="DataSourcesYamlDefaultsConfigurator"/>). Idempotent — safe to call
     ///     more than once per service collection.
     /// </summary>
-    private static IServiceCollection AddFetchSourceYamlDefaults(this IServiceCollection services)
+    private static IServiceCollection AddFetchSourceYamlDefaults(this IServiceCollection services, IConfiguration? configuration)
     {
         services.TryAddSingleton<DataSourceManifestLoader>();
         services.TryAddEnumerable(
@@ -70,6 +70,13 @@ public static class ServiceCollectionExtensions
         // once doesn't duplicate the registry aggregator or this package's own contributor.
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IFetchSourceContributor, BotDetectionFetchSourceContributor>());
+        if (configuration is not null)
+            services.AddOptions<FetchSourceStateStoreOptions>().Bind(configuration.GetSection("BotDetection:FetchSourceState"));
+        else
+            services.AddOptions<FetchSourceStateStoreOptions>();
+        // Persisted, not in-memory: an in-memory last-success field reads "never fetched" after
+        // every restart, which would fire the registry's loud alarm falsely on every deploy.
+        services.TryAddSingleton<IFetchSourceStateStore, JsonFileFetchSourceStateStore>();
         services.TryAddSingleton<IFetchSourceRegistry, FetchSourceRegistry>();
         return services;
     }

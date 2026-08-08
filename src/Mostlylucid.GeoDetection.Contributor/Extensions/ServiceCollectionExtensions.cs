@@ -62,6 +62,10 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, GeoIpSetupResource>());
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IFetchSourceContributor, GeoDetectionFetchSourceContributor>());
+        // Bridges GeoLite2UpdateService.FetchCompleted into the persisted IFetchSourceStateStore -
+        // must be a hosted service (not just a singleton registration) so its subscription is forced
+        // live at startup rather than only on first resolution.
+        services.AddHostedService<GeoLite2StatePersistenceBridge>();
         return services;
     }
 }

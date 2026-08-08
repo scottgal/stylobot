@@ -148,7 +148,7 @@ public class DataSourcesYamlDefaultsTests
         services.AddBotDetection(config);
 
         var registry = services.BuildServiceProvider().GetRequiredService<IFetchSourceRegistry>();
-        var sources = registry.GetAll();
+        var sources = registry.GetDeclarations();
 
         // 12 DataSources + WellKnownBots + 4 ThreatIntel providers + TlsCorpus + PublicKeyRegistry.
         Assert.Equal(19, sources.Count);
@@ -166,5 +166,45 @@ public class DataSourcesYamlDefaultsTests
         var tlsCorpus = Assert.Single(sources, s => s.Id == "TlsCorpus");
         Assert.False(tlsCorpus.Enabled);
         Assert.Null(tlsCorpus.Url);
+    }
+
+    [Fact]
+    public async Task Observed_state_survives_a_fresh_DI_container_reading_the_same_persisted_file()
+    {
+        // The exact defect overview- flagged: an in-memory LastSuccessUtc resets to null on every
+        // restart. A fresh ServiceProvider standing in for "the process restarted" must still see a
+        // success recorded by the previous one, because it's read from a file, not a field.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"fetch-source-state-{Guid.NewGuid():N}.json");
+        try
+        {
+            var config = new ConfigurationBuilder().AddInMemoryCollection(BaseConfig()).Build();
+            var recordedAt = DateTimeOffset.UtcNow;
+
+            var firstProcessServices = new ServiceCollection();
+            firstProcessServices.AddSingleton<IConfiguration>(config);
+            firstProcessServices.AddBotDetection(config);
+            firstProcessServices.Configure<FetchSourceStateStoreOptions>(o => o.FilePath = tempPath);
+            var firstProcessProvider = firstProcessServices.BuildServiceProvider();
+            var stateStore = firstProcessProvider.GetRequiredService<IFetchSourceStateStore>();
+            await stateStore.RecordSuccessAsync("IsBot", recordedAt);
+
+            // A brand new container, sharing nothing with the first except the file path -
+            // simulates a pod restart reading the same on-disk state.
+            var secondProcessServices = new ServiceCollection();
+            secondProcessServices.AddSingleton<IConfiguration>(config);
+            secondProcessServices.AddBotDetection(config);
+            secondProcessServices.Configure<FetchSourceStateStoreOptions>(o => o.FilePath = tempPath);
+            var secondProcessProvider = secondProcessServices.BuildServiceProvider();
+            var registry = secondProcessProvider.GetRequiredService<IFetchSourceRegistry>();
+
+            var statuses = await registry.GetAllAsync();
+            var isBot = Assert.Single(statuses, s => s.Id == "IsBot");
+
+            Assert.Equal(recordedAt, isBot.LastSuccessUtc);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 }

@@ -36,12 +36,14 @@ public enum FetchHealthState
 }
 
 /// <summary>
-///     One external fetch source's full picture: what it is, whether it's configured/enabled,
-///     and — where the fetcher has been instrumented for it — whether it has ever actually
-///     succeeded. This is the read model the admin UI and generated docs both project from;
-///     never hand-maintain a parallel description of a source anywhere else.
+///     What a fetch source IS: static, synchronous, never reads a store. Declared by an
+///     <see cref="IFetchSourceContributor"/> at DI-registration time. Deliberately carries no
+///     last-success/last-failure data — that is <see cref="FetchSourceObservedState"/>'s job, read
+///     from <see cref="IFetchSourceStateStore"/>, because it must survive a process restart and a
+///     synchronous in-memory field cannot (see <see cref="FetchSourceStatus"/> for why that split
+///     exists).
 /// </summary>
-/// <param name="Id">Stable identifier, matches the owning fetcher's manifest/config key.</param>
+/// <param name="Id">Stable identifier, matches the owning fetcher's manifest/config key AND the key it records observed state under.</param>
 /// <param name="DisplayName">Human-readable name for UI/docs.</param>
 /// <param name="Url">Current effective URL, or null if this source has no single URL (e.g. an empty operator-supplied list).</param>
 /// <param name="Enabled">Whether this source is currently configured to fetch.</param>
@@ -51,22 +53,35 @@ public enum FetchHealthState
 /// <param name="CadenceInterval">
 ///     The same cadence as an actual duration, or null if there isn't one meaningful to compute
 ///     staleness against (e.g. a manual/CLI-triggered source). Load-bearing, not decorative — this is
-///     what <see cref="GetHealthState"/> measures "stale" against; a source that never gets a real
-///     interval here can never be flagged stale no matter how long it's gone quiet.
+///     what <see cref="FetchSourceStatus.GetHealthState"/> measures "stale" against.
 /// </param>
 /// <param name="FailureMode">Fail-open or fail-closed behavior.</param>
 /// <param name="OnDiskLocation">Where the fetched data lands, or null if it's held in memory only / not applicable.</param>
-/// <param name="LastSuccessUtc">
-///     UTC timestamp of the last successful fetch this process has observed, or null if it has
-///     never succeeded (or the fetcher isn't instrumented to know — see <see cref="HasLiveState"/>).
-/// </param>
-/// <param name="LastFailureUtc">UTC timestamp of the last failed fetch attempt, or null if none observed.</param>
 /// <param name="HasLiveState">
-///     False means this fetcher hasn't been instrumented to report last-success/last-failure yet —
-///     <see cref="LastSuccessUtc"/>/<see cref="LastFailureUtc"/> being null here means "unknown", NOT
-///     "never attempted". Never render this the same as a genuine never-fetched alarm; the two must
-///     stay visually and textually distinct or the loud-alarm contract collapses into noise.
+///     Whether this source's fetcher actually writes through <see cref="IFetchSourceStateStore"/>.
+///     False means no observation will ever appear for this id — render as "unknown", never the same
+///     as a genuine never-fetched alarm, or the loud-alarm contract collapses into noise.
 /// </param>
+public sealed record FetchSourceDeclaration(
+    string Id,
+    string DisplayName,
+    string? Url,
+    bool Enabled,
+    string Purpose,
+    string? Licence,
+    string Cadence,
+    TimeSpan? CadenceInterval,
+    FetchFailureMode FailureMode,
+    string? OnDiskLocation,
+    bool HasLiveState);
+
+/// <summary>
+///     One external fetch source's full picture: a <see cref="FetchSourceDeclaration"/> joined with
+///     its persisted <see cref="FetchSourceObservedState"/>. This is the read model the admin UI and
+///     generated docs both project from; never hand-maintain a parallel description of a source
+///     anywhere else. Built only by <see cref="IFetchSourceRegistry.GetAllAsync"/> — the join is why
+///     that method is async while declaring a source stays synchronous.
+/// </summary>
 public sealed record FetchSourceStatus(
     string Id,
     string DisplayName,
@@ -82,6 +97,13 @@ public sealed record FetchSourceStatus(
     DateTimeOffset? LastFailureUtc,
     bool HasLiveState)
 {
+    internal static FetchSourceStatus Join(FetchSourceDeclaration declaration, FetchSourceObservedState? observed)
+        => new(
+            declaration.Id, declaration.DisplayName, declaration.Url, declaration.Enabled,
+            declaration.Purpose, declaration.Licence, declaration.Cadence, declaration.CadenceInterval,
+            declaration.FailureMode, declaration.OnDiskLocation,
+            observed?.LastSuccessUtc, observed?.LastFailureUtc, declaration.HasLiveState);
+
     /// <summary>
     ///     Computes <see cref="FetchHealthState"/> against <paramref name="now"/> — never stored,
     ///     always derived at read, same as everything else this registry reports. "Healthy" requires
@@ -110,11 +132,11 @@ public sealed record FetchSourceStatus(
 ///     alongside the fetcher itself — "every external fetch declares itself to one registry, at
 ///     the point it is registered in DI" (dl- mission). <see cref="IFetchSourceRegistry"/>
 ///     aggregates every registered contributor; it never hand-maintains its own source list.
+///     Synchronous and static on purpose — see <see cref="FetchSourceDeclaration"/>.
 /// </summary>
 public interface IFetchSourceContributor
 {
-    /// <summary>Computed at read, never cached here — see <see cref="FetchSourceStatus"/> for what "live" means per field.</summary>
-    IEnumerable<FetchSourceStatus> GetSources();
+    IEnumerable<FetchSourceDeclaration> GetSources();
 }
 
 /// <summary>
@@ -124,23 +146,45 @@ public interface IFetchSourceContributor
 /// </summary>
 public interface IFetchSourceRegistry
 {
-    IReadOnlyList<FetchSourceStatus> GetAll();
+    /// <summary>Every declared source, no observed state attached. Sync, cheap, safe to call often.</summary>
+    IReadOnlyList<FetchSourceDeclaration> GetDeclarations();
+
+    /// <summary>
+    ///     Every declared source joined with its persisted observed state from
+    ///     <see cref="IFetchSourceStateStore"/> — this is what the admin UI and generated docs use.
+    ///     Async because the join reads a durable store, not because anything here is slow to compute.
+    /// </summary>
+    Task<IReadOnlyList<FetchSourceStatus>> GetAllAsync(CancellationToken ct = default);
 }
 
 /// <summary>
-///     Flattens every registered <see cref="IFetchSourceContributor"/>. Deliberately does no
-///     caching of its own -- "never a cache, compute at read" (feedback_no_caches_freshness_over_locality)
-///     -- each contributor already reads live Options/service state itself.
+///     Flattens every registered <see cref="IFetchSourceContributor"/> and joins in
+///     <see cref="IFetchSourceStateStore"/>'s persisted observations. Deliberately does no caching of
+///     its own -- "never a cache, compute at read" (feedback_no_caches_freshness_over_locality) --
+///     declarations are read live from Options/service state, and observed state is read live from
+///     the store on every call.
 /// </summary>
 internal sealed class FetchSourceRegistry : IFetchSourceRegistry
 {
     private readonly IEnumerable<IFetchSourceContributor> _contributors;
+    private readonly IFetchSourceStateStore _stateStore;
 
-    public FetchSourceRegistry(IEnumerable<IFetchSourceContributor> contributors)
+    public FetchSourceRegistry(IEnumerable<IFetchSourceContributor> contributors, IFetchSourceStateStore stateStore)
     {
         _contributors = contributors;
+        _stateStore = stateStore;
     }
 
-    public IReadOnlyList<FetchSourceStatus> GetAll()
+    public IReadOnlyList<FetchSourceDeclaration> GetDeclarations()
         => _contributors.SelectMany(c => c.GetSources()).ToArray();
+
+    public async Task<IReadOnlyList<FetchSourceStatus>> GetAllAsync(CancellationToken ct = default)
+    {
+        var declarations = GetDeclarations();
+        var observed = await _stateStore.GetAllAsync(ct);
+
+        return declarations
+            .Select(d => FetchSourceStatus.Join(d, observed.GetValueOrDefault(d.Id)))
+            .ToArray();
+    }
 }

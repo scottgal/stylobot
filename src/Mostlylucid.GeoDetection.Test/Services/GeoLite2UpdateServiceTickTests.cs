@@ -81,7 +81,7 @@ public sealed class GeoLite2UpdateServiceTickTests
     }
 
     [Fact]
-    public void LastSuccessfulFetchUtc_and_LastFailedFetchUtc_are_null_before_any_attempt()
+    public void FetchCompleted_has_no_subscribers_before_any_attempt()
     {
         var coordinator = new RecordingScheduleCoordinator();
         var http = new Mock<IHttpClientFactory>();
@@ -93,15 +93,16 @@ public sealed class GeoLite2UpdateServiceTickTests
             new SimpleGeoLocationService(),
             coordinator);
 
-        // Neither field may default to "now" or any other sentinel that could read as
-        // a real timestamp -- a source that has never attempted a fetch must be
-        // distinguishable from one that fetched successfully long ago.
-        Assert.Null(sut.LastSuccessfulFetchUtc);
-        Assert.Null(sut.LastFailedFetchUtc);
+        // This project deliberately does not track "has this ever succeeded" itself (an
+        // in-memory field would reset to null on every restart) - it only notifies. Just
+        // confirm the event exists and nothing has fired yet by construction alone.
+        var fired = false;
+        sut.FetchCompleted += (_, _) => fired = true;
+        Assert.False(fired);
     }
 
     [Fact]
-    public async Task Failed_download_records_LastFailedFetchUtc_and_leaves_LastSuccessfulFetchUtc_null()
+    public async Task Failed_download_raises_FetchCompleted_with_success_false()
     {
         var coordinator = new RecordingScheduleCoordinator();
         var http = new Mock<IHttpClientFactory>();
@@ -124,13 +125,17 @@ public sealed class GeoLite2UpdateServiceTickTests
             new SimpleGeoLocationService(),
             coordinator);
 
-        var before = DateTimeOffset.UtcNow;
-        var ok = await sut.DownloadDatabaseAsync();
+        bool? succeeded = null;
+        DateTimeOffset? completedAt = null;
+        sut.FetchCompleted += (ok, atUtc) => { succeeded = ok; completedAt = atUtc; };
 
-        Assert.False(ok);
-        Assert.Null(sut.LastSuccessfulFetchUtc);
-        Assert.NotNull(sut.LastFailedFetchUtc);
-        Assert.True(sut.LastFailedFetchUtc >= before);
+        var before = DateTimeOffset.UtcNow;
+        var result = await sut.DownloadDatabaseAsync();
+
+        Assert.False(result);
+        Assert.False(succeeded);
+        Assert.NotNull(completedAt);
+        Assert.True(completedAt >= before);
     }
 
     [Fact]

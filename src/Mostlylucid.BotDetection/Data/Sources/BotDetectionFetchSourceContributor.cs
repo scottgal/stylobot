@@ -33,7 +33,7 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
         _manifestLoader = manifestLoader;
     }
 
-    public IEnumerable<FetchSourceStatus> GetSources()
+    public IEnumerable<FetchSourceDeclaration> GetSources()
     {
         var opts = _options.Value;
         var manifest = _manifestLoader.LoadEmbeddedManifests();
@@ -60,7 +60,7 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
 
         if (manifest.TryGetValue("WellKnownBots", out var wkb))
         {
-            yield return new FetchSourceStatus(
+            yield return new FetchSourceDeclaration(
                 "WellKnownBots", "Arcjet Well-Known Bots", NullIfEmpty(opts.WellKnownBots.Url),
                 Enabled: !string.IsNullOrWhiteSpace(opts.WellKnownBots.Url),
                 Purpose: wkb.Purpose, Licence: wkb.Licence,
@@ -68,7 +68,7 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
                 CadenceInterval: opts.WellKnownBots.RefreshInterval,
                 FailureMode: FetchFailureMode.FailOpen,
                 OnDiskLocation: "in-memory only (WellKnownBotIndex); embedded baseline seeds cold start",
-                LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
+                HasLiveState: false);
         }
 
         var ti = opts.ThreatIntel.Providers;
@@ -87,7 +87,7 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
 
         // No YAML entry: neither has a shipped default URL to seed (both idle-until-configured
         // by design), so there is nothing for a manifest to declare beyond what's below.
-        yield return new FetchSourceStatus(
+        yield return new FetchSourceDeclaration(
             "TlsCorpus", "TLS/JA3 Reference Corpus", NullIfEmpty(opts.TlsCorpus.RefreshUrl),
             Enabled: opts.TlsCorpus.Enabled,
             Purpose: "Signed JA3 fingerprint reference corpus for TLS-based bot detection. No default URL — opt-in, operator must supply a signed envelope source. Embedded baseline covers cold start regardless.",
@@ -96,10 +96,10 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
             CadenceInterval: opts.TlsCorpus.RefreshInterval,
             FailureMode: FetchFailureMode.FailOpen,
             OnDiskLocation: "in-memory only (IJa3ReferenceIndex); embedded baseline seeds cold start",
-            LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
+            HasLiveState: false);
 
         var pkr = _publicKeyRegistryOptions.Value;
-        yield return new FetchSourceStatus(
+        yield return new FetchSourceDeclaration(
             "PublicKeyRegistry", "Web-Bot-Auth Public Key Registry", NullIfEmpty(pkr.ManifestUrl),
             Enabled: pkr.Enabled,
             Purpose: "Web-Bot-Auth (RFC 9421 signature) public-key manifest, e.g. Cloudflare's AI-agent registry. No default URL — opt-in; manual keys always work regardless of remote fetch.",
@@ -108,29 +108,29 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
             CadenceInterval: pkr.RefreshInterval,
             FailureMode: FetchFailureMode.FailOpen,
             OnDiskLocation: pkr.SnapshotFilePath ?? "in-memory only (no snapshot path configured)",
-            LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
+            HasLiveState: false);
     }
 
-    private static FetchSourceStatus FromDataSource(
+    private static FetchSourceDeclaration FromDataSource(
         IReadOnlyDictionary<string, DataSourceManifestEntry> manifest, string id, DataSourceConfig live,
         string onDisk, string cadence, TimeSpan cadenceInterval)
     {
         manifest.TryGetValue(id, out var entry);
-        return new FetchSourceStatus(
+        return new FetchSourceDeclaration(
             id, id, NullIfEmpty(live.Url), live.Enabled,
             Purpose: entry?.Purpose ?? live.Description,
             Licence: entry?.Licence ?? live.Licence,
             Cadence: cadence, CadenceInterval: cadenceInterval, FailureMode: FetchFailureMode.FailOpen, OnDiskLocation: onDisk,
-            LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
+            HasLiveState: false);
     }
 
-    private static FetchSourceStatus ThreatIntelSource(
+    private static FetchSourceDeclaration ThreatIntelSource(
         string id, string displayName, DataSourceManifestEntry entry, string liveUrl, bool liveEnabled,
         string cadence, TimeSpan cadenceInterval)
         => new(id, displayName, NullIfEmpty(liveUrl), liveEnabled, entry.Purpose, entry.Licence, cadence, cadenceInterval,
             FetchFailureMode.FailOpen, // steady-state is fail-open; BlockStartupOnFirstFetch adds a separate fail-closed bootstrap gate on top
             OnDiskLocation: "in-memory cache only (ThreatIntelCoordinator); no disk persistence",
-            LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
+            HasLiveState: false);
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 }

@@ -1,33 +1,30 @@
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data.Sources;
 using Mostlylucid.GeoDetection.Models;
-using Mostlylucid.GeoDetection.Services;
 
 namespace Mostlylucid.GeoDetection.Contributor;
 
 /// <summary>
 ///     Declares the two GeoIP fetch sources to the fetch registry: MaxMind's own GeoLite2 binary DB
 ///     download, and the DataHub CSV fallback path. MaxMind is the one source in the whole registry
-///     with real live-state tracking today (<see cref="GeoLite2UpdateService.LastSuccessfulFetchUtc"/>/
-///     <c>LastFailedFetchUtc</c>) — added specifically because this was the operator's prime suspect
-///     for "is it actually downloading" (see the dl- mission's MaxMind investigation).
+///     declared with <c>HasLiveState: true</c> — added specifically because this was the operator's
+///     prime suspect for "is it actually downloading" (the dl- mission's MaxMind investigation). Its
+///     observed state is persisted via <see cref="GeoLite2StatePersistenceBridge"/>, not carried on
+///     this declaration — see <see cref="FetchSourceDeclaration"/> for why the split exists.
 /// </summary>
 internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContributor
 {
-    private readonly IOptions<GeoLite2Options> _options;
-    private readonly GeoLite2UpdateService? _updateService;
+    /// <summary>Shared with <see cref="GeoLite2StatePersistenceBridge"/> so the id this declaration uses and the id observations are recorded under can never drift apart.</summary>
+    public const string MaxMindSourceId = "GeoLite2MaxMind";
 
-    // GeoLite2UpdateService is nullable: a host that wires AddGeoDetectionContributor without
-    // AddGeoRouting (unusual, but not this class's job to forbid) won't have it registered, and
-    // this contributor must not take the whole IFetchSourceRegistry down over a missing optional
-    // dependency. See feedback_remote_mode_optional_di.
-    public GeoDetectionFetchSourceContributor(IOptions<GeoLite2Options> options, GeoLite2UpdateService? updateService = null)
+    private readonly IOptions<GeoLite2Options> _options;
+
+    public GeoDetectionFetchSourceContributor(IOptions<GeoLite2Options> options)
     {
         _options = options;
-        _updateService = updateService;
     }
 
-    public IEnumerable<FetchSourceStatus> GetSources()
+    public IEnumerable<FetchSourceDeclaration> GetSources()
     {
         var opts = _options.Value;
 
@@ -41,8 +38,8 @@ internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContribut
             _ => "GeoLite2-City"
         };
 
-        yield return new FetchSourceStatus(
-            "GeoLite2MaxMind", "MaxMind GeoLite2 Database",
+        yield return new FetchSourceDeclaration(
+            MaxMindSourceId, "MaxMind GeoLite2 Database",
             $"{opts.MaxMindDownloadBaseUrl}/{dbName}/download?suffix=tar.gz",
             Enabled: opts.IsAutoDownloadConfigured && opts.EnableAutoUpdate,
             Purpose: "City/Country/ASN-level IP geolocation binary database. Requires a MaxMind account " +
@@ -59,11 +56,9 @@ internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContribut
             CadenceInterval: TimeSpan.FromDays(7),
             FailureMode: FetchFailureMode.FailOpen,
             OnDiskLocation: opts.DatabasePath,
-            LastSuccessUtc: _updateService?.LastSuccessfulFetchUtc,
-            LastFailureUtc: _updateService?.LastFailedFetchUtc,
-            HasLiveState: _updateService is not null);
+            HasLiveState: true);
 
-        yield return new FetchSourceStatus(
+        yield return new FetchSourceDeclaration(
             "GeoIpDataHubCsv", "DataHub GeoIP2-IPv4 CSV",
             opts.DataHubCsvUrl,
             Enabled: opts.Provider == GeoProvider.DataHubCsv,
@@ -74,6 +69,6 @@ internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContribut
             CadenceInterval: null, // no scheduled cadence to measure staleness against - HasLiveState is false anyway
             FailureMode: FetchFailureMode.FailClosed, // DownloadAsync has no try/catch - EnsureSuccessStatusCode throws to the caller
             OnDiskLocation: null, // computed per-instance from DatabasePath in GeoIpSetupResource; not exposed here to avoid duplicating that logic
-            LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
+            HasLiveState: false);
     }
 }
