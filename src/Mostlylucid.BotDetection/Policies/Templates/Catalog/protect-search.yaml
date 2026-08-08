@@ -20,7 +20,7 @@ expansion:
     mode: live
 
   - suffix: block-scrapers
-    predicate: 'ua.bot_type = "scraper"'
+    predicate: 'ua.bot_type = "Scraper"'
     action: '{ kind: block }'
     priority: 200
     mode: live

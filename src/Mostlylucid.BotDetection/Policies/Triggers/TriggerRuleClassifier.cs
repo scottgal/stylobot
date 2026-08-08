@@ -80,7 +80,7 @@ public static class TriggerRuleClassifier
     ///     <c>true</c> when the predicate AST contains a
     ///     <see cref="Predicate.Predicate.Sustain"/> node anywhere whose inner
     ///     sub-tree is meter-only -- the T-Expr trigger-rule shape. A composite
-    ///     <c>(meter.cpu &gt; 80 FOR 60s) AND bot.type = "Scraper"</c> still
+    ///     <c>(meter.cpu &gt; 80 FOR 60s) AND ua.bot_type = "Scraper"</c> still
     ///     qualifies because the Sustain's inner references only
     ///     <c>meter.*</c> even though the surrounding And mixes in a
     ///     per-request facet.

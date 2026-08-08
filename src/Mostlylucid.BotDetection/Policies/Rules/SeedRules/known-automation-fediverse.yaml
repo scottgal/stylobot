@@ -5,7 +5,13 @@
 id: b2c3d4e5-f6a7-8901-bcde-f12345678901
 scope:
   kind: endpoint
-predicate: "bot.type = fediverse_bot and score.bot_probability < 0.6"
+# 8.8.1: was `bot.type = fediverse_bot`. BOTH halves were dead -- `bot.type` is a
+# facet nothing produces (the real one is `ua.bot_type`), and `fediverse_bot` is not
+# a BotType member. No FediverseBot type is being added: FediverseDomainAtom sets no
+# BotType and fediverse servers already classify as SocialMediaBot, so this retargets
+# onto the type that actually exists. Values are the BotType enum's .ToString()
+# projection and the comparison is ordinal -- case must match exactly.
+predicate: "ua.bot_type = \"SocialMediaBot\" and score.bot_probability < 0.6"
 action:
   kind: rate-limit
   max_rpm: 120

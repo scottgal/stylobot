@@ -87,7 +87,10 @@ public class PolicyResolverTests
         // false on this request.
         var scraperSignals = new Dictionary<string, object?>
         {
-            ["bot.type"] = "scraper",
+            // 8.8.1: the seed endpoint rule now names the facet that is actually
+            // produced (ua.bot_type) with the enum's ToString() casing. The old
+            // "bot.type"/"scraper" pair matched nothing in production.
+            ["ua.bot_type"] = "Scraper",
             ["score.bot_probability"] = 0.92m,
             ["geo.country"] = "US",
             ["is_human"] = false
@@ -353,7 +356,10 @@ public class PolicyResolverTests
 
         var scraperSignals = new Dictionary<string, object?>
         {
-            ["bot.type"] = "scraper",
+            // 8.8.1: the seed endpoint rule now names the facet that is actually
+            // produced (ua.bot_type) with the enum's ToString() casing. The old
+            // "bot.type"/"scraper" pair matched nothing in production.
+            ["ua.bot_type"] = "Scraper",
             ["score.bot_probability"] = 0.92m,
             ["geo.country"] = "US",
             ["is_human"] = false

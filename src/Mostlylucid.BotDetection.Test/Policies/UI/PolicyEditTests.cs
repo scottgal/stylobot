@@ -66,9 +66,9 @@ public sealed class PolicyEditTests : IAsyncDisposable
         Assert.Equal("PUT", vm.HttpMethod);
         Assert.Equal($"/api/v1/policies/{ruleId}", vm.SubmitUrl);
         Assert.Contains("scope=", vm.CancelUrl);
-        // The endpoint Block rule's seed predicate is "bot.type in (scraper, ...)
+        // The endpoint Block rule's seed predicate is "ua.bot_type in (\"Scraper\", ...)
         // and score.bot_probability >= 0.7" -- the formatter preserves both.
-        Assert.Contains("bot.type", vm.PredicateText);
+        Assert.Contains("ua.bot_type", vm.PredicateText);
         Assert.Equal("block", vm.ActionKind);
     }
 
@@ -168,13 +168,15 @@ public sealed class PolicyEditTests : IAsyncDisposable
         var html = await client.GetStringAsync(
             $"/_test/policy-stack-edit?ruleId={ruleId}");
 
-        // The endpoint Block rule's predicate involves bot.type + score.bot_probability.
+        // The endpoint Block rule's predicate involves ua.bot_type + score.bot_probability.
+        // (8.8.1: was bot.type, a facet nothing produced, so the rule never fired.)
         // Razor encodes `.` literally and `>=` as &gt;= -- assert on the parts
         // that are stable across encoders.
-        Assert.Contains("bot.type", html);
+        Assert.Contains("ua.bot_type", html);
         Assert.Contains("score.bot_probability", html);
         // The textarea contains the canonical-form text from PredicateFormatter.
-        Assert.Matches(new Regex(@"<textarea[^>]*data-edit-expression[^>]*>[^<]*bot\.type[^<]*</textarea>"),
+        // Quotes are encoded (&quot;) by Razor, so match only up to the facet name.
+        Assert.Matches(new Regex(@"<textarea[^>]*data-edit-expression[^>]*>[^<]*ua\.bot_type[^<]*</textarea>"),
             html);
     }
 

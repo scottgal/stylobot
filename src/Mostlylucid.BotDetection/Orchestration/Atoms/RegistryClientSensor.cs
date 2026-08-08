@@ -118,7 +118,7 @@ public sealed class RegistryClientSensor : DetectorAtomBase
                     Weight = CorroboratedWeight,
                     Reason = "Harbor management API call inherits trust from this fingerprint's recent " +
                         "corroborated /v2/ OCI registry-client behaviour",
-                    BotType = BotType.Tool.ToString(),
+                    BotType = BotType.RegistryClient.ToString(),
                     BotName = InheritedTrustClientName
                 });
             }
@@ -182,7 +182,7 @@ public sealed class RegistryClientSensor : DetectorAtomBase
             ConfidenceDelta = CorroboratedConfidenceDelta,
             Weight = CorroboratedWeight,
             Reason = $"Registry client {display}: OCI/Docker v2 protocol corroborated ({step ?? "accept-media"})",
-            BotType = BotType.Tool.ToString(),
+            BotType = BotType.RegistryClient.ToString(),
             BotName = display
         });
     }

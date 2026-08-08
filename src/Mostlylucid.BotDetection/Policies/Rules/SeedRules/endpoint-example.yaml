@@ -5,7 +5,14 @@ scope:
   subdomain: docs.acme.com
   path_template: "GET /api/upload"
 priority: 10
-predicate: "bot.type in (scraper, crawler) and score.bot_probability >= 0.7"
+# 8.8.1: was `bot.type in (scraper, crawler)`. Every part of that was dead --
+# `bot.type` is a facet nothing produces (the real one is `ua.bot_type`), `scraper`
+# is the wrong case (comparison is ordinal; values are BotType.ToString(), so
+# "Scraper"), and `crawler` has NO corresponding BotType member at all.
+# `crawler` is dropped rather than silently remapped onto a different type -- if a
+# distinct Crawler classification is wanted, that is a product decision, not a
+# rename. AiBot covers the crawling-for-training case that exists today.
+predicate: "ua.bot_type in (\"Scraper\", \"AiBot\") and score.bot_probability >= 0.7"
 action:
   kind: block
 mode: live

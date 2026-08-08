@@ -92,5 +92,29 @@ public enum BotType
     ///     which only overrides the action while keeping the original UA-
     ///     derived classification.
     /// </summary>
-    Internal
+    Internal,
+
+    /// <summary>
+    ///     A container-registry / OCI Distribution Spec client (docker pull, containerd,
+    ///     Harbor replication, buildkit, etc.) whose registry behaviour has been
+    ///     CORROBORATED against the v2 protocol -- not merely claimed by user-agent.
+    ///
+    ///     <para>
+    ///         Only <c>RegistryClientSensor</c>'s corroborated paths emit this. The
+    ///         uncorroborated <c>registry.ua_only</c> path deliberately stays
+    ///         <see cref="Tool"/>: a bare UA claim is trivially spoofable, and that
+    ///         split IS the spoof guard. Distinguishing the type lets operators write
+    ///         registry-specific policy instead of catching all of <see cref="Tool"/>.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         Appended LAST deliberately. Persistence is string-only
+    ///         (<c>LearnedPatternStore</c> round-trips via <c>ToString()</c> /
+    ///         <c>Enum.TryParse</c>) and there are no <c>(int)</c> casts of
+    ///         <see cref="BotType"/> anywhere in the tree, so ordinal position carries
+    ///         no meaning and no data migration is required. Keep it that way: insert
+    ///         new members at the end.
+    ///     </para>
+    /// </summary>
+    RegistryClient
 }

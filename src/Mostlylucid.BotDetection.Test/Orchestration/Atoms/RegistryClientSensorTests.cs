@@ -57,7 +57,10 @@ public sealed class RegistryClientSensorTests
         result.Should().ContainSingle();
         var c = result[0];
         c.ConfidenceDelta.Should().BeLessThan(0, "a corroborated registry client biases the score toward low-threat");
-        c.BotType.Should().Be(BotType.Tool.ToString());
+        // 8.8.1: corroborated registry behaviour gets its own BotType so operators can
+        // write registry-specific policy instead of catching all of Tool. The
+        // uncorroborated UA-only path still emits Tool -- that split is the spoof guard.
+        c.BotType.Should().Be(BotType.RegistryClient.ToString());
         c.BotName.Should().Be("Docker 24.0.7");
 
         sink.ReadHint(SignalKeys.RegistryClientDetected).Should().Be("true");
@@ -218,7 +221,9 @@ public sealed class RegistryClientSensorTests
 
         result.Should().ContainSingle();
         result[0].ConfidenceDelta.Should().BeLessThan(0);
-        result[0].BotType.Should().Be(BotType.Tool.ToString());
+        // 8.8.1: the inherited-trust path is a corroborated path, so it emits
+        // RegistryClient rather than Tool.
+        result[0].BotType.Should().Be(BotType.RegistryClient.ToString());
         apiSink.ReadHint(SignalKeys.RegistryClientDetected).Should().Be("true");
         apiSink.Detect(SignalKeys.RegistryClientInheritedTrust).Should().BeTrue();
     }

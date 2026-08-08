@@ -20,7 +20,7 @@ expansion:
     mode: live
 
   - suffix: rate-limit-scraper
-    predicate: 'ua.bot_type = "scraper"'
+    predicate: 'ua.bot_type = "Scraper"'
     action: '{ kind: rate_limit, rpm: {{ scraper-rpm }} }'
     priority: 200
     mode: live

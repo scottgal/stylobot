@@ -5,7 +5,13 @@ id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 scope:
   kind: endpoint
   path_template: "/v2/*"
-predicate: "bot.type = registry_client and score.bot_probability < 0.6"
+# 8.8.1: was `bot.type = registry_client`. Both halves were dead -- `bot.type` is a
+# facet nothing produces (the real one is `ua.bot_type`) and `registry_client` was
+# not a BotType member. BotType.RegistryClient now exists and is emitted ONLY by
+# RegistryClientSensor's corroborated paths; a bare UA claim stays Tool, which is the
+# spoof guard. Values are the BotType enum's .ToString() projection and the
+# comparison is ordinal -- case must match exactly.
+predicate: "ua.bot_type = \"RegistryClient\" and score.bot_probability < 0.6"
 action:
   kind: rate-limit
   max_rpm: 300
