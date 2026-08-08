@@ -93,6 +93,46 @@ public sealed class GeoDetectionFetchSourceContributorTests
     }
 
     [Fact]
+    public async Task MaxMind_LastSuccessUtc_is_derived_from_the_mmdb_files_own_mtime()
+    {
+        // overview-'s correction: no separately-persisted "last success" record for MaxMind -- the
+        // .mmdb file's own mtime IS the evidence, so it can never disagree with what's actually on
+        // disk, restart or not.
+        var statePath = TempStatePath();
+        var dbPath = Path.Combine(Path.GetTempPath(), $"geolite2-mtime-test-{Guid.NewGuid():N}.mmdb");
+        try
+        {
+            await File.WriteAllTextAsync(dbPath, "not a real mmdb, just needs to exist");
+            var expectedMtime = File.GetLastWriteTimeUtc(dbPath);
+
+            var services = new ServiceCollection();
+            services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+            services.AddBotDetection(new Action<Mostlylucid.BotDetection.Models.BotDetectionOptions>(o => o.DatabasePath = ""));
+            services.Configure<FetchSourceStateStoreOptions>(o => o.FilePath = statePath);
+            services.AddGeoRouting(configureProvider: o =>
+            {
+                o.AccountId = 12345;
+                o.LicenseKey = "test-license-key";
+                o.EnableAutoUpdate = true;
+                o.DatabasePath = dbPath; // rooted, so the contributor uses it as-is
+            });
+            services.AddGeoDetectionContributor();
+
+            var registry = services.BuildServiceProvider().GetRequiredService<IFetchSourceRegistry>();
+            var maxmind = Assert.Single(await registry.GetAllAsync(), s => s.Id == "GeoLite2MaxMind");
+
+            Assert.NotNull(maxmind.LastSuccessUtc);
+            Assert.Equal(expectedMtime, maxmind.LastSuccessUtc!.Value.UtcDateTime, TimeSpan.FromSeconds(1));
+            Assert.Equal(FetchHealthState.Healthy, maxmind.GetHealthState(DateTimeOffset.UtcNow));
+        }
+        finally
+        {
+            if (File.Exists(statePath)) File.Delete(statePath);
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
+    [Fact]
     public async Task Registry_does_not_throw_when_GeoDetectionContributor_is_wired_without_GeoRouting()
     {
         // Optional-DI fallback: AddGeoDetectionContributor without AddGeoRouting must not crash the

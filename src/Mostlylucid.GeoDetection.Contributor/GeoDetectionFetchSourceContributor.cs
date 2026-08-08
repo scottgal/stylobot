@@ -8,9 +8,19 @@ namespace Mostlylucid.GeoDetection.Contributor;
 ///     Declares the two GeoIP fetch sources to the fetch registry: MaxMind's own GeoLite2 binary DB
 ///     download, and the DataHub CSV fallback path. MaxMind is the one source in the whole registry
 ///     declared with <c>HasLiveState: true</c> — added specifically because this was the operator's
-///     prime suspect for "is it actually downloading" (the dl- mission's MaxMind investigation). Its
-///     observed state is persisted via <see cref="GeoLite2StatePersistenceBridge"/>, not carried on
-///     this declaration — see <see cref="FetchSourceDeclaration"/> for why the split exists.
+///     prime suspect for "is it actually downloading" (the dl- mission's MaxMind investigation).
+///     <para>
+///         Its "last success" is derived directly from the <c>.mmdb</c> file's own mtime
+///         (<see cref="FetchSourceDeclaration.DeriveLastSuccessUtc"/>), not a separately persisted
+///         claim — overview-'s correction: a stored "last succeeded" record and the actual downloaded
+///         file are two sources of truth that can (and, in this deployment, do — no persistent
+///         volume backs the gateway's data/ directory) disagree after a restart. The file itself
+///         always tells the truth: absent or baked-into-the-image after a restart reads correctly as
+///         "not fetched since this process started", no matter what any sidecar record might have
+///         claimed. Only the FAILURE side still goes through
+///         <see cref="GeoLite2StatePersistenceBridge"/>/<see cref="IFetchSourceStateStore"/> — a
+///         failed attempt produces no artefact, so there is nothing to derive it from.
+///     </para>
 /// </summary>
 internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContributor
 {
@@ -38,6 +48,12 @@ internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContribut
             _ => "GeoLite2-City"
         };
 
+        // Mirrors GeoLite2UpdateService.GetDatabasePath()'s path-resolution exactly - same
+        // reasoning as the dbName switch above, one place defines "where does the file land".
+        var resolvedDbPath = Path.IsPathRooted(opts.DatabasePath)
+            ? opts.DatabasePath
+            : Path.Combine(AppContext.BaseDirectory, opts.DatabasePath);
+
         yield return new FetchSourceDeclaration(
             MaxMindSourceId, "MaxMind GeoLite2 Database",
             $"{opts.MaxMindDownloadBaseUrl}/{dbName}/download?suffix=tar.gz",
@@ -56,7 +72,10 @@ internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContribut
             CadenceInterval: TimeSpan.FromDays(7),
             FailureMode: FetchFailureMode.FailOpen,
             OnDiskLocation: opts.DatabasePath,
-            HasLiveState: true);
+            HasLiveState: true,
+            DeriveLastSuccessUtc: () => File.Exists(resolvedDbPath)
+                ? new DateTimeOffset(File.GetLastWriteTimeUtc(resolvedDbPath), TimeSpan.Zero)
+                : null);
 
         yield return new FetchSourceDeclaration(
             "GeoIpDataHubCsv", "DataHub GeoIP2-IPv4 CSV",

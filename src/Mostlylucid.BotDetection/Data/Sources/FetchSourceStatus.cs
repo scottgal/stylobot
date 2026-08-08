@@ -58,9 +58,22 @@ public enum FetchHealthState
 /// <param name="FailureMode">Fail-open or fail-closed behavior.</param>
 /// <param name="OnDiskLocation">Where the fetched data lands, or null if it's held in memory only / not applicable.</param>
 /// <param name="HasLiveState">
-///     Whether this source's fetcher actually writes through <see cref="IFetchSourceStateStore"/>.
-///     False means no observation will ever appear for this id — render as "unknown", never the same
-///     as a genuine never-fetched alarm, or the loud-alarm contract collapses into noise.
+///     Whether this source's fetcher actually writes through <see cref="IFetchSourceStateStore"/>
+///     and/or supplies <paramref name="DeriveLastSuccessUtc"/>. False means no observation will ever
+///     appear for this id — render as "unknown", never the same as a genuine never-fetched alarm, or
+///     the loud-alarm contract collapses into noise.
+/// </param>
+/// <param name="DeriveLastSuccessUtc">
+///     Optional sync, cheap function computing "when did this source last actually succeed" directly
+///     from the artefact it produces (e.g. a file's mtime), rather than a separately-persisted claim.
+///     Preferred over <see cref="IFetchSourceStateStore"/>'s success tracking when present — the
+///     artefact IS the evidence, so there is nothing to keep in sync and nothing to lose on restart:
+///     even if storage is ephemeral, the artefact that exists after a restart (baked into the image,
+///     or absent) truthfully reflects what has happened since. Only wire this for a source with a
+///     genuinely exclusive, per-source artefact — a file/row shared across multiple declared sources
+///     (e.g. botdetection.db backing 12 different DataSources entries) would give every one of them
+///     the same wrong timestamp; leave this null for those and let <see cref="IFetchSourceStateStore"/>
+///     (or nothing, today) carry success instead.
 /// </param>
 public sealed record FetchSourceDeclaration(
     string Id,
@@ -73,7 +86,8 @@ public sealed record FetchSourceDeclaration(
     TimeSpan? CadenceInterval,
     FetchFailureMode FailureMode,
     string? OnDiskLocation,
-    bool HasLiveState);
+    bool HasLiveState,
+    Func<DateTimeOffset?>? DeriveLastSuccessUtc = null);
 
 /// <summary>
 ///     One external fetch source's full picture: a <see cref="FetchSourceDeclaration"/> joined with
@@ -98,11 +112,19 @@ public sealed record FetchSourceStatus(
     bool HasLiveState)
 {
     internal static FetchSourceStatus Join(FetchSourceDeclaration declaration, FetchSourceObservedState? observed)
-        => new(
+    {
+        // Artefact-derived success wins over the store when the declaration supplies one - the
+        // artefact IS the evidence, never a claim about it that could disagree with reality.
+        var lastSuccess = declaration.DeriveLastSuccessUtc is not null
+            ? declaration.DeriveLastSuccessUtc()
+            : observed?.LastSuccessUtc;
+
+        return new FetchSourceStatus(
             declaration.Id, declaration.DisplayName, declaration.Url, declaration.Enabled,
             declaration.Purpose, declaration.Licence, declaration.Cadence, declaration.CadenceInterval,
             declaration.FailureMode, declaration.OnDiskLocation,
-            observed?.LastSuccessUtc, observed?.LastFailureUtc, declaration.HasLiveState);
+            lastSuccess, observed?.LastFailureUtc, declaration.HasLiveState);
+    }
 
     /// <summary>
     ///     Computes <see cref="FetchHealthState"/> against <paramref name="now"/> — never stored,
