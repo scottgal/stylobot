@@ -109,12 +109,39 @@ public abstract record Predicate
     }
 
     /// <summary>
-    ///     Leaf predicate: <c>(Facet Op Value)</c>. <c>Facet</c> is a
-    ///     SignalKeys constant (e.g. <c>"bot.type"</c>,
-    ///     <c>"score.bot_probability"</c>). <c>Value</c> is a primitive
+    ///     Leaf predicate: <c>(Facet Op Value)</c>. <c>Facet</c> must be a key some
+    ///     layer actually PRODUCES on the request path -- e.g.
+    ///     <c>SignalKeys.UserAgentBotType</c> (<c>"ua.bot_type"</c>),
+    ///     <c>SignalKeys.UserAgentFamily</c> (<c>"ua.family"</c>), or
+    ///     <c>PolicyScopeMatcher.GeoCountryKey</c> (<c>"geo.country"</c>).
+    ///     <c>Value</c> is a primitive
     ///     (bool, decimal, string) or a <c>string[]</c> for set
     ///     operators (<see cref="PredicateOp.In"/>, <see cref="PredicateOp.NotIn"/>,
     ///     <see cref="PredicateOp.AnyIn"/>, <see cref="PredicateOp.AllIn"/>).
+    ///
+    ///     <para>
+    ///         <b>An unknown facet is not an error -- it is silently false.</b>
+    ///         <c>PredicateEvaluator.EvaluateTerm</c> does an ordinal
+    ///         <c>TryGetValue</c> and returns <c>false</c> on a miss, so a facet
+    ///         nothing produces is indistinguishable from a legitimately-unmatched
+    ///         predicate. A rule naming a non-existent facet therefore never fires
+    ///         and never complains. This is not hypothetical: six of the eight
+    ///         shipped seed rules were inert this way (see
+    ///         <c>SeedRuleFacetReachabilityTests</c>), because THIS doc comment
+    ///         previously offered <c>"bot.type"</c> and
+    ///         <c>"score.bot_probability"</c> as its examples and neither is a key
+    ///         anything writes. Verify a facet is produced before referencing it.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         The producible vocabulary is exactly three layers, merged in
+    ///         <c>DefaultPolicyResolver</c>: scope-derived keys from
+    ///         <c>FillFromScope</c> (<c>request.*</c>, <c>geo.country</c>,
+    ///         <c>identity.*</c>); any <c>ISignalContributor</c> namespace
+    ///         (<c>meter.*</c>, <c>pressure.*</c>); and <c>evidence.Signals</c>
+    ///         plus the canonical <c>request.*</c> slots added by
+    ///         <c>PolicyDispatchGate.BuildPolicyRequestSignals</c>.
+    ///     </para>
     /// </summary>
     public sealed record Term(string Facet, PredicateOp Op, object Value) : Predicate
     {
