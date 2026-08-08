@@ -150,8 +150,9 @@ public class DataSourcesYamlDefaultsTests
         var registry = services.BuildServiceProvider().GetRequiredService<IFetchSourceRegistry>();
         var sources = registry.GetDeclarations();
 
-        // 12 DataSources + WellKnownBots + 4 ThreatIntel providers + TlsCorpus + PublicKeyRegistry.
-        Assert.Equal(19, sources.Count);
+        // 12 DataSources + WellKnownBots + 4 ThreatIntel providers + TlsCorpus + PublicKeyRegistry
+        // + 2 list_updates buckets (BotPatternsGroup/DatacenterIpsGroup).
+        Assert.Equal(21, sources.Count);
         Assert.Equal(sources.Select(s => s.Id).Distinct().Count(), sources.Count);
 
         // Every source must carry a non-empty Purpose - an empty one is exactly the kind of
@@ -161,11 +162,24 @@ public class DataSourcesYamlDefaultsTests
         var isBot = Assert.Single(sources, s => s.Id == "IsBot");
         Assert.True(isBot.Enabled);
         Assert.Equal("https://raw.githubusercontent.com/omrilotan/isbot/main/src/patterns.json", isBot.Url);
+        // Individual DataSources entries never claim per-source precision the DB can't back up -
+        // ruling (overview-, 2026-08-08): that's the bucket entries' job, not theirs.
+        Assert.False(isBot.HasLiveState);
 
         // TlsCorpus/PublicKeyRegistry have no shipped default - disabled, no URL, but still declared.
         var tlsCorpus = Assert.Single(sources, s => s.Id == "TlsCorpus");
         Assert.False(tlsCorpus.Enabled);
         Assert.Null(tlsCorpus.Url);
+
+        var botPatternsGroup = Assert.Single(sources, s => s.Id == "BotPatternsGroup");
+        Assert.True(botPatternsGroup.HasLiveState);
+        Assert.Equal(["IsBot", "Matomo", "CrawlerUserAgents"], botPatternsGroup.GroupedSourceIds);
+
+        var datacenterIpsGroup = Assert.Single(sources, s => s.Id == "DatacenterIpsGroup");
+        Assert.True(datacenterIpsGroup.HasLiveState);
+        Assert.Equal(
+            ["AwsIpRanges", "GcpIpRanges", "AzureIpRanges", "CloudflareIpv4", "CloudflareIpv6"],
+            datacenterIpsGroup.GroupedSourceIds);
     }
 
     [Fact]

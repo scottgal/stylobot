@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Common.Scheduling;
 using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.ThreatIntel;
@@ -17,46 +18,66 @@ namespace Mostlylucid.BotDetection.ThreatIntel;
 ///         of each enabled provider in parallel, capped at
 ///         <see cref="ThreatIntelOptions.StartupFetchTimeoutSeconds"/> per provider.
 ///         If any provider fails, log fatal + throw - the operator opted in and we
-///         must not lie about coverage.
+///         must not lie about coverage. This is a legitimate use of a plain
+///         <see cref="IHostedService"/> for one-shot startup-blocking work (the
+///         standing no-BackgroundService rule's own exception for schema-init-before-
+///         traffic-style warmup), not the violation being fixed here.
 ///       </item>
 ///       <item>
-///         Steady state: each provider runs on its own staggered timer. First
-///         post-bootstrap tick fires at <c>now + Random(0..StaggerWindowSeconds)</c>
-///         then ticks at the provider's <c>RefreshInterval</c>. Avoids spike of N
-///         concurrent fetches on the same wall-clock tick.
+///         Steady state: each provider subscribes independently to
+///         <see cref="IScheduleCoordinator"/>'s <see cref="TickCadence.Tick5m"/>, gated
+///         on "elapsed since last attempt &gt;= provider.RefreshInterval" - the same
+///         idiom every other Wave-2-migrated fetcher in this codebase uses
+///         (<c>WellKnownBotRefreshService</c>, <c>GeoLite2UpdateService</c>,
+///         <c>GoodBotIpRangeRefreshService</c>). Was a
+///         <see cref="Microsoft.Extensions.Hosting.BackgroundService"/> with a
+///         per-provider <c>Task.Delay</c> loop and a hand-rolled exponential-backoff
+///         retry; the tick model replaces both — a failed attempt is retried at the
+///         next natural Tick5m rather than a growing custom delay, and the
+///         coordinator's own fault isolation (one provider's exception doesn't stop
+///         the others) replaces the per-loop try/catch restart machinery. See
+///         <c>feedback_no_background_services</c>.
 ///       </item>
 ///     </list>
 /// </summary>
-internal sealed class ThreatIntelRefreshService : BackgroundService
+internal sealed class ThreatIntelRefreshService : IHostedService, IDisposable
 {
     private readonly IThreatIntelCoordinator _coordinator;
     private readonly ThreatIntelOptions _options;
     private readonly ILogger<ThreatIntelRefreshService> _logger;
+    private readonly IScheduleCoordinator _scheduleCoordinator;
     private readonly TypedSignalSink<ThreatIntelRefreshedSignal>? _refreshSignals;
 
     // Tracks per-provider "last refresh failed" so RaiseRefreshed can set
     // RecoveredFromFailure=true when the next successful refresh lands.
-    // Bounded by the number of registered providers.
     private readonly ConcurrentDictionary<string, bool> _lastFailed = new();
+
+    // Tracks per-provider "when did we last attempt a refresh" (success or failure -
+    // an attempt, not just a success, is what the cadence gate measures, matching the
+    // original Task.Delay loop's semantics of "wait RefreshInterval after each try").
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastAttemptUtc = new();
+
+    private readonly List<IDisposable> _subscriptions = new();
 
     public ThreatIntelRefreshService(
         IThreatIntelCoordinator coordinator,
         IOptions<BotDetectionOptions> options,
         ILogger<ThreatIntelRefreshService> logger,
+        IScheduleCoordinator scheduleCoordinator,
         TypedSignalSink<ThreatIntelRefreshedSignal>? refreshSignals = null)
     {
         _coordinator = coordinator;
         _options = options.Value.ThreatIntel;
         _logger = logger;
+        _scheduleCoordinator = scheduleCoordinator;
         _refreshSignals = refreshSignals;
     }
 
-    public override async Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         if (!_coordinator.IsEnabled)
         {
             _logger.LogInformation("Threat intel disabled; refresh service inactive");
-            await base.StartAsync(cancellationToken);
             return;
         }
 
@@ -64,7 +85,6 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
         if (offline.Length == 0)
         {
             _logger.LogInformation("Threat intel enabled but no offline providers registered");
-            await base.StartAsync(cancellationToken);
             return;
         }
 
@@ -82,13 +102,60 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
         {
             _logger.LogInformation(
                 "Threat intel: non-blocking bootstrap; first refreshes will run in the background");
-            // Kick off first refreshes opportunistically. ExecuteAsync also runs them on
-            // their schedules, but a 0-delay first tick lets the cache populate ASAP.
+            // Kick off first refreshes opportunistically. The Tick5m subscriptions below
+            // also cover them on schedule, but a 0-delay first attempt lets the cache
+            // populate ASAP.
             foreach (var provider in offline)
                 _ = BootstrapAsync(provider, TimeSpan.FromSeconds(_options.StartupFetchTimeoutSeconds), cancellationToken);
         }
 
-        await base.StartAsync(cancellationToken);
+        // Steady state: one ScheduleCoordinator subscription per provider. Bootstrap's
+        // attempt (above) already counts toward the cadence gate via _lastAttemptUtc, so
+        // the first steady-state check naturally waits a full RefreshInterval past
+        // whichever moment bootstrap completed for that provider - no separate stagger
+        // bookkeeping needed; per-provider network jitter during the parallel bootstrap
+        // already spreads them out.
+        foreach (var provider in offline)
+        {
+            _subscriptions.Add(_scheduleCoordinator.Subscribe(
+                TickCadence.Tick5m,
+                $"{nameof(ThreatIntelRefreshService)}:{provider.Name}",
+                CostHint.Medium,
+                (now, ct) => OnTickAsync(provider, now, ct)));
+        }
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private async Task OnTickAsync(IThreatIntelProvider provider, DateTimeOffset now, CancellationToken ct)
+    {
+        if (!_coordinator.IsEnabled) return;
+
+        if (_lastAttemptUtc.TryGetValue(provider.Name, out var last) && now - last < provider.RefreshInterval)
+            return; // Not yet due.
+
+        _lastAttemptUtc[provider.Name] = now;
+
+        try
+        {
+            await provider.RefreshAsync(subject: null, ct);
+            RaiseRefreshed(provider);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Host shutdown.
+        }
+        catch (Exception ex)
+        {
+            MarkFailed(provider);
+            // Provider's RefreshAsync has its own catch-and-log so most failures don't
+            // reach this handler; an exception making it here is something the inner
+            // try/catch missed. No custom backoff - the next Tick5m naturally retries,
+            // and ScheduleCoordinator's fault isolation keeps every other provider's
+            // subscription running regardless.
+            _logger.LogError(ex, "Threat-intel refresh for {Provider} failed; retrying at the next eligible tick",
+                provider.Name);
+        }
     }
 
     private async Task BootstrapAsync(IThreatIntelProvider provider, TimeSpan timeout, CancellationToken outer)
@@ -123,82 +190,9 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
                 "Threat-intel provider {Provider} bootstrap failed; non-blocking mode - continuing without this provider's intel",
                 provider.Name);
         }
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        if (!_coordinator.IsEnabled) return;
-
-        var offline = _coordinator.Providers.Where(p => p.Mode == ThreatIntelMode.Offline).ToArray();
-        if (offline.Length == 0) return;
-
-        // Each provider runs on its own loop with a staggered first delay. Tasks
-        // share the same stoppingToken so a host-stop cancels every loop together.
-        var window = Math.Max(0, _options.StaggerWindowSeconds);
-        var random = new Random();
-        var loops = offline.Select(p =>
+        finally
         {
-            var offset = window == 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(random.Next(0, window));
-            return RunLoopAsync(p, offset, stoppingToken);
-        }).ToArray();
-
-        await Task.WhenAll(loops);
-    }
-
-    private async Task RunLoopAsync(IThreatIntelProvider provider, TimeSpan initialDelay, CancellationToken ct)
-    {
-        try
-        {
-            if (initialDelay > TimeSpan.Zero) await Task.Delay(initialDelay, ct);
-            while (!ct.IsCancellationRequested)
-            {
-                await provider.RefreshAsync(subject: null, ct);
-                RaiseRefreshed(provider);
-                await Task.Delay(provider.RefreshInterval, ct);
-            }
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // Host shutdown.
-        }
-        catch (Exception ex)
-        {
-            MarkFailed(provider);
-            // Loops are restarted with exponential backoff so a single bad day at
-            // an upstream feed doesn't permanently silence the provider until
-            // host restart. Cap restart delay at 1 hour. Provider's RefreshAsync
-            // has its own catch-and-log so most failures don't reach this handler;
-            // an exception making it here is something the inner try/catch missed
-            // (e.g. an OOM, a contract violation in the parser).
-            _logger.LogError(ex,
-                "Threat-intel refresh loop for {Provider} crashed; restarting with backoff",
-                provider.Name);
-
-            var backoff = TimeSpan.FromSeconds(30);
-            while (!ct.IsCancellationRequested)
-            {
-                try
-                {
-                    await Task.Delay(backoff, ct);
-                    await provider.RefreshAsync(subject: null, ct);
-                    RaiseRefreshed(provider);
-                    // First successful refresh after a crash: resume normal cadence.
-                    await RunLoopAsync(provider, TimeSpan.Zero, ct);
-                    return;
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception inner)
-                {
-                    MarkFailed(provider);
-                    backoff = TimeSpan.FromTicks(Math.Min(TimeSpan.FromHours(1).Ticks, backoff.Ticks * 2));
-                    _logger.LogWarning(inner,
-                        "Threat-intel refresh loop for {Provider} still failing; next attempt in {Backoff}",
-                        provider.Name, backoff);
-                }
-            }
+            _lastAttemptUtc[provider.Name] = DateTimeOffset.UtcNow;
         }
     }
 
@@ -217,4 +211,14 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
 
     private void MarkFailed(IThreatIntelProvider provider)
         => _lastFailed[provider.Name] = true;
+
+    public void Dispose()
+    {
+        foreach (var sub in _subscriptions)
+        {
+            try { sub.Dispose(); }
+            catch { /* coordinator already torn down */ }
+        }
+        _subscriptions.Clear();
+    }
 }

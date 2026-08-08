@@ -58,9 +58,39 @@ public enum FetchHealthState
 /// <param name="FailureMode">Fail-open or fail-closed behavior.</param>
 /// <param name="OnDiskLocation">Where the fetched data lands, or null if it's held in memory only / not applicable.</param>
 /// <param name="HasLiveState">
-///     Whether this source's fetcher actually writes through <see cref="IFetchSourceStateStore"/>.
-///     False means no observation will ever appear for this id — render as "unknown", never the same
-///     as a genuine never-fetched alarm, or the loud-alarm contract collapses into noise.
+///     Whether this source's fetcher actually writes through <see cref="IFetchSourceStateStore"/>
+///     and/or supplies <paramref name="DeriveLastSuccessUtc"/>. False means no observation will ever
+///     appear for this id — render as "unknown", never the same as a genuine never-fetched alarm, or
+///     the loud-alarm contract collapses into noise.
+/// </param>
+/// <param name="DeriveLastSuccessUtc">
+///     Optional sync, cheap function computing "when did this source last actually succeed" directly
+///     from the artefact it produces (e.g. a file's mtime), rather than a separately-persisted claim.
+///     Preferred over <see cref="IFetchSourceStateStore"/>'s success tracking when present — the
+///     artefact IS the evidence, so there is nothing to keep in sync and nothing to lose on restart:
+///     even if storage is ephemeral, the artefact that exists after a restart (baked into the image,
+///     or absent) truthfully reflects what has happened since. Only wire this for a source with a
+///     genuinely exclusive, per-source artefact — a file/row shared across multiple declared sources
+///     (e.g. botdetection.db backing 12 different DataSources entries) would give every one of them
+///     the same wrong timestamp; leave this null for those and let <see cref="IFetchSourceStateStore"/>
+///     (or nothing, today) carry success instead.
+/// </param>
+/// <param name="DeriveLastSuccessUtcAsync">
+///     Same contract as <paramref name="DeriveLastSuccessUtc"/>, for evidence that can only be read
+///     asynchronously (e.g. a DB query — <c>IBotListDatabase.GetLastUpdateTimeAsync</c>). Takes
+///     precedence over <paramref name="DeriveLastSuccessUtc"/> when both are somehow set (they
+///     shouldn't be). Overview-'s ruling (2026-08-08): when the evidence is shared by several
+///     sources at bucket granularity, not per-source (e.g. <c>list_updates</c> has exactly two rows,
+///     <c>bot_patterns</c>/<c>datacenter_ips</c>, covering 3 and 5 declared sources respectively),
+///     do not wire this onto the individual sources — that would claim precision that does not
+///     exist. Instead declare the bucket itself as its own source with this wired, and list what it
+///     covers in <see cref="GroupedSourceIds"/>. Group-level truth beats per-source fiction.
+/// </param>
+/// <param name="GroupedSourceIds">
+///     For a bucket-level source (see <paramref name="DeriveLastSuccessUtcAsync"/>), the ids of the
+///     other declared sources this bucket's timestamp actually covers — lets the UI/docs render
+///     "bot_patterns group — covering: isbot, matomo, crawler-user-agents" from data instead of a
+///     hand-typed sentence. Null for an ordinary, non-bucket source.
 /// </param>
 public sealed record FetchSourceDeclaration(
     string Id,
@@ -73,7 +103,10 @@ public sealed record FetchSourceDeclaration(
     TimeSpan? CadenceInterval,
     FetchFailureMode FailureMode,
     string? OnDiskLocation,
-    bool HasLiveState);
+    bool HasLiveState,
+    Func<DateTimeOffset?>? DeriveLastSuccessUtc = null,
+    Func<CancellationToken, Task<DateTimeOffset?>>? DeriveLastSuccessUtcAsync = null,
+    IReadOnlyList<string>? GroupedSourceIds = null);
 
 /// <summary>
 ///     One external fetch source's full picture: a <see cref="FetchSourceDeclaration"/> joined with
@@ -95,14 +128,25 @@ public sealed record FetchSourceStatus(
     string? OnDiskLocation,
     DateTimeOffset? LastSuccessUtc,
     DateTimeOffset? LastFailureUtc,
-    bool HasLiveState)
+    bool HasLiveState,
+    IReadOnlyList<string>? GroupedSourceIds = null)
 {
-    internal static FetchSourceStatus Join(FetchSourceDeclaration declaration, FetchSourceObservedState? observed)
-        => new(
+    /// <summary>Joins a declaration with its observed state, awaiting <see cref="FetchSourceDeclaration.DeriveLastSuccessUtcAsync"/> when the declaration supplies one.</summary>
+    internal static async Task<FetchSourceStatus> JoinAsync(
+        FetchSourceDeclaration declaration, FetchSourceObservedState? observed, CancellationToken ct)
+    {
+        var lastSuccess = declaration.DeriveLastSuccessUtcAsync is not null
+            ? await declaration.DeriveLastSuccessUtcAsync(ct)
+            : declaration.DeriveLastSuccessUtc is not null
+                ? declaration.DeriveLastSuccessUtc()
+                : observed?.LastSuccessUtc;
+
+        return new FetchSourceStatus(
             declaration.Id, declaration.DisplayName, declaration.Url, declaration.Enabled,
             declaration.Purpose, declaration.Licence, declaration.Cadence, declaration.CadenceInterval,
             declaration.FailureMode, declaration.OnDiskLocation,
-            observed?.LastSuccessUtc, observed?.LastFailureUtc, declaration.HasLiveState);
+            lastSuccess, observed?.LastFailureUtc, declaration.HasLiveState, declaration.GroupedSourceIds);
+    }
 
     /// <summary>
     ///     Computes <see cref="FetchHealthState"/> against <paramref name="now"/> — never stored,
@@ -183,8 +227,10 @@ internal sealed class FetchSourceRegistry : IFetchSourceRegistry
         var declarations = GetDeclarations();
         var observed = await _stateStore.GetAllAsync(ct);
 
-        return declarations
-            .Select(d => FetchSourceStatus.Join(d, observed.GetValueOrDefault(d.Id)))
-            .ToArray();
+        var statuses = new FetchSourceStatus[declarations.Count];
+        for (var i = 0; i < declarations.Count; i++)
+            statuses[i] = await FetchSourceStatus.JoinAsync(declarations[i], observed.GetValueOrDefault(declarations[i].Id), ct);
+
+        return statuses;
     }
 }

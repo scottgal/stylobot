@@ -10,27 +10,32 @@ namespace Mostlylucid.BotDetection.Data.Sources;
 /// <summary>
 ///     Declares every fetch source this package owns to the fetch registry: the 12
 ///     <see cref="DataSourcesOptions"/> sources, <see cref="WellKnownBotsOptions"/>, the 4 FOSS
-///     ThreatIntel providers, and (declared but not YAML-seeded — see class docs on why) TlsCorpus
-///     and PublicKeyRegistry. Purpose/licence text for the 17 YAML-backed sources comes from the
-///     same manifests <see cref="DataSourcesYamlDefaultsConfigurator"/> seeds defaults from — never
-///     re-typed here, or this class becomes exactly the second source of truth the registry exists
-///     to prevent. Live Enabled/Url values come from the current <see cref="IOptions{TOptions}"/>
-///     snapshot, so config overrides show up correctly, not just the YAML default.
+///     ThreatIntel providers, (declared but not YAML-seeded — see class docs on why) TlsCorpus
+///     and PublicKeyRegistry, and the 2 <c>list_updates</c> buckets (see
+///     <see cref="AddBucketSources"/>). Purpose/licence text for the 17 YAML-backed sources comes
+///     from the same manifests <see cref="DataSourcesYamlDefaultsConfigurator"/> seeds defaults
+///     from — never re-typed here, or this class becomes exactly the second source of truth the
+///     registry exists to prevent. Live Enabled/Url values come from the current
+///     <see cref="IOptions{TOptions}"/> snapshot, so config overrides show up correctly, not just
+///     the YAML default.
 /// </summary>
 internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContributor
 {
     private readonly IOptions<BotDetectionOptions> _options;
     private readonly IOptions<PublicKeyRegistryOptions> _publicKeyRegistryOptions;
     private readonly DataSourceManifestLoader _manifestLoader;
+    private readonly IBotListDatabase _botListDatabase;
 
     public BotDetectionFetchSourceContributor(
         IOptions<BotDetectionOptions> options,
         IOptions<PublicKeyRegistryOptions> publicKeyRegistryOptions,
-        DataSourceManifestLoader manifestLoader)
+        DataSourceManifestLoader manifestLoader,
+        IBotListDatabase botListDatabase)
     {
         _options = options;
         _publicKeyRegistryOptions = publicKeyRegistryOptions;
         _manifestLoader = manifestLoader;
+        _botListDatabase = botListDatabase;
     }
 
     public IEnumerable<FetchSourceDeclaration> GetSources()
@@ -57,6 +62,9 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
         yield return FromDataSource(manifest, "BrowserVersions", ds.BrowserVersions, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
         yield return FromDataSource(manifest, "ScannerUserAgents", ds.ScannerUserAgents, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
         yield return FromDataSource(manifest, "CoreRuleSetScanners", ds.CoreRuleSetScanners, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+
+        foreach (var bucket in BucketSources(_botListDatabase, dataSourceCadenceLabel, dataSourceCadence))
+            yield return bucket;
 
         if (manifest.TryGetValue("WellKnownBots", out var wkb))
         {
@@ -110,6 +118,64 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
             OnDiskLocation: pkr.SnapshotFilePath ?? "in-memory only (no snapshot path configured)",
             HasLiveState: false);
     }
+
+    /// <summary>
+    ///     Ruling (overview-, 2026-08-08): <c>list_updates</c> only has bucket-level granularity —
+    ///     one row for <c>bot_patterns</c> (fed by IsBot + Matomo + CrawlerUserAgents) and one for
+    ///     <c>datacenter_ips</c> (fed by the 4 cloud-vendor IP-range sources). Rather than paint a
+    ///     false per-source timestamp onto those 8 individual <see cref="FromDataSource"/> entries
+    ///     above (which stay <c>HasLiveState: false</c>), declare the 2 real buckets as their own
+    ///     sources at the true granularity <see cref="IBotListDatabase.GetLastUpdateTimeAsync"/>
+    ///     actually provides. Widening <c>list_updates</c> to per-source rows (option a) is the
+    ///     post-8.8.1 follow-up — this is the honest stepping stone, not the destination.
+    /// </summary>
+    private static IEnumerable<FetchSourceDeclaration> BucketSources(
+        IBotListDatabase botListDatabase, string cadenceLabel, TimeSpan cadenceInterval)
+    {
+        yield return BucketSource(
+            "BotPatternsGroup", "Bot Pattern List (bucket)",
+            listType: "bot_patterns",
+            coveredIds: ["IsBot", "Matomo", "CrawlerUserAgents"],
+            botListDatabase, cadenceLabel, cadenceInterval);
+
+        yield return BucketSource(
+            "DatacenterIpsGroup", "Datacenter IP Ranges (bucket)",
+            listType: "datacenter_ips",
+            coveredIds: ["AwsIpRanges", "GcpIpRanges", "AzureIpRanges", "CloudflareIpv4", "CloudflareIpv6"],
+            botListDatabase, cadenceLabel, cadenceInterval);
+    }
+
+    private static FetchSourceDeclaration BucketSource(
+        string id, string displayName, string listType, IReadOnlyList<string> coveredIds,
+        IBotListDatabase botListDatabase, string cadenceLabel, TimeSpan cadenceInterval)
+        => new(id, displayName, Url: null, Enabled: true,
+            Purpose: $"Bucket-level last-update timestamp shared by the {coveredIds.Count} sources it covers " +
+                     $"({string.Join(", ", coveredIds)}) — list_updates has no per-source rows, only this " +
+                     "bucket, so this is the true precision available today, not an invented per-source one.",
+            Licence: null,
+            Cadence: cadenceLabel, CadenceInterval: cadenceInterval, FailureMode: FetchFailureMode.FailOpen,
+            OnDiskLocation: "Bot list: botdetection.db (SQLite, via BotListDatabase) — list_updates table",
+            HasLiveState: true,
+            DeriveLastSuccessUtcAsync: async ct =>
+            {
+                // GetLastUpdateTimeAsync only guards its own InitializeAsync call, not the query
+                // that follows it - a locked/corrupt botdetection.db must read as "unknown for this
+                // bucket right now", not take the whole fetch-sources diagnostic endpoint down.
+                DateTime? lastUpdate;
+                try
+                {
+                    lastUpdate = await botListDatabase.GetLastUpdateTimeAsync(listType, ct);
+                }
+                catch (Exception) when (ct.IsCancellationRequested is false)
+                {
+                    return null;
+                }
+
+                return lastUpdate is null
+                    ? null
+                    : new DateTimeOffset(DateTime.SpecifyKind(lastUpdate.Value, DateTimeKind.Utc));
+            },
+            GroupedSourceIds: coveredIds);
 
     private static FetchSourceDeclaration FromDataSource(
         IReadOnlyDictionary<string, DataSourceManifestEntry> manifest, string id, DataSourceConfig live,
