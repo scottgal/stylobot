@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Mostlylucid.BotDetection.Data.Sources;
 using Mostlylucid.BotDetection.Setup;
 using Mostlylucid.GeoDetection.Contributor.Setup;
+using Mostlylucid.GeoDetection.Services;
 
 namespace Mostlylucid.GeoDetection.Contributor.Extensions;
 
@@ -29,7 +31,7 @@ public static class ServiceCollectionExtensions
                 .BindConfiguration("BotDetection:Geo");
         }
 
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, GeoIpSetupResource>());
+        services.AddGeoFetchSourceRegistration();
         return services;
     }
 
@@ -51,7 +53,15 @@ public static class ServiceCollectionExtensions
             o.Priority = options.Priority;
         });
 
+        services.AddGeoFetchSourceRegistration();
+        return services;
+    }
+
+    private static IServiceCollection AddGeoFetchSourceRegistration(this IServiceCollection services)
+    {
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, GeoIpSetupResource>());
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IFetchSourceContributor, GeoDetectionFetchSourceContributor>());
         return services;
     }
 }
