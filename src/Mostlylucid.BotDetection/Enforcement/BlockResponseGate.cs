@@ -183,7 +183,7 @@ public sealed class BlockResponseGate
         var riskScore = evidence.BotProbability;
 
         _logger.LogWarning(
-            "[BLOCK] Request blocked: {Path} policy={Policy} risk={Risk:F2} action={Action}",
+            "[BLOCK] Request blocked: {Path} policy={Policy} bot_probability={BotProbability:F2} action={Action}",
             context.Request.Path, policyName, riskScore, action);
 
         switch (action)
@@ -225,7 +225,7 @@ public sealed class BlockResponseGate
 
             case BotBlockAction.LogOnly:
                 _logger.LogWarning(
-                    "Bot detected (shadow mode): path={Path}, risk={Risk:F2}, policy={Policy}",
+                    "Bot detected (shadow mode): path={Path}, bot_probability={BotProbability:F2}, policy={Policy}",
                     context.Request.Path, riskScore, policyName);
                 return BlockResponseOutcome.Continue;
 

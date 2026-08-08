@@ -95,7 +95,7 @@ public class RedirectActionPolicy : IActionPolicy
         var targetUrl = BuildTargetUrl(context, evidence);
 
         _logger?.LogInformation(
-            "Redirecting request from {SourcePath} to {TargetUrl}: policy={Policy}, risk={Risk:F2}",
+            "Redirecting request from {SourcePath} to {TargetUrl}: policy={Policy}, bot_probability={BotProbability:F2}",
             context.Request.Path, targetUrl, Name, evidence.BotProbability);
 
         // Add custom headers before redirect

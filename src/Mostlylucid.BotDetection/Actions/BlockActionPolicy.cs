@@ -81,7 +81,7 @@ public class BlockActionPolicy : IActionPolicy
         CancellationToken cancellationToken = default)
     {
         _logger?.LogInformation(
-            "Blocking request to {Path}: policy={Policy}, risk={Risk:F2}, statusCode={StatusCode}",
+            "Blocking request to {Path}: policy={Policy}, bot_probability={BotProbability:F2}, statusCode={StatusCode}",
             context.Request.Path, Name, evidence.BotProbability, _options.StatusCode);
 
         context.Response.StatusCode = _options.StatusCode;

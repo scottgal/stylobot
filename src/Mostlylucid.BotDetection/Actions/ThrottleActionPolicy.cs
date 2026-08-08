@@ -106,7 +106,7 @@ public class ThrottleActionPolicy : IActionPolicy
         var delay = CalculateDelay(context, evidence);
 
         _logger?.LogInformation(
-            "Throttling request to {Path}: policy={Policy}, risk={Risk:F2}, delay={Delay}ms",
+            "Throttling request to {Path}: policy={Policy}, bot_probability={BotProbability:F2}, delay={Delay}ms",
             context.Request.Path, Name, evidence.BotProbability, delay);
 
         // Add throttle headers (configurable)

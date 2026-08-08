@@ -172,7 +172,13 @@ public sealed class PostDetectionActionGate
             if (actionPolicy is not null)
             {
                 _logger.LogInformation(
-                    "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2})",
+                    // Field is bot_probability, NOT a risk band. It was named "risk" and that
+                    // label caused three separate misdiagnoses (2026-08-08): readers took a
+                    // headless browser's correct bot_probability=1.00 as evidence that risk
+                    // measured unusualness rather than activity. RiskBand is an enum
+                    // (VeryLow..VeryHigh) and never renders as a decimal -- if you see 1.00
+                    // here it is bot-ness. Keep the name matching the value.
+                    "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (bot_probability={BotProbability:F2})",
                     evidence.TriggeredActionPolicyName,
                     (_options.ObserveOnly || _postureProvider.ForceLogOnlyPosture) ? " [observe-only shadow]" : "",
                     context.Request.Path, evidence.BotProbability);
@@ -223,7 +229,7 @@ public sealed class PostDetectionActionGate
             context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
             context.Items["BotDetection.RegistryClientRecognized"] = true;
             _logger.LogInformation(
-                "[ACTION] Registry client recognized (corroborated OCI/Docker v2) for {Path} (risk={Risk:F2}) -- benign routing, throttle suppressed",
+                "[ACTION] Registry client recognized (corroborated OCI/Docker v2) for {Path} (bot_probability={BotProbability:F2}) -- benign routing, throttle suppressed",
                 context.Request.Path, evidence.BotProbability);
             return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.PolicyContinued), evidence);
         }
@@ -248,7 +254,7 @@ public sealed class PostDetectionActionGate
             context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
             context.Items["BotDetection.WebhookRecognized"] = true;
             _logger.LogInformation(
-                "[ACTION] Webhook recognized (corroborated sender) for {Path} (risk={Risk:F2}) -- benign routing, throttle suppressed",
+                "[ACTION] Webhook recognized (corroborated sender) for {Path} (bot_probability={BotProbability:F2}) -- benign routing, throttle suppressed",
                 context.Request.Path, evidence.BotProbability);
             return (await GuardWithSafetyCeilingAsync(context, evidence, PostDetectionActionOutcome.PolicyContinued), evidence);
         }
@@ -283,7 +289,9 @@ public sealed class PostDetectionActionGate
                     context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
 
                     _logger.LogInformation(
-                        "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, enforcementRisk={EnforcementRisk:F2}, type={BotType})",
+                        // Both numeric fields are bot probabilities, not risk bands -- see the
+                        // note on the sibling statement above.
+                        "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (bot_probability={BotProbability:F2}, enforcement_bot_probability={EnforcementBotProbability:F2}, type={BotType})",
                         resolvedPolicyName,
                         (_options.ObserveOnly || _postureProvider.ForceLogOnlyPosture) ? " [observe-only shadow]" : "",
                         context.Request.Path, evidence.BotProbability, enforcementBotProbability, evidence.PrimaryBotType);
