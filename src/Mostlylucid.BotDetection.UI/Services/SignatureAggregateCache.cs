@@ -541,9 +541,9 @@ public sealed class SignatureAggregateCache
     ///     them into an aggregate. The single read source for every dashboard surface
     ///     is this cache; on a miss the caller hands the persisted detections to this
     ///     method, the cache holds the warmed aggregate, and the caller re-reads via
-    ///     <see cref="TryGet"/>. Risk band and threat band are resolved by majority
-    ///     vote across the supplied detections so the warmed value cannot disagree
-    ///     with the rolling cache value the live-traffic write path produces.
+    ///     <see cref="TryGet"/>. Risk band and threat band are DERIVED from the same
+    ///     facts the warmed verdict carries, never voted across the window -- see the
+    ///     derivation block below for why.
     /// </summary>
     public SignatureAggregate WarmFromDetections(
         string signature,
@@ -551,12 +551,6 @@ public sealed class SignatureAggregateCache
     {
         if (string.IsNullOrEmpty(signature) || detections.Count == 0)
             return null!;
-
-        // Majority-vote on risk_band / threat_band so a single anomalous detection
-        // can't flip the headline value the way detections[0] could. Ties resolve
-        // to the highest-severity band so the operator never sees an under-call.
-        var riskBand = MajorityBand(detections, d => d.RiskBand, RiskSeverity);
-        var threatBand = MajorityBand(detections, d => d.ThreatBand, ThreatSeverity);
 
         // Latest semantics for everything else -- the values the live-traffic Update
         // would write for the most recent detection. detections[0] is the freshest
@@ -589,6 +583,35 @@ public sealed class SignatureAggregateCache
         var stickyBotProbability = hasNamedIdentity
             ? detections.Max(d => d.BotProbability)
             : latest.BotProbability;
+
+        // Bands are DERIVED from the facts seeded alongside them -- never majority-voted
+        // across the window.
+        //
+        // The vote was the operator P0 (2026-08-08): risk_band was the MODE of the window
+        // while BotProbability is the sticky MAX of the same window. Mode and max are
+        // unrelated statistics, so the headline band and the headline number were free to
+        // disagree -- an asset-heavy crawl (mostly low-signal hits, one identifying hit at
+        // 0.98) warmed to band=VeryLow + probability=0.98, and _RiskBadge.cshtml renders
+        // both in ONE sentence: "Very Low Risk Profile: 98% bot probability".
+        //
+        // Deriving risk through FingerprintRiskProjection -- the SAME compute site
+        // SqliteFingerprintStore.ProjectVerdict uses for the read-through that supersedes
+        // this seed -- also means the warmed value agrees with what ApplyResolvedVerdicts
+        // later lands, so the row doesn't visibly change underneath the operator.
+        // Threat takes LATEST rather than a re-bucket, because the ThreatScore seeded on
+        // this verdict is itself latest.ThreatScore -- so band and score come from one
+        // row and agree by construction. Re-bucketing would also silently under-call any
+        // band the write path had lifted off a pin (see ThreatBandFloor), turning a
+        // Critical-with-null-score into None. Same rule as the cached_risk_band removal:
+        // a derived value is never stored, and never voted, as if it were a fact.
+        var warmVerified = detections.Any(d => d.IsVerifiedBot);
+        var riskBand = FingerprintRiskProjection.Compose(
+            stickyBotProbability,
+            latest.Confidence,
+            warmVerified ? "verified" : null,
+            stickyBotType,
+            signature).RiskBand.ToString();
+        var threatBand = latest.ThreatBand;
 
         var agg = new SignatureAggregate
         {
@@ -634,8 +657,9 @@ public sealed class SignatureAggregateCache
             ThreatBand: threatBand,
             IsBot: latest.IsBot,
             // ANY detection in the window that confirmed verification latches verified
-            // -- same sticky-true semantics as the live Update path.
-            IsVerifiedBot: detections.Any(d => d.IsVerifiedBot));
+            // -- same sticky-true semantics as the live Update path, and the same latch
+            // the risk derivation above feeds to the composer's friendly-pin.
+            IsVerifiedBot: warmVerified);
 
         // Score history walks oldest-to-newest so the sparkline reads left-to-right.
         foreach (var d in detections.Reverse())
@@ -937,34 +961,13 @@ public sealed class SignatureAggregateCache
         _ => 0
     };
 
-    private static string? MajorityBand<T>(
-        IReadOnlyList<T> rows, Func<T, string?> selector, Func<string, int> severity)
-    {
-        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var r in rows)
-        {
-            var b = selector(r);
-            if (string.IsNullOrEmpty(b)) continue;
-            counts[b] = counts.GetValueOrDefault(b) + 1;
-        }
-        if (counts.Count == 0) return null;
-        var maxCount = counts.Values.Max();
-        return counts
-            .Where(kv => kv.Value == maxCount)
-            .OrderByDescending(kv => severity(kv.Key))
-            .First().Key;
-    }
-
-    private static int RiskSeverity(string band) => band switch
-    {
-        "VeryHigh" => 5, "High" => 4, "Elevated" => 3, "Medium" => 3,
-        "Low" => 2, "VeryLow" => 1, _ => 0
-    };
-
-    private static int ThreatSeverity(string band) => band switch
-    {
-        "Critical" => 5, "High" => 4, "Elevated" => 3, "Low" => 2, _ => 0
-    };
+    // REMOVED: MajorityBand / RiskSeverity / ThreatSeverity.
+    //
+    // These majority-voted risk_band / threat_band across the warmed window while
+    // BotProbability was the sticky MAX of that same window -- two unrelated statistics
+    // over the same rows, which is how a row came to render "Very Low Risk Profile: 98%
+    // bot probability" (operator P0, 2026-08-08). Bands are now derived from the facts
+    // they are seeded beside, in WarmFromDetections. Nothing else called them.
 
     // ─── Internal ────────────────────────────────────────────────────────
 
