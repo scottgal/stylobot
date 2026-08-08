@@ -1769,16 +1769,31 @@ public class StyloBotDashboardMiddleware
         var summary = summaryTask.Result;
         var countriesData = countriesTask.Result;
         var endpointsData = endpointsTask.Result;
-        // P0: endpoints MUST render inline on SSR. The TagHelper-driven VC checks
-        // DashboardEndpointsFirstPaintContext before calling the event store. Stash
-        // the already-fetched SSR data so the VC renders synchronously — no second
-        // store call, no empty/warming placeholder on first paint.
-        // Always set the first-paint reader — even with empty data.
-        // When the reader is present, the VC renders the pre-fetched data
-        // (which may be legitimately empty) instead of making a second store
-        // call that would trigger the WarmingSignal and show a spinner.
-        Dashboard.DashboardEndpointsFirstPaintContext.Set(context,
-            new SsrEndpointsFirstPaintReader(endpointsData));
+        // P0 (operator, 2026-08-09): endpoints MUST render inline on SSR. The TagHelper-driven
+        // VC checks DashboardEndpointsFirstPaintContext before calling the event store, and
+        // stashing the already-fetched SSR data lets it render synchronously -- no second store
+        // call, no empty/warming placeholder on first paint.
+        //
+        // BUT only when the data was actually fetched. When shellWarming is true, endpointsTask
+        // above never called the store at all -- it short-circuited to an empty list literal
+        // (an "I did not look" placeholder, not an "I looked, there is nothing" result). Seeding
+        // THAT into the reader unconditionally is the bug: SbEndpointsListViewComponent sees a
+        // reader present and deliberately skips its own warming check on the documented
+        // assumption that a present reader means real data (see SbEndpointsListViewComponent.cs:
+        // "the first-paint reader already has pre-fetched data from the SSR pass"). In the
+        // shellWarming branch that assumption was false and the component had no way to know --
+        // an absence of knowledge encoded as knowledge of absence.
+        //
+        // Fix is a deletion, not a flag: when shellWarming, seed nothing. The VC then finds no
+        // reader, falls through to its existing warming-signal check exactly as designed, and
+        // renders the warming state -- the behaviour it already has for every other cold-miss
+        // case. No new state to keep in sync, no second source of truth about whether the first
+        // one is valid.
+        if (!shellWarming)
+        {
+            Dashboard.DashboardEndpointsFirstPaintContext.Set(context,
+                new SsrEndpointsFirstPaintReader(endpointsData));
+        }
 
         var allUserAgents = userAgentsTask.Result;
 

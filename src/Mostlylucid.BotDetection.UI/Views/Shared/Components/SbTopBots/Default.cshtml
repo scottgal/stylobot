@@ -71,12 +71,19 @@
         : "Top Bots";
 }
 @*
-    Two-region contract: the outer widget root + the chrome (header, toolbar, table
-    thead, pagination footer) are rendered once on SSR and after user-initiated
-    actions (filter chip / sort / page click -- they outerHTML-swap the whole widget).
-    The <tbody data-sb-data-region> is the only thing SignalR beacons swap, via
-    hx-swap-oob="innerHTML" injected by WidgetRenderHelpers.InjectOobAttribute.
-    Scroll position, focus, hover, sort indicators all survive every beacon.
+    ONE region, one swap (operator P0, 2026-08-09): the whole widget root -- chrome
+    (header, toolbar, tab counts, pager) AND rows -- is rendered from one materialised
+    list and swaps as a single unit, on SSR, after user-initiated actions, and on a
+    SignalR beacon alike. Previously the <tbody> alone carried data-sb-data-region and
+    was the only thing a beacon swapped (hx-swap-oob="innerHTML" injected by
+    WidgetRenderHelpers.InjectOobAttribute) while the header/counts only updated on a
+    full outerHTML swap -- two independently-timed swaps of the SAME widget, which is
+    how "Bots 6" rendered above a stale single row: the count fragment updated, the
+    row fragment did not, in the same paint. WidgetRenderHelpers.InjectOobAttribute
+    already falls back to morphing the whole first tag when no data-sb-data-region
+    marker is present (see its own doc comment), so removing the marker here is the
+    whole fix -- no change needed to the shared helper. It becomes structurally
+    impossible for the badge and the rows to disagree: they are one fragment now.
 *@
 <div id="@widgetRootId"
      data-sb-widget="@Model.WidgetId"
@@ -102,7 +109,7 @@
         }
         else if (Model.Bots.Count == 0)
         {
-            <div id="@dataRegionId" data-sb-data-region class="flex-1 min-h-0">
+            <div id="@dataRegionId" class="flex-1 min-h-0">
                 <div class="text-xs text-base-content/40 py-6 text-center">
                     @(Model.Filter == "humans" ? "No humans recorded yet" : Model.Filter == "all" ? "No visitors recorded yet" : "No bots detected yet")
                 </div>
@@ -196,10 +203,11 @@
                         // so Model.Bots already comes pre-grouped and pagination matches the
                         // visible rows.
                     }
-                    <!-- DATA REGION: only this element gets hx-swap-oob="innerHTML" on SignalR
-                         beacons. Scroll position on the .overflow-auto parent is preserved
-                         because the parent element identity doesn't change. -->
-                    <tbody id="@dataRegionId" data-sb-data-region>
+                    <!-- Row body. No longer its own OOB target -- the whole widget root morphs
+                         together on a beacon (see the file-level comment). Scroll position on
+                         the .overflow-auto parent is preserved because the parent element
+                         identity doesn't change even when its ancestor morphs. -->
+                    <tbody id="@dataRegionId">
                         @foreach (var bot in Model.Bots)
                         {
                             var riskClass = bot.RiskBand switch {
