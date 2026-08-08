@@ -38,6 +38,7 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        startsWith(github.event.workflow_run.head_branch, 'allbot-v') &&
        !contains(github.event.workflow_run.head_branch, '-alpha') &&
+       !contains(github.event.workflow_run.head_branch, '-dev') &&
        !contains(github.event.workflow_run.head_branch, '-beta'))
     runs-on: ubuntu-latest
     steps:

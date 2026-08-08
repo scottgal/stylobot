@@ -19,6 +19,11 @@ on:
           - nuget-only
           - docker-only
           - console-only
+      dev_suffix:
+        description: 'Append -dev prerelease suffix (staging/dev build, e.g. 1.0.0-dev). nuget-only; distribution gates skip -dev packages.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,6 +43,7 @@ jobs:
       env:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_COMPONENTS: ${{ inputs.components }}
+        INPUT_DEV_SUFFIX: ${{ inputs.dev_suffix }}
         GIT_REF: ${{ github.ref_name }}
       run: |
         # Tag push: extract version from tag name (allbot-v1.2.3 -> 1.2.3)
@@ -47,6 +53,14 @@ jobs:
         else
           VERSION="$INPUT_VERSION"
           COMPONENTS="${INPUT_COMPONENTS:-all}"
+        fi
+        # Dev/staging prerelease (2026-08-08): dev_suffix=true on a dispatch
+        # appends -dev so the package is clearly a prerelease on nuget.org and
+        # the winget/choco/apt distribution gates skip it. Only meaningful on
+        # dispatch — a tag push is a release and never gets the suffix.
+        if [ "${INPUT_DEV_SUFFIX:-false}" = "true" ] && [ -z "$GIT_REF" ]; then
+          VERSION="${VERSION}-dev"
+          COMPONENTS="nuget-only"
         fi
         if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
           echo "::error::Invalid version format: '$VERSION'. Expected semver."
