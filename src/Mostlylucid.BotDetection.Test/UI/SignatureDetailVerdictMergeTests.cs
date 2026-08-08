@@ -29,7 +29,7 @@ public sealed class SignatureDetailVerdictMergeTests
     {
         var source = File.ReadAllText(LocatePartial("_SignatureDetail.cshtml"));
         Assert.Contains("@inject ISignaturePolicyActionSlot PolicyActionSlot", source);
-        Assert.Contains("@PolicyActionSlot.Render(Model.SignatureId, Model.Action, Model.BotType, Model.IsBot)", source);
+        Assert.Contains("PolicyActionSlot.Render(Model.SignatureId, Model.Action, Model.BotType, Model.IsBot)", source);
     }
 
     [Fact]
