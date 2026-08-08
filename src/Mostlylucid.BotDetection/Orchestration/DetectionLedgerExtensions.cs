@@ -400,6 +400,16 @@ public static class DetectionLedgerExtensions
             ? Math.Max(rawThreatScore, Risk.SignatureRiskVerdictComposer.ThreatBandFloor(threatBand))
             : rawThreatScore;
 
+        // Project the verdict-derived policy facets (score.bot_probability / is_human)
+        // so policy predicates can reference the verdict this request actually produced.
+        // Without this the facets do not exist and every rule naming them silently
+        // never matches -- see VerdictFacetProjection.
+        VerdictFacetProjection.Project(
+            signals,
+            botProbability,
+            primaryBotType,
+            options?.Classification.BotFloor ?? 0.70);
+
         // Write risk justification back to signals so downstream consumers can read it
         if (!string.IsNullOrEmpty(riskJustification))
             signals[SignalKeys.RiskJustification] = riskJustification;
@@ -643,6 +653,18 @@ public static class DetectionLedgerExtensions
 
         if (!string.IsNullOrEmpty(earlyRiskJustification))
             earlySignals[SignalKeys.RiskJustification] = earlyRiskJustification;
+
+        // Early-exit parity for the verdict-derived policy facets. This path matters
+        // MORE than the main one: early exits are the confirmed-bot cases, so a facet
+        // live on the main path but absent here would leave policy rules firing for
+        // ordinary traffic and silently not firing for the bots they target. Projected
+        // after primaryBotType is final (the Internal / hostile-pin overrides above
+        // reassign it).
+        VerdictFacetProjection.Project(
+            earlySignals,
+            isBot ? 1.0 : 0.0,
+            primaryBotType,
+            options?.Classification.BotFloor ?? 0.70);
 
         return new AggregatedEvidence
         {

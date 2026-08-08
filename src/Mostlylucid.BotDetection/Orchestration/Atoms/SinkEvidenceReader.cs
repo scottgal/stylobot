@@ -115,13 +115,23 @@ internal static class SinkEvidenceReader
         // string here.
         var signalsDict = SnapshotSinkSignals(sink);
 
+        var currentRiskScore = ReadCurrentRiskScore(sink);
+        var inferredBotType = InferPrimaryBotType(contributions);
+
+        // Fast-path parity for the verdict-derived policy facets, so a policy predicate
+        // sees the same facet vocabulary here as on the main and early-exit paths.
+        // BotFloor is not plumbed into this reader; the 0.70 default matches
+        // Classification.BotFloor and is_human is identity-gated anyway, so a host that
+        // has retuned the floor can still only make this stricter, never wrongly human.
+        VerdictFacetProjection.Project(signalsDict, currentRiskScore, inferredBotType, botFloor: 0.70);
+
         return new AggregatedEvidence
         {
             Ledger = ledger,
-            BotProbability = ReadCurrentRiskScore(sink),
+            BotProbability = currentRiskScore,
             Confidence = ReadCurrentConfidence(sink),
             RiskBand = RiskBand.Medium,
-            PrimaryBotType = InferPrimaryBotType(contributions),
+            PrimaryBotType = inferredBotType,
             PrimaryBotName = InferPrimaryBotName(contributions, signalsDict),
             Signals = signalsDict,
             TotalProcessingTimeMs = 0.0,

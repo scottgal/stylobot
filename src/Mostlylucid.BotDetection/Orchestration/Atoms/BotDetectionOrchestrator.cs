@@ -196,7 +196,14 @@ public sealed class BotDetectionOrchestrator : IDisposable
             _logger.LogError(ex, "Detection failed for session {SessionId}", sessionId);
             _signalSink.Raise($"detection.error:{ex.GetType().Name}", sessionId);
 
-            // Return uncertain result on error
+            // Return uncertain result on error.
+            //
+            // DELIBERATELY does NOT call VerdictFacetProjection: this request produced
+            // no verdict. Projecting is_human here would mark every errored request
+            // human and let a policy allow-rule fire off the back of an exception --
+            // an allow-list born from a crash. Absent facets make predicates evaluate
+            // false, which is the correct failure direction. Do not "fix" this by
+            // adding the projection for consistency.
             return new AggregatedEvidence
             {
                 BotProbability = 0.5,

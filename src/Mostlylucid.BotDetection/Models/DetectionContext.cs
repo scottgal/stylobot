@@ -2364,6 +2364,34 @@ public static partial class SignalKeys
     /// </summary>
     public const string GeoCountry = "geo.country";
 
+    /// <summary>
+    ///     Decimal: the request's aggregated bot probability (0.0 human .. 1.0 bot), projected
+    ///     into the signal bag so policy predicates can reference it. Derived from the same
+    ///     <c>evidence.BotProbability</c> every other surface reads -- never stored separately.
+    ///
+    ///     <para>
+    ///         Added in 8.8. The shipped seed rules referenced this name from the start (it was
+    ///         the doc-comment example on <c>Predicate.Term</c>) but nothing produced it, so
+    ///         every rule using it silently never matched. See
+    ///         <c>SeedRuleFacetReachabilityTests</c>.
+    ///     </para>
+    /// </summary>
+    public const string ScoreBotProbability = "score.bot_probability";
+
+    /// <summary>
+    ///     Bool: true when this request is judged human.
+    ///
+    ///     <para>
+    ///         <b>Derived, never stored.</b> Per the v8 single-canonical-classifier rule this is
+    ///         computed at projection time from <c>bot_probability &lt; Classification.BotFloor</c>
+    ///         AND the absence of an authoritative bot identity -- it is NOT a probability-only
+    ///         cut. A catalogue-identified bot below the probability floor (Bytespider et al.) is
+    ///         still a bot: "BOTS ARE NEVER HUMAN". A probability-only derivation would
+    ///         reintroduce the contradiction <c>CatalogIdentityIsBotTests</c> forbids.
+    ///     </para>
+    /// </summary>
+    public const string IsHuman = "is_human";
+
     /// <summary>String: named-bot family classification (e.g. <c>"googlebot"</c>, <c>"chatgpt"</c>).</summary>
     public const string IdentityNamedBot = "identity.named_bot";
 
