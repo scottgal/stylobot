@@ -23,6 +23,22 @@ public class GeoLite2Options
     public string? LicenseKey { get; set; }
 
     /// <summary>
+    ///     MaxMind's own download API base. This is a fixed vendor endpoint (not a swappable
+    ///     data-source pointer), but it lives here rather than as a literal in
+    ///     <see cref="Services.GeoLite2UpdateService"/> so nothing in this package hardcodes a
+    ///     URL outside an Options class, and so an operator running against a private MaxMind
+    ///     mirror/proxy can override it without a code change.
+    /// </summary>
+    public string MaxMindDownloadBaseUrl { get; set; } = "https://download.maxmind.com/geoip/databases";
+
+    /// <summary>
+    ///     DataHub's free GeoIP2-IPv4 country-level CSV, used by the <see cref="GeoProvider.DataHubCsv"/>
+    ///     provider path (a different mechanism from the MaxMind binary DB above -- see
+    ///     GeoIpSetupResource). Licence: DataHub core dataset, no redistribution restriction stated.
+    /// </summary>
+    public string DataHubCsvUrl { get; set; } = "https://datahub.io/core/geoip2-ipv4/r/geoip2-ipv4.csv";
+
+    /// <summary>
     ///     Path to the GeoLite2-City.mmdb database file
     ///     If not specified, defaults to ./data/GeoLite2-City.mmdb
     /// </summary>

@@ -34,8 +34,6 @@ namespace Mostlylucid.GeoDetection.Services;
 /// </summary>
 public sealed class GeoLite2UpdateService : IDisposable
 {
-    private const string DownloadBaseUrl = "https://download.maxmind.com/geoip/databases";
-
     private readonly ILogger<GeoLite2UpdateService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly MaxMindGeoLocationService? _geoService;
@@ -43,7 +41,26 @@ public sealed class GeoLite2UpdateService : IDisposable
     private readonly IDisposable? _subscription;
     private int _disposed;
     private int _startupRan;
-    private DateTimeOffset _lastSuccessfulFetch = DateTimeOffset.MinValue;
+
+    /// <summary>
+    ///     UTC timestamp of the last successful MaxMind download this process has performed, or
+    ///     <c>null</c> if it has never succeeded since startup. This existed before only as a
+    ///     private field nothing ever read -- "has this source ever actually fetched" had no
+    ///     queryable answer anywhere, which is exactly the silent-failure shape a fetch registry
+    ///     exists to prevent: a source can fail-open forever, serving a stale bundled/manually-placed
+    ///     `.mmdb`, with zero signal that it's happening. The registry's admin-UI/health surface
+    ///     reads this; do not let it go back to write-only.
+    /// </summary>
+    public DateTimeOffset? LastSuccessfulFetchUtc { get; private set; }
+
+    /// <summary>
+    ///     UTC timestamp of the last failed download attempt, or <c>null</c> if none has
+    ///     occurred since startup. Paired with <see cref="LastSuccessfulFetchUtc"/> so "never
+    ///     configured" (both null), "configured and healthy" (success recent), and "configured
+    ///     but currently failing" (failure recent, success stale or null) are all distinguishable
+    ///     -- the three states the registry must render differently.
+    /// </summary>
+    public DateTimeOffset? LastFailedFetchUtc { get; private set; }
 
     public GeoLite2UpdateService(
         ILogger<GeoLite2UpdateService> logger,
@@ -169,7 +186,7 @@ public sealed class GeoLite2UpdateService : IDisposable
                 _ => "GeoLite2-City"
             };
 
-            var downloadUrl = $"{DownloadBaseUrl}/{dbName}/download?suffix=tar.gz";
+            var downloadUrl = $"{_options.MaxMindDownloadBaseUrl}/{dbName}/download?suffix=tar.gz";
 
             _logger.LogInformation("Downloading GeoLite2 database from MaxMind...");
 
@@ -187,6 +204,7 @@ public sealed class GeoLite2UpdateService : IDisposable
             {
                 _logger.LogError("Failed to download GeoLite2 database: {StatusCode} {Reason}",
                     response.StatusCode, response.ReasonPhrase);
+                LastFailedFetchUtc = DateTimeOffset.UtcNow;
                 return false;
             }
 
@@ -213,6 +231,7 @@ public sealed class GeoLite2UpdateService : IDisposable
                 if (extractedMmdb == null)
                 {
                     _logger.LogError("Failed to extract .mmdb file from downloaded archive");
+                    LastFailedFetchUtc = DateTimeOffset.UtcNow;
                     return false;
                 }
 
@@ -228,7 +247,7 @@ public sealed class GeoLite2UpdateService : IDisposable
 
                 _logger.LogInformation("GeoLite2 database updated successfully at {Path}", dbPath);
 
-                _lastSuccessfulFetch = DateTimeOffset.UtcNow;
+                LastSuccessfulFetchUtc = DateTimeOffset.UtcNow;
 
                 // Reload the database reader
                 if (_geoService != null) await _geoService.ReloadDatabaseAsync(cancellationToken);
@@ -251,6 +270,7 @@ public sealed class GeoLite2UpdateService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to download GeoLite2 database");
+            LastFailedFetchUtc = DateTimeOffset.UtcNow;
             return false;
         }
     }

@@ -6,15 +6,16 @@ namespace Mostlylucid.GeoDetection.Contributor.Setup;
 
 public class GeoIpSetupResource : ISetupResource
 {
-    private const string CsvUrl = "https://datahub.io/core/geoip2-ipv4/r/geoip2-ipv4.csv";
     private const string DefaultCsvPath = "data/geoip2-ipv4.csv";
     private readonly string _csvPath;
+    private readonly string _csvUrl;
     private readonly IHttpClientFactory _httpClientFactory;
 
     public GeoIpSetupResource(IOptions<GeoLite2Options> options, IHttpClientFactory httpClientFactory)
     {
         _httpClientFactory = httpClientFactory;
         _csvPath = ComputeCsvPath(options.Value.DatabasePath);
+        _csvUrl = options.Value.DataHubCsvUrl;
     }
 
     /// <summary>
@@ -65,7 +66,7 @@ public class GeoIpSetupResource : ISetupResource
             Directory.CreateDirectory(dir);
 
         using var client = _httpClientFactory.CreateClient("DataHub");
-        using var response = await client.GetAsync(CsvUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var response = await client.GetAsync(_csvUrl, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         await using var content = await response.Content.ReadAsStreamAsync(ct);
         await using var file = File.Create(_csvPath);

@@ -81,6 +81,59 @@ public sealed class GeoLite2UpdateServiceTickTests
     }
 
     [Fact]
+    public void LastSuccessfulFetchUtc_and_LastFailedFetchUtc_are_null_before_any_attempt()
+    {
+        var coordinator = new RecordingScheduleCoordinator();
+        var http = new Mock<IHttpClientFactory>();
+
+        using var sut = new GeoLite2UpdateService(
+            NullLogger<GeoLite2UpdateService>.Instance,
+            AutoUpdateOptions(),
+            http.Object,
+            new SimpleGeoLocationService(),
+            coordinator);
+
+        // Neither field may default to "now" or any other sentinel that could read as
+        // a real timestamp -- a source that has never attempted a fetch must be
+        // distinguishable from one that fetched successfully long ago.
+        Assert.Null(sut.LastSuccessfulFetchUtc);
+        Assert.Null(sut.LastFailedFetchUtc);
+    }
+
+    [Fact]
+    public async Task Failed_download_records_LastFailedFetchUtc_and_leaves_LastSuccessfulFetchUtc_null()
+    {
+        var coordinator = new RecordingScheduleCoordinator();
+        var http = new Mock<IHttpClientFactory>();
+        var options = Options.Create(new GeoLite2Options
+        {
+            AccountId = 12345,
+            LicenseKey = "test-license-key",
+            EnableAutoUpdate = true,
+            DownloadOnStartup = false,
+            DatabasePath = Path.Combine(Path.GetTempPath(), $"gl2-tick-test-{Guid.NewGuid():N}.mmdb"),
+        });
+
+        http.Setup(f => f.CreateClient(It.IsAny<string>()))
+            .Returns(() => new HttpClient(new ThrowingHandler()));
+
+        using var sut = new GeoLite2UpdateService(
+            NullLogger<GeoLite2UpdateService>.Instance,
+            options,
+            http.Object,
+            new SimpleGeoLocationService(),
+            coordinator);
+
+        var before = DateTimeOffset.UtcNow;
+        var ok = await sut.DownloadDatabaseAsync();
+
+        Assert.False(ok);
+        Assert.Null(sut.LastSuccessfulFetchUtc);
+        Assert.NotNull(sut.LastFailedFetchUtc);
+        Assert.True(sut.LastFailedFetchUtc >= before);
+    }
+
+    [Fact]
     public void Dispose_unsubscribes_from_coordinator()
     {
         var coordinator = new RecordingScheduleCoordinator();
