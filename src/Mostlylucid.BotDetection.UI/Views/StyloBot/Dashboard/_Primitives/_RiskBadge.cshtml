@@ -9,17 +9,30 @@
     // Colour is inline `color: var(--color-...)` not Tailwind text-error /
     // text-warning utilities -- the JIT-compiled tailwind.min.css bundle was
     // missing those modifiers and the icons rendered in the default white.
+    // Risk band is deviation from the per-site human norm, NOT a human/bot axis --
+    // a consistent, well-behaved crawler has LOW deviation and correctly lands
+    // VeryLow here even though it is a confirmed bot. The ladder used to also
+    // assert human/bot conclusions per band ("VeryLow" -> "Almost certainly
+    // human"), which is a SECOND, independently-drifting source of bot-ness next
+    // to the actual bot-probability number in the same tooltip -- for a
+    // consistent high-probability bot that read literally as "Very Low Risk
+    // Profile: 98% bot probability. Almost certainly human", contradicting
+    // itself in one sentence (operator P0, 2026-08-08). Fix: the tip describes
+    // ONLY deviation-from-norm activity, never human/bot; the bot-probability
+    // percentage rendered in the tooltip below is the single source for bot-ness.
+    // See Mostlylucid.BotDetection/Orchestration/DetectionContribution.cs for
+    // the RiskBand semantics this ladder must stay consistent with.
     var band = Model.Band ?? "None";
     var probPct = (Model.BotProbability * 100).ToString("F0");
     var (icon, color, label, tip) = band switch
     {
         "Critical" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Critical", "Active attack. Block immediately"),
-        "VeryHigh" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Very High","Confident bot. Highest Risk Profile band"),
-        "High"     => ("bxs-shield-minus", "var(--color-error,   #ef4444)", "High",     "Bot, very likely unwanted"),
+        "VeryHigh" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Very High","Extreme deviation from typical site traffic"),
+        "High"     => ("bxs-shield-minus", "var(--color-error,   #ef4444)", "High",     "Highly abnormal behaviour for this site"),
         "Elevated" => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Elevated", "Suspicious behaviour above ambient"),
-        "Medium"   => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Medium",   "Bot signals present, classification uncertain"),
-        "Low"      => ("bxs-shield",       "var(--color-success, #22c55e)", "Low",      "Likely benign automation"),
-        "VeryLow"  => ("bxs-shield",       "var(--color-success, #22c55e)", "Very Low", "Almost certainly human"),
+        "Medium"   => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Medium",   "Some deviation from typical behaviour"),
+        "Low"      => ("bxs-shield",       "var(--color-success, #22c55e)", "Low",      "Close to typical site traffic patterns"),
+        "VeryLow"  => ("bxs-shield",       "var(--color-success, #22c55e)", "Very Low", "Matches typical site traffic patterns"),
         _          => ("bxs-shield",       "rgba(148,163,184,0.55)",         "None",     "No Risk Profile band assigned")
     };
 }
