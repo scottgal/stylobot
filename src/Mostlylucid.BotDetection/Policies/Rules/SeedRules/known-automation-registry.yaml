@@ -2,9 +2,14 @@
 # Recognized by RegistryClientSensor via protocol fingerprints + UA corroboration.
 # Detection runs; enforcement is tuned for blob push/pull throughput.
 id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# 8.8.1: was `kind: endpoint` with only path_template -- MapScope requires domain
+# AND subdomain AND path_template for endpoint scope, so it threw and the store
+# skipped the rule entirely; the predicate was never parsed. A shipped default
+# cannot name a domain (it differs per deployment), so wildcard is the right kind.
+# The /v2/* intent is not lost: RegistryClientSensor already corroborates on the
+# OCI v2 protocol before BotType.RegistryClient is ever assigned.
 scope:
-  kind: endpoint
-  path_template: "/v2/*"
+  kind: wildcard
 # 8.8.1: was `bot.type = registry_client`. Both halves were dead -- `bot.type` is a
 # facet nothing produces (the real one is `ua.bot_type`) and `registry_client` was
 # not a BotType member. BotType.RegistryClient now exists and is emitted ONLY by
@@ -12,9 +17,12 @@ scope:
 # spoof guard. Values are the BotType enum's .ToString() projection and the
 # comparison is ordinal -- case must match exactly.
 predicate: "ua.bot_type = \"RegistryClient\" and score.bot_probability < 0.6"
+# 8.8.1: was `kind: rate-limit` with max_rpm/burst, none of which MapAction
+# accepts -- it threw "unknown action kind", a second independent reason this rule
+# never loaded. PolicyAction.RateLimit has no burst concept, so burst is dropped
+# rather than silently ignored.
 action:
-  kind: rate-limit
-  max_rpm: 300
-  burst: 50
+  kind: rate_limit
+  requests_per_minute: 300
 mode: live
 notes: "Docker/OCI registry — benign automation, higher RPM for blob push/pull"

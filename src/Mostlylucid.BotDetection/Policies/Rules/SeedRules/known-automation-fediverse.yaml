@@ -3,8 +3,13 @@
 # These are legitimate social-media link-preview and federation traffic —
 # high request rate but benign intent. Detection runs; generous rate limits.
 id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+# 8.8.1: was `kind: endpoint` with no domain/subdomain/path_template, which made
+# YamlPolicyRuleStore.MapScope throw ("endpoint scope requires 'domain'"). The store
+# logs a warning and skips the rule, so it never entered the corpus at all -- the
+# predicate below was never even parsed. Known-good automation is a global default,
+# not endpoint-scoped, so wildcard is the correct kind.
 scope:
-  kind: endpoint
+  kind: wildcard
 # 8.8.1: was `bot.type = fediverse_bot`. BOTH halves were dead -- `bot.type` is a
 # facet nothing produces (the real one is `ua.bot_type`), and `fediverse_bot` is not
 # a BotType member. No FediverseBot type is being added: FediverseDomainAtom sets no
@@ -12,9 +17,13 @@ scope:
 # onto the type that actually exists. Values are the BotType enum's .ToString()
 # projection and the comparison is ordinal -- case must match exactly.
 predicate: "ua.bot_type = \"SocialMediaBot\" and score.bot_probability < 0.6"
+# 8.8.1: was `kind: rate-limit` with max_rpm/burst -- none of which MapAction
+# accepts. It takes `rate_limit`/`ratelimit` with `requests_per_minute`, so this
+# threw "unknown action kind 'rate-limit'" and the rule was skipped. A second,
+# independent reason the same rule never loaded. PolicyAction.RateLimit carries no
+# burst concept, so burst is dropped rather than silently ignored.
 action:
-  kind: rate-limit
-  max_rpm: 120
-  burst: 20
+  kind: rate_limit
+  requests_per_minute: 120
 mode: live
 notes: "Fediverse/Mastodon instances — benign social-media automation"

@@ -115,8 +115,25 @@ internal sealed class LegacySeedOnlyPolicyRuleStore : IPolicyRuleStore
         return filtered;
     }
 
+    /// <summary>
+    ///     Hides any wildcard-scoped seed rule, not just ones whose FILENAME says
+    ///     "wildcard".
+    ///
+    ///     <para>
+    ///         8.8.1: this was a filename match against
+    ///         <c>TestPolicyRuleStoreConstants.WildcardSeedTag</c>, which worked only
+    ///         because every wildcard seed happened to be named <c>wildcard-*</c>. The
+    ///         two <c>known-automation-*</c> seeds were wildcard-scoped but named
+    ///         otherwise — they slipped through the filter the moment they started
+    ///         loading at all (previously they failed to map and were skipped, so the
+    ///         gap was invisible). Matching on the actual scope is what the double
+    ///         always meant, and it does not need editing again when the next
+    ///         wildcard baseline lands under a different name.
+    ///     </para>
+    /// </summary>
     private static bool IsWildcardSeed(PolicyRule rule)
-        => rule.Source.Contains(TestPolicyRuleStoreConstants.WildcardSeedTag, StringComparison.Ordinal);
+        => rule.Source.Contains(TestPolicyRuleStoreConstants.WildcardSeedTag, StringComparison.Ordinal)
+           || rule.Scope == PolicyScope.Wildcard();
 }
 
 /// <summary>
