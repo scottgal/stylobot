@@ -54,9 +54,23 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
-        <!-- PostgreSQL persistence tests live in stylobot-commercial; the
+        <!-- Build-only reference. DemoAppFactory launches the Demo app as a real
+             subprocess with "dotnet run" plus the no-build flag, so the Demo binary
+             must already exist when the suite runs. Nothing built it: the Demo was not
+             referenced here, so "dotnet test" never produced it, and every BDF and
+             dashboard test needing a live host failed with "Demo app exited with code
+             1". The underlying cause was visible only in the subprocess log at
+             /tmp/demo-app-PORT.log.err: "No such file or directory" on the Demo binary.
+             That hid the rig's real results from allbot-v8.7.0 onward; 43 of 45
+             orchestration failures were this one missing build, not 43 defects.
+             ReferenceOutputAssembly=false: MSBuild should BUILD the Demo, not link a
+             web app's assembly into this test project.
+             PostgreSQL persistence tests live in stylobot-commercial; the
              UI.PostgreSQL project moved out of FOSS. Npgsql package was also
-             unused here -no `using Npgsql` in any source file. -->
+             unused here, no "using Npgsql" in any source file. -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Demo\Mostlylucid.BotDetection.Demo.csproj"
+                          ReferenceOutputAssembly="false"
+                          Private="false" />
     </ItemGroup>
 
     <ItemGroup>
