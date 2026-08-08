@@ -39,18 +39,24 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
         var manifest = _manifestLoader.LoadEmbeddedManifests();
         var ds = opts.DataSources;
 
-        yield return FromDataSource(manifest, "IsBot", ds.IsBot, "Bot list: botdetection.db (SQLite, via BotListDatabase)", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "Matomo", ds.Matomo, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "CrawlerUserAgents", ds.CrawlerUserAgents, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "AwsIpRanges", ds.AwsIpRanges, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "GcpIpRanges", ds.GcpIpRanges, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "AzureIpRanges", ds.AzureIpRanges, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "CloudflareIpv4", ds.CloudflareIpv4, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "CloudflareIpv6", ds.CloudflareIpv6, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "VpnAsns", ds.VpnAsns, "Bot list: botdetection.db (falls back to YAML seeds in ip.detector.yaml)", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "BrowserVersions", ds.BrowserVersions, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "ScannerUserAgents", ds.ScannerUserAgents, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
-        yield return FromDataSource(manifest, "CoreRuleSetScanners", ds.CoreRuleSetScanners, "Bot list: botdetection.db", DailyTick("24h since last success, floor 60m checks"));
+        // BotListUpdateService gates the actual fetch on 24h-since-last-success (60m check
+        // interval) for every DataSources entry - same structured cadence for all twelve.
+        var dataSourceCadence = TimeSpan.FromHours(24);
+        const string dataSourceCadenceLabel = "BotListUpdateService, Tick1h subscription, 24h since last success, floor 60m checks";
+        const string dataSourceOnDisk = "Bot list: botdetection.db (SQLite, via BotListDatabase)";
+
+        yield return FromDataSource(manifest, "IsBot", ds.IsBot, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "Matomo", ds.Matomo, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "CrawlerUserAgents", ds.CrawlerUserAgents, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "AwsIpRanges", ds.AwsIpRanges, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "GcpIpRanges", ds.GcpIpRanges, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "AzureIpRanges", ds.AzureIpRanges, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "CloudflareIpv4", ds.CloudflareIpv4, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "CloudflareIpv6", ds.CloudflareIpv6, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "VpnAsns", ds.VpnAsns, "Bot list: botdetection.db (falls back to YAML seeds in ip.detector.yaml)", dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "BrowserVersions", ds.BrowserVersions, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "ScannerUserAgents", ds.ScannerUserAgents, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
+        yield return FromDataSource(manifest, "CoreRuleSetScanners", ds.CoreRuleSetScanners, dataSourceOnDisk, dataSourceCadenceLabel, dataSourceCadence);
 
         if (manifest.TryGetValue("WellKnownBots", out var wkb))
         {
@@ -59,6 +65,7 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
                 Enabled: !string.IsNullOrWhiteSpace(opts.WellKnownBots.Url),
                 Purpose: wkb.Purpose, Licence: wkb.Licence,
                 Cadence: $"Tick1h, {opts.WellKnownBots.RefreshInterval} since last success (floor 1h)",
+                CadenceInterval: opts.WellKnownBots.RefreshInterval,
                 FailureMode: FetchFailureMode.FailOpen,
                 OnDiskLocation: "in-memory only (WellKnownBotIndex); embedded baseline seeds cold start",
                 LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
@@ -66,13 +73,17 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
 
         var ti = opts.ThreatIntel.Providers;
         if (manifest.TryGetValue("CisaKev", out var cisaKev))
-            yield return ThreatIntelSource("CisaKev", "CISA Known Exploited Vulnerabilities", cisaKev, ti.CisaKev.Url, ti.CisaKev.Enabled, $"{ti.CisaKev.RefreshHours}h, via ThreatIntelRefreshService");
+            yield return ThreatIntelSource("CisaKev", "CISA Known Exploited Vulnerabilities", cisaKev, ti.CisaKev.Url, ti.CisaKev.Enabled,
+                $"{ti.CisaKev.RefreshHours}h, via ThreatIntelRefreshService", TimeSpan.FromHours(ti.CisaKev.RefreshHours));
         if (manifest.TryGetValue("TorExit", out var torExit))
-            yield return ThreatIntelSource("TorExit", "Tor Exit Node List", torExit, ti.TorExit.Url, ti.TorExit.Enabled, $"{ti.TorExit.RefreshMinutes}min, via ThreatIntelRefreshService");
+            yield return ThreatIntelSource("TorExit", "Tor Exit Node List", torExit, ti.TorExit.Url, ti.TorExit.Enabled,
+                $"{ti.TorExit.RefreshMinutes}min, via ThreatIntelRefreshService", TimeSpan.FromMinutes(ti.TorExit.RefreshMinutes));
         if (manifest.TryGetValue("SpamhausDrop", out var spamhaus))
-            yield return ThreatIntelSource("SpamhausDrop", "Spamhaus DROP/EDROP", spamhaus, ti.SpamhausDrop.Url, ti.SpamhausDrop.Enabled, $"{ti.SpamhausDrop.RefreshHours}h, via ThreatIntelRefreshService");
+            yield return ThreatIntelSource("SpamhausDrop", "Spamhaus DROP/EDROP", spamhaus, ti.SpamhausDrop.Url, ti.SpamhausDrop.Enabled,
+                $"{ti.SpamhausDrop.RefreshHours}h, via ThreatIntelRefreshService", TimeSpan.FromHours(ti.SpamhausDrop.RefreshHours));
         if (manifest.TryGetValue("CloudRangesFastly", out var fastly))
-            yield return ThreatIntelSource("CloudRangesFastly", "Fastly Public IP List", fastly, ti.CloudRanges.Fastly.Url, ti.CloudRanges.Fastly.Enabled, $"{ti.CloudRanges.RefreshHours}h, via ThreatIntelRefreshService");
+            yield return ThreatIntelSource("CloudRangesFastly", "Fastly Public IP List", fastly, ti.CloudRanges.Fastly.Url, ti.CloudRanges.Fastly.Enabled,
+                $"{ti.CloudRanges.RefreshHours}h, via ThreatIntelRefreshService", TimeSpan.FromHours(ti.CloudRanges.RefreshHours));
 
         // No YAML entry: neither has a shipped default URL to seed (both idle-until-configured
         // by design), so there is nothing for a manifest to declare beyond what's below.
@@ -82,6 +93,7 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
             Purpose: "Signed JA3 fingerprint reference corpus for TLS-based bot detection. No default URL — opt-in, operator must supply a signed envelope source. Embedded baseline covers cold start regardless.",
             Licence: "Operator-supplied (signed envelope from the vendor pipeline); not a third-party feed",
             Cadence: $"Tick1h, {opts.TlsCorpus.RefreshInterval} since last success (floor 5min)",
+            CadenceInterval: opts.TlsCorpus.RefreshInterval,
             FailureMode: FetchFailureMode.FailOpen,
             OnDiskLocation: "in-memory only (IJa3ReferenceIndex); embedded baseline seeds cold start",
             LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
@@ -93,31 +105,32 @@ internal sealed class BotDetectionFetchSourceContributor : IFetchSourceContribut
             Purpose: "Web-Bot-Auth (RFC 9421 signature) public-key manifest, e.g. Cloudflare's AI-agent registry. No default URL — opt-in; manual keys always work regardless of remote fetch.",
             Licence: "Depends on configured manifest source; none shipped by default",
             Cadence: $"Tick1h, {pkr.RefreshInterval} since last success (floor 1h)",
+            CadenceInterval: pkr.RefreshInterval,
             FailureMode: FetchFailureMode.FailOpen,
             OnDiskLocation: pkr.SnapshotFilePath ?? "in-memory only (no snapshot path configured)",
             LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
     }
 
     private static FetchSourceStatus FromDataSource(
-        IReadOnlyDictionary<string, DataSourceManifestEntry> manifest, string id, DataSourceConfig live, string onDisk, string cadence)
+        IReadOnlyDictionary<string, DataSourceManifestEntry> manifest, string id, DataSourceConfig live,
+        string onDisk, string cadence, TimeSpan cadenceInterval)
     {
         manifest.TryGetValue(id, out var entry);
         return new FetchSourceStatus(
             id, id, NullIfEmpty(live.Url), live.Enabled,
             Purpose: entry?.Purpose ?? live.Description,
             Licence: entry?.Licence ?? live.Licence,
-            Cadence: cadence, FailureMode: FetchFailureMode.FailOpen, OnDiskLocation: onDisk,
+            Cadence: cadence, CadenceInterval: cadenceInterval, FailureMode: FetchFailureMode.FailOpen, OnDiskLocation: onDisk,
             LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
     }
 
     private static FetchSourceStatus ThreatIntelSource(
-        string id, string displayName, DataSourceManifestEntry entry, string liveUrl, bool liveEnabled, string cadence)
-        => new(id, displayName, NullIfEmpty(liveUrl), liveEnabled, entry.Purpose, entry.Licence, cadence,
+        string id, string displayName, DataSourceManifestEntry entry, string liveUrl, bool liveEnabled,
+        string cadence, TimeSpan cadenceInterval)
+        => new(id, displayName, NullIfEmpty(liveUrl), liveEnabled, entry.Purpose, entry.Licence, cadence, cadenceInterval,
             FetchFailureMode.FailOpen, // steady-state is fail-open; BlockStartupOnFirstFetch adds a separate fail-closed bootstrap gate on top
             OnDiskLocation: "in-memory cache only (ThreatIntelCoordinator); no disk persistence",
             LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
-
-    private static string DailyTick(string detail) => $"BotListUpdateService, Tick1h subscription, {detail}";
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 }

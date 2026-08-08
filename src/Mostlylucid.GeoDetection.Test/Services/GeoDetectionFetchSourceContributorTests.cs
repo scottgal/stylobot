@@ -47,6 +47,36 @@ public sealed class GeoDetectionFetchSourceContributorTests
     }
 
     [Fact]
+    public void MaxMind_CadenceInterval_matches_the_real_7_day_staleness_gate_GeoLite2UpdateService_enforces()
+    {
+        // overview-'s exact scenario: succeeded once, then silently stopped ticking. Must read as
+        // Stale, not Healthy, once past the real gate GeoLite2UpdateService.CheckForUpdateAsync
+        // uses (file age > 7 days) - not some other number invented for the registry.
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddBotDetection(new Action<Mostlylucid.BotDetection.Models.BotDetectionOptions>(o => o.DatabasePath = ""));
+        services.AddGeoRouting(configureProvider: o =>
+        {
+            o.AccountId = 12345;
+            o.LicenseKey = "test-license-key";
+            o.EnableAutoUpdate = true;
+        });
+        services.AddGeoDetectionContributor();
+
+        var registry = services.BuildServiceProvider().GetRequiredService<IFetchSourceRegistry>();
+        var maxmind = Assert.Single(registry.GetAll(), s => s.Id == "GeoLite2MaxMind");
+
+        Assert.Equal(TimeSpan.FromDays(7), maxmind.CadenceInterval);
+
+        var now = DateTimeOffset.UtcNow;
+        var succeededLongAgo = maxmind with { LastSuccessUtc = now - TimeSpan.FromDays(90) };
+        Assert.Equal(FetchHealthState.Stale, succeededLongAgo.GetHealthState(now));
+
+        var succeededRecently = maxmind with { LastSuccessUtc = now - TimeSpan.FromDays(2) };
+        Assert.Equal(FetchHealthState.Healthy, succeededRecently.GetHealthState(now));
+    }
+
+    [Fact]
     public void Registry_does_not_throw_when_GeoDetectionContributor_is_wired_without_GeoRouting()
     {
         // Optional-DI fallback: AddGeoDetectionContributor without AddGeoRouting must not crash

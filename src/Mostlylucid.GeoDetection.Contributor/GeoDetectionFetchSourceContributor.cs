@@ -51,6 +51,12 @@ internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContribut
                      ".mmdb with zero alarm if never configured.",
             Licence: "MaxMind GeoLite2 EULA — free tier, redistribution restricted, see maxmind.com/en/geolite2/eula",
             Cadence: $"one-shot on startup (if missing) + Tick1h, {opts.UpdateCheckInterval} since last success (gate: file age > 7 days)",
+            // The real staleness gate GeoLite2UpdateService.CheckForUpdateAsync enforces is a
+            // hardcoded 7-day file-age check, NOT UpdateCheckInterval (which only controls how
+            // often that check itself runs) - CadenceInterval must match the gate that actually
+            // determines "due for refresh", or GetHealthState computes staleness against the
+            // wrong number.
+            CadenceInterval: TimeSpan.FromDays(7),
             FailureMode: FetchFailureMode.FailOpen,
             OnDiskLocation: opts.DatabasePath,
             LastSuccessUtc: _updateService?.LastSuccessfulFetchUtc,
@@ -65,6 +71,7 @@ internal sealed class GeoDetectionFetchSourceContributor : IFetchSourceContribut
                      "to MaxMind's own binary DB — only active when Provider=DataHubCsv.",
             Licence: "DataHub core dataset (datahub.io/core/geoip2-ipv4), no redistribution restriction stated",
             Cadence: "manual/CLI setup-resource trigger only (ISetupResource) — no scheduled auto-refresh; CheckAsync flags Stale past 7 days but nothing re-triggers a download automatically",
+            CadenceInterval: null, // no scheduled cadence to measure staleness against - HasLiveState is false anyway
             FailureMode: FetchFailureMode.FailClosed, // DownloadAsync has no try/catch - EnsureSuccessStatusCode throws to the caller
             OnDiskLocation: null, // computed per-instance from DatabasePath in GeoIpSetupResource; not exposed here to avoid duplicating that logic
             LastSuccessUtc: null, LastFailureUtc: null, HasLiveState: false);
