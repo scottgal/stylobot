@@ -1,0 +1,8 @@
+id: CloudflareIpv4
+url: "https://www.cloudflare.com/ips-v4"
+enabled: true
+format: text
+purpose: >-
+  Official Cloudflare IPv4 ranges. Identifies traffic proxied through Cloudflare
+  so origin-vs-proxy signals stay accurate.
+licence: "Public data, no redistribution restriction (Cloudflare-published reference doc)"

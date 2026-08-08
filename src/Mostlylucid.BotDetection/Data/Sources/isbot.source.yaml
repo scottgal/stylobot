@@ -1,0 +1,10 @@
+id: IsBot
+url: "https://raw.githubusercontent.com/omrilotan/isbot/main/src/patterns.json"
+enabled: true
+format: json
+purpose: >-
+  Most comprehensive bot-pattern source; aggregates crawler-user-agents, matomo,
+  myip.ms and manual curated additions. Primary UA regex source — most bot-signature
+  matches come from this feed. Without it, UA-pattern matching falls back to the
+  much smaller embedded BotSignatures constants.
+licence: "MIT (github.com/omrilotan/isbot)"

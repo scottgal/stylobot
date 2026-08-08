@@ -1,0 +1,6 @@
+id: CloudflareIpv6
+url: "https://www.cloudflare.com/ips-v6"
+enabled: true
+format: text
+purpose: "Official Cloudflare IPv6 ranges — IPv6 counterpart to CloudflareIpv4."
+licence: "Public data, no redistribution restriction (Cloudflare-published reference doc)"

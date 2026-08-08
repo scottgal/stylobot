@@ -1,0 +1,8 @@
+id: CoreRuleSetScanners
+url: "https://raw.githubusercontent.com/coreruleset/coreruleset/main/rules/scanners-user-agents.data"
+enabled: true
+format: text
+purpose: >-
+  OWASP CoreRuleSet scanner user-agent patterns (the same feed ModSecurity
+  deployments use). Feeds SecurityToolDetector alongside ScannerUserAgents.
+licence: "Apache-2.0 (github.com/coreruleset/coreruleset)"

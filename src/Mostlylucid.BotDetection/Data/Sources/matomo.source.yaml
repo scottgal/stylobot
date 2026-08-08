@@ -1,0 +1,9 @@
+id: Matomo
+url: "https://raw.githubusercontent.com/matomo-org/device-detector/master/regexes/bots.yml"
+enabled: false
+format: yaml
+purpose: >-
+  Categorized bot patterns with metadata (name, category, url). Disabled by default
+  because IsBot already incorporates these patterns; enable only if per-bot category
+  info is needed downstream.
+licence: "MIT (github.com/matomo-org/device-detector)"

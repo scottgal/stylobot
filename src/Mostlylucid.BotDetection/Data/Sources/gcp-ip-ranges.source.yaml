@@ -1,0 +1,8 @@
+id: GcpIpRanges
+url: "https://www.gstatic.com/ipranges/cloud.json"
+enabled: true
+format: json
+purpose: >-
+  Official Google Cloud IP ranges. Feeds datacenter/cloud-origin detection for
+  GCP-hosted traffic.
+licence: "Public data, no redistribution restriction (Google-published reference doc)"

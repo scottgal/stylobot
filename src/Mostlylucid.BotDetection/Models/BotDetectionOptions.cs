@@ -3179,173 +3179,57 @@ public class HeuristicOptions
 /// <summary>
 ///     Configuration for all external data sources used by bot detection.
 ///     Each source can be individually enabled/disabled with custom URLs.
+///     <para>
+///         Shipped defaults (URL, Enabled, Description, Licence) come from the YAML
+///         manifests in <c>Data/Sources/*.source.yaml</c> — see
+///         <see cref="Data.Sources.DataSourceManifestEntry"/> — applied by
+///         <see cref="Data.Sources.DataSourcesYamlDefaultsConfigurator"/> before
+///         <c>appsettings</c>/env binding runs. Do not hardcode a source's default
+///         URL here; add or edit the YAML manifest instead. Config binding still
+///         overrides any field per source at runtime (including disabling one),
+///         same as every other option in this file.
+///     </para>
 /// </summary>
 public class DataSourcesOptions
 {
-    // ==========================================
-    // Bot Pattern Sources (User-Agent matching)
-    // ==========================================
+    // Property order matches the YAML manifest ids in Data/Sources/*.source.yaml;
+    // DataSourcesYamlDefaultsConfigurator maps id -> property explicitly.
 
-    /// <summary>
-    ///     IsBot patterns - the most comprehensive bot pattern source.
-    ///     Aggregates patterns from: crawler-user-agents, matomo, myip.ms, and more.
-    ///     Enabled by default as the primary pattern source.
-    /// </summary>
-    public DataSourceConfig IsBot { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://raw.githubusercontent.com/omrilotan/isbot/main/src/patterns.json",
-        Description = "IsBot patterns from omrilotan/isbot - comprehensive bot regex patterns (JSON array)"
-    };
+    /// <summary>IsBot patterns (see Data/Sources/isbot.source.yaml for purpose/licence).</summary>
+    public DataSourceConfig IsBot { get; set; } = new();
 
-    /// <summary>
-    ///     Matomo Device Detector bot list.
-    ///     Provides categorized bot patterns with metadata (name, category, url).
-    ///     Disabled by default as isbot already incorporates these patterns.
-    ///     Enable if you need bot category information.
-    /// </summary>
-    public DataSourceConfig Matomo { get; set; } = new()
-    {
-        Enabled = false,
-        Url = "https://raw.githubusercontent.com/matomo-org/device-detector/master/regexes/bots.yml",
-        Description = "Matomo Device Detector - categorized bot patterns with metadata (YAML)"
-    };
+    /// <summary>Matomo Device Detector bot list (see Data/Sources/matomo.source.yaml).</summary>
+    public DataSourceConfig Matomo { get; set; } = new();
 
-    /// <summary>
-    ///     Crawler User Agents list.
-    ///     Community-maintained list with crawler URLs.
-    ///     Disabled by default as isbot already incorporates these patterns.
-    /// </summary>
-    public DataSourceConfig CrawlerUserAgents { get; set; } = new()
-    {
-        Enabled = false,
-        Url = "https://raw.githubusercontent.com/monperrus/crawler-user-agents/master/crawler-user-agents.json",
-        Description = "Crawler User Agents - community-maintained crawler patterns (JSON)"
-    };
+    /// <summary>Crawler User Agents list (see Data/Sources/crawler-user-agents.source.yaml).</summary>
+    public DataSourceConfig CrawlerUserAgents { get; set; } = new();
 
-    // ==========================================
-    // IP Range Sources (Datacenter detection)
-    // ==========================================
+    /// <summary>AWS IP ranges (see Data/Sources/aws-ip-ranges.source.yaml).</summary>
+    public DataSourceConfig AwsIpRanges { get; set; } = new();
 
-    /// <summary>
-    ///     AWS IP ranges - official Amazon IP ranges.
-    ///     Used to detect requests from AWS infrastructure.
-    /// </summary>
-    public DataSourceConfig AwsIpRanges { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://ip-ranges.amazonaws.com/ip-ranges.json",
-        Description = "AWS IP ranges - official Amazon cloud IP ranges (JSON)"
-    };
+    /// <summary>Google Cloud IP ranges (see Data/Sources/gcp-ip-ranges.source.yaml).</summary>
+    public DataSourceConfig GcpIpRanges { get; set; } = new();
 
-    /// <summary>
-    ///     Google Cloud IP ranges - official GCP IP ranges.
-    ///     Used to detect requests from Google Cloud infrastructure.
-    /// </summary>
-    public DataSourceConfig GcpIpRanges { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://www.gstatic.com/ipranges/cloud.json",
-        Description = "Google Cloud IP ranges - official GCP IP ranges (JSON)"
-    };
+    /// <summary>Azure IP ranges (see Data/Sources/azure-ip-ranges.source.yaml).</summary>
+    public DataSourceConfig AzureIpRanges { get; set; } = new();
 
-    /// <summary>
-    ///     Azure IP ranges - official Microsoft Azure IP ranges.
-    ///     Disabled by default as the download URL changes weekly.
-    ///     You must manually update the URL from:
-    ///     https://www.microsoft.com/en-us/download/details.aspx?id=56519
-    /// </summary>
-    public DataSourceConfig AzureIpRanges { get; set; } = new()
-    {
-        Enabled = false,
-        Url = "",
-        Description = "Azure IP ranges - URL changes weekly, requires manual update"
-    };
+    /// <summary>Cloudflare IPv4 ranges (see Data/Sources/cloudflare-ipv4.source.yaml).</summary>
+    public DataSourceConfig CloudflareIpv4 { get; set; } = new();
 
-    /// <summary>
-    ///     Cloudflare IPv4 ranges - official Cloudflare IP ranges.
-    ///     Can be used to identify traffic proxied through Cloudflare.
-    /// </summary>
-    public DataSourceConfig CloudflareIpv4 { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://www.cloudflare.com/ips-v4",
-        Description = "Cloudflare IPv4 ranges - official Cloudflare IPs (text, one CIDR per line)"
-    };
+    /// <summary>Cloudflare IPv6 ranges (see Data/Sources/cloudflare-ipv6.source.yaml).</summary>
+    public DataSourceConfig CloudflareIpv6 { get; set; } = new();
 
-    /// <summary>
-    ///     Cloudflare IPv6 ranges - official Cloudflare IP ranges.
-    /// </summary>
-    public DataSourceConfig CloudflareIpv6 { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://www.cloudflare.com/ips-v6",
-        Description = "Cloudflare IPv6 ranges - official Cloudflare IPs (text, one CIDR per line)"
-    };
+    /// <summary>Consumer VPN / datacenter ASN list (see Data/Sources/vpn-asns.source.yaml).</summary>
+    public DataSourceConfig VpnAsns { get; set; } = new();
 
-    // ==========================================
-    // VPN egress ASN source (anonymizer detection)
-    // ==========================================
+    /// <summary>Browser version data for age detection (see Data/Sources/browser-versions.source.yaml).</summary>
+    public DataSourceConfig BrowserVersions { get; set; } = new();
 
-    /// <summary>
-    ///     Consumer VPN / datacenter ASN list from tn3w/IPSet (free, auto-updated
-    ///     GitHub dataset: 1.7M+ IPs, VPN provider lists incl. ExpressVPN,
-    ///     Surfshark, ProtonVPN, PIA, CyberGhost, Mullvad + datacenter ASNs).
-    ///     JSON array of ASN numbers (no "AS" prefix). Feeds IpAtom's ip.is_vpn
-    ///     signal: an IP whose Team Cymru ASN is in this list is a likely VPN
-    ///     exit. The YAML vpn_egress_asns seeds in ip.detector.yaml remain as
-    ///     the offline fallback when this feed is unreachable.
-    /// </summary>
-    public DataSourceConfig VpnAsns { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://raw.githubusercontent.com/tn3w/IPSet/master/datacenter_asns.json",
-        Description = "tn3w/IPSet datacenter ASNs - consumer VPN + hosting ASN list (JSON array of ints)"
-    };
+    /// <summary>Security scanner user agents (see Data/Sources/scanner-user-agents.source.yaml).</summary>
+    public DataSourceConfig ScannerUserAgents { get; set; } = new();
 
-    // ==========================================
-    // Browser Version Sources (Age detection)
-    // ==========================================
-
-    /// <summary>
-    ///     Browser version data from useragents.me API.
-    ///     Provides latest versions of major browsers for age checking.
-    ///     Bots often use outdated browser versions - this helps detect them.
-    /// </summary>
-    public DataSourceConfig BrowserVersions { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://www.browsers.fyi/api",
-        Description = "Browser versions from browsers.fyi - current browser versions (JSON)"
-    };
-
-    // ==========================================
-    // Security Tool Pattern Sources
-    // ==========================================
-
-    /// <summary>
-    ///     Security scanner user agents from digininja/scanner_user_agents.
-    ///     Contains user agents for tools like Nikto, Nessus, SQLMap, WPScan, etc.
-    ///     Part of the security detection layer for API honeypot integration.
-    /// </summary>
-    public DataSourceConfig ScannerUserAgents { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://raw.githubusercontent.com/digininja/scanner_user_agents/main/list.json",
-        Description = "Security scanner user agents from digininja - JSON format with tool metadata"
-    };
-
-    /// <summary>
-    ///     OWASP CoreRuleSet scanner patterns.
-    ///     Community-maintained list of security tool patterns used by ModSecurity.
-    ///     Text format with one pattern per line.
-    /// </summary>
-    public DataSourceConfig CoreRuleSetScanners { get; set; } = new()
-    {
-        Enabled = true,
-        Url = "https://raw.githubusercontent.com/coreruleset/coreruleset/main/rules/scanners-user-agents.data",
-        Description = "OWASP CoreRuleSet scanner patterns - text format, one per line"
-    };
+    /// <summary>OWASP CoreRuleSet scanner patterns (see Data/Sources/coreruleset-scanners.source.yaml).</summary>
+    public DataSourceConfig CoreRuleSetScanners { get; set; } = new();
 }
 
 /// <summary>
@@ -3581,10 +3465,17 @@ public class DataSourceConfig
     public string Url { get; set; } = "";
 
     /// <summary>
-    ///     Human-readable description of this data source.
-    ///     For documentation purposes.
+    ///     Human-readable description of this data source: what detection
+    ///     capability degrades without it.
     /// </summary>
     public string Description { get; set; } = "";
+
+    /// <summary>
+    ///     Licence/attribution/redistribution terms for this source. Populated
+    ///     from the YAML manifest (<see cref="Data.Sources.DataSourceManifestEntry"/>);
+    ///     not currently appsettings-overridable since it isn't operator data.
+    /// </summary>
+    public string? Licence { get; set; }
 
     /// <summary>
     ///     Optional per-source update schedule.

@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data.Sources;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Modules;
@@ -29,6 +31,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<BotDetectionOptions>? configure = null)
     {
+        services.AddFetchSourceYamlDefaults();
         if (configure is not null)
             services.Configure(configure);
         return services.AddBotDetectionModule();
@@ -43,8 +46,24 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         string sectionName = "BotDetection")
     {
+        services.AddFetchSourceYamlDefaults();
         services.Configure<BotDetectionOptions>(configuration.GetSection(sectionName));
         return services.AddBotDetectionModule();
+    }
+
+    /// <summary>
+    ///     Registers the YAML-manifest-backed defaults for <see cref="DataSourcesOptions"/>.
+    ///     Must run BEFORE any <c>Configure&lt;BotDetectionOptions&gt;</c>/appsettings binding
+    ///     call so config overrides win per the standard IOptions precedence (see
+    ///     <see cref="DataSourcesYamlDefaultsConfigurator"/>). Idempotent — safe to call
+    ///     more than once per service collection.
+    /// </summary>
+    private static IServiceCollection AddFetchSourceYamlDefaults(this IServiceCollection services)
+    {
+        services.TryAddSingleton<DataSourceManifestLoader>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IConfigureOptions<BotDetectionOptions>, DataSourcesYamlDefaultsConfigurator>());
+        return services;
     }
 
     /// <summary>Compat alias: same shape as <see cref="AddBotDetection(IServiceCollection, Action{BotDetectionOptions}?)"/>.</summary>

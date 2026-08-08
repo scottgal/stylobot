@@ -1,0 +1,8 @@
+id: CrawlerUserAgents
+url: "https://raw.githubusercontent.com/monperrus/crawler-user-agents/master/crawler-user-agents.json"
+enabled: false
+format: json
+purpose: >-
+  Community-maintained crawler list with source URLs. Disabled by default because
+  IsBot already incorporates these patterns.
+licence: "MIT (github.com/monperrus/crawler-user-agents)"

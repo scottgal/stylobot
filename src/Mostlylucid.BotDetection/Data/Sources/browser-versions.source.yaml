@@ -1,0 +1,9 @@
+id: BrowserVersions
+url: "https://www.browsers.fyi/api"
+enabled: true
+format: json
+purpose: >-
+  Latest major-browser versions for age checking. Bots often report outdated
+  browser versions; without current version data, version-age detection falls
+  back to compiled-in defaults that go stale over time.
+licence: "Public API, no stated redistribution restriction (browsers.fyi)"

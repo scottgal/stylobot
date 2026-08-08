@@ -1,0 +1,10 @@
+id: VpnAsns
+url: "https://raw.githubusercontent.com/tn3w/IPSet/master/datacenter_asns.json"
+enabled: true
+format: json
+purpose: >-
+  Consumer VPN / datacenter ASN list (1.7M+ IPs; ExpressVPN, Surfshark, ProtonVPN,
+  PIA, CyberGhost, Mullvad + datacenter ASNs). Feeds IpAtom's ip.is_vpn signal. The
+  YAML vpn_egress_asns seeds in ip.detector.yaml remain the offline fallback when
+  this feed is unreachable.
+licence: "Free/open dataset (github.com/tn3w/IPSet) — see repo for terms"

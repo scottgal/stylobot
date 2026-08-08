@@ -1,0 +1,8 @@
+id: ScannerUserAgents
+url: "https://raw.githubusercontent.com/digininja/scanner_user_agents/main/list.json"
+enabled: true
+format: json
+purpose: >-
+  Security scanner user agents (Nikto, Nessus, SQLMap, WPScan, etc.) with tool
+  metadata. Feeds SecurityToolDetector for the API-honeypot security layer.
+licence: "See github.com/digininja/scanner_user_agents for terms"

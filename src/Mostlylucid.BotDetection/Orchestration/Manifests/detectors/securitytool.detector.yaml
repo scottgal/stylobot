@@ -134,15 +134,11 @@ defaults:
     can_escalate: false      # No need to escalate - definitive
 
   # SecurityTool-specific parameters
+  # Pattern sources: this detector consumes patterns from IBotListFetcher (ScannerUserAgents,
+  # CoreRuleSetScanners), configured in BotDetectionOptions.DataSourcesOptions — that is the single
+  # source of truth for the URLs. Do not duplicate them here; this block is not deserialized by
+  # DetectorManifest and a prior copy had drifted out of sync with the real config.
   parameters:
-    # Pattern sources
-    sources:
-      - name: "digininja/scanner_user_agents"
-        type: "json"
-        url: "https://raw.githubusercontent.com/digininja/scanner_user_agents/master/agents.json"
-      - name: "OWASP CoreRuleSet"
-        type: "text"
-        url: "https://raw.githubusercontent.com/coreruleset/coreruleset/main/rules/scanners-user-agents.data"
     # Regex match timeout (ms)
     regex_timeout_ms: 100
     # Tool categories and their weights

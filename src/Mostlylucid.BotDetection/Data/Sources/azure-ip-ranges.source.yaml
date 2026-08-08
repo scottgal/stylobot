@@ -1,0 +1,9 @@
+id: AzureIpRanges
+url: ""
+enabled: false
+format: json
+purpose: >-
+  Official Microsoft Azure IP ranges. Disabled by default — Microsoft rotates the
+  download URL weekly (see microsoft.com/en-us/download/details.aspx?id=56519), so
+  there is no stable default URL to ship; an operator must supply the current one.
+licence: "Public data, no redistribution restriction (Microsoft-published reference doc)"
