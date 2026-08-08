@@ -17,6 +17,10 @@ public sealed class SqliteDetectionFeedbackStore : IDetectionFeedbackStore
     private readonly string _connectionString;
     private readonly ILogger<SqliteDetectionFeedbackStore> _logger;
     private readonly SemaphoreSlim _initLock = new(1, 1);
+    // Single-writer discipline, matching the dashboard store: the flag insert
+    // serializes in-process so a burst of concurrent flags doesn't burn the
+    // busy-timeout window against itself.
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _initialized;
 
     public SqliteDetectionFeedbackStore(
@@ -72,30 +76,38 @@ public sealed class SqliteDetectionFeedbackStore : IDetectionFeedbackStore
         try
         {
             await EnsureInitializedAsync(ct);
-            await using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync(ct);
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO detection_feedback
-                    (primary_signature, entity_id, fingerprint_id,
-                     bot_probability, confidence, risk_band, bot_name, bot_type,
-                     country_code, user_agent, note)
-                VALUES
-                    (@sig, @entity, @fp, @prob, @conf, @risk, @name, @type, @country, @ua, @note)
-                """;
-            cmd.Parameters.AddWithValue("@sig",     (object?)feedback.PrimarySignature ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@entity",  (object?)feedback.EntityId         ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@fp",      (object?)feedback.FingerprintId    ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@prob",    (object?)feedback.BotProbability   ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@conf",    (object?)feedback.Confidence       ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@risk",    (object?)feedback.RiskBand         ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@name",    (object?)feedback.BotName          ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@type",    (object?)feedback.BotType          ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@country", (object?)feedback.CountryCode      ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@ua",      (object?)feedback.UserAgent        ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@note",    (object?)feedback.Note             ?? DBNull.Value);
-            await cmd.ExecuteNonQueryAsync(ct);
-            return true;
+            await _writeLock.WaitAsync(ct);
+            try
+            {
+                await using var conn = new SqliteConnection(_connectionString);
+                await conn.OpenAsync(ct);
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = """
+                    INSERT INTO detection_feedback
+                        (primary_signature, entity_id, fingerprint_id,
+                         bot_probability, confidence, risk_band, bot_name, bot_type,
+                         country_code, user_agent, note)
+                    VALUES
+                        (@sig, @entity, @fp, @prob, @conf, @risk, @name, @type, @country, @ua, @note)
+                    """;
+                cmd.Parameters.AddWithValue("@sig",     (object?)feedback.PrimarySignature ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@entity",  (object?)feedback.EntityId         ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@fp",      (object?)feedback.FingerprintId    ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@prob",    (object?)feedback.BotProbability   ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@conf",    (object?)feedback.Confidence       ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@risk",    (object?)feedback.RiskBand         ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@name",    (object?)feedback.BotName          ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@type",    (object?)feedback.BotType          ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@country", (object?)feedback.CountryCode      ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ua",      (object?)feedback.UserAgent        ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@note",    (object?)feedback.Note             ?? DBNull.Value);
+                await cmd.ExecuteNonQueryAsync(ct);
+                return true;
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
         }
         catch (Exception ex)
         {

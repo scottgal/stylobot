@@ -9,6 +9,11 @@ public sealed class SqliteMetricSnapshotStore : IMetricSnapshotStore
     private readonly SqliteConnection? _sharedConn;
     private readonly string? _connectionString;
     private readonly ILogger<SqliteMetricSnapshotStore> _logger;
+    // Single-writer discipline, matching SqliteDashboardEventStore /
+    // SqliteSignatureLabelStore: SQLite allows exactly one writer, so batch
+    // writes (and the retention prune) serialize in-process instead of
+    // burning the busy-timeout window against each other.
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
 
     public SqliteMetricSnapshotStore(SqliteConnection conn, ILogger<SqliteMetricSnapshotStore> logger)
     {
@@ -44,6 +49,19 @@ public sealed class SqliteMetricSnapshotStore : IMetricSnapshotStore
         var list = snapshots.ToList();
         if (list.Count == 0) return;
 
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await WriteSnapshotsCoreAsync(list, ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private async Task WriteSnapshotsCoreAsync(List<MetricSnapshot> list, CancellationToken ct)
+    {
         var conn = await GetConnectionAsync(ct);
         var shouldDispose = _sharedConn == null;
         try
@@ -147,19 +165,27 @@ public sealed class SqliteMetricSnapshotStore : IMetricSnapshotStore
 
     public async Task<int> PruneOldSnapshotsAsync(DateTime cutoff, CancellationToken ct = default)
     {
-        var conn = await GetConnectionAsync(ct);
-        var shouldDispose = _sharedConn == null;
+        await _writeLock.WaitAsync(ct);
         try
         {
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM metric_snapshots WHERE bucket_time < @cutoff";
-            cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
-            return await cmd.ExecuteNonQueryAsync(ct);
+            var conn = await GetConnectionAsync(ct);
+            var shouldDispose = _sharedConn == null;
+            try
+            {
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = "DELETE FROM metric_snapshots WHERE bucket_time < @cutoff";
+                cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
+                return await cmd.ExecuteNonQueryAsync(ct);
+            }
+            finally
+            {
+                if (shouldDispose)
+                    await conn.DisposeAsync();
+            }
         }
         finally
         {
-            if (shouldDispose)
-                await conn.DisposeAsync();
+            _writeLock.Release();
         }
     }
 
