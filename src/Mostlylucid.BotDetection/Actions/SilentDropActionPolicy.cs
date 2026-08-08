@@ -69,7 +69,7 @@ public class SilentDropActionPolicy : IActionPolicy
         CancellationToken cancellationToken = default)
     {
         _logger?.LogInformation(
-            "Silent-drop applied to {Path}: policy={Policy}, risk={Risk:F2}",
+            "Silent-drop applied to {Path}: policy={Policy}, bot_probability={BotProbability:F2}",
             context.Request.Path, Name, evidence.BotProbability);
 
         // HttpContext.Abort() signals the connection-lifetime feature so

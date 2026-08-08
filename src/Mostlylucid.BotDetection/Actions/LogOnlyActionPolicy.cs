@@ -169,7 +169,10 @@ public class LogOnlyActionPolicy : IActionPolicy
             {
                 case LogLevel.Trace:
                     _logger.LogTrace(
-                        "[SHADOW] {Action} request to {Path}: risk={Risk:F3}, confidence={Confidence:F3}, " +
+                        // bot_probability and riskBand are DIFFERENT axes. This line used to call
+                        // the probability "risk" while also printing "riskBand" beside it -- two
+                        // fields named risk, one a 0-1 score, one an enum. See PostDetectionActionGate.
+                        "[SHADOW] {Action} request to {Path}: bot_probability={BotProbability:F3}, confidence={Confidence:F3}, " +
                         "riskBand={RiskBand}, detectors=[{Detectors}], botName={BotName}, botType={BotType}, " +
                         "categories={Categories}, processingMs={ProcessingMs}, policy={Policy}",
                         action, context.Request.Path, evidence.BotProbability, evidence.Confidence,
@@ -181,7 +184,7 @@ public class LogOnlyActionPolicy : IActionPolicy
 
                 case LogLevel.Debug:
                     _logger.LogDebug(
-                        "[SHADOW] {Action} request to {Path}: risk={Risk:F3}, confidence={Confidence:F3}, " +
+                        "[SHADOW] {Action} request to {Path}: bot_probability={BotProbability:F3}, confidence={Confidence:F3}, " +
                         "riskBand={RiskBand}, detectors=[{Detectors}], botName={BotName}, policy={Policy}",
                         action, context.Request.Path, evidence.BotProbability, evidence.Confidence,
                         evidence.RiskBand, string.Join(",", evidence.ContributingDetectors),
@@ -190,7 +193,7 @@ public class LogOnlyActionPolicy : IActionPolicy
 
                 case LogLevel.Information:
                     _logger.LogInformation(
-                        "[SHADOW] {Action} request to {Path}: risk={Risk:F3}, riskBand={RiskBand}, " +
+                        "[SHADOW] {Action} request to {Path}: bot_probability={BotProbability:F3}, riskBand={RiskBand}, " +
                         "detectors=[{Detectors}], policy={Policy}",
                         action, context.Request.Path, evidence.BotProbability,
                         evidence.RiskBand, string.Join(",", evidence.ContributingDetectors), Name);
@@ -199,21 +202,21 @@ public class LogOnlyActionPolicy : IActionPolicy
                 case LogLevel.Warning:
                     if (wouldBlock)
                         _logger.LogWarning(
-                            "[SHADOW] {Action} request to {Path}: risk={Risk:F3}, riskBand={RiskBand}, policy={Policy}",
+                            "[SHADOW] {Action} request to {Path}: bot_probability={BotProbability:F3}, riskBand={RiskBand}, policy={Policy}",
                             action, context.Request.Path, evidence.BotProbability, evidence.RiskBand, Name);
                     break;
 
                 case LogLevel.Error:
                     if (evidence.BotProbability >= 0.9)
                         _logger.LogError(
-                            "[SHADOW] HIGH RISK request to {Path}: risk={Risk:F3}, policy={Policy}",
+                            "[SHADOW] HIGH RISK request to {Path}: bot_probability={BotProbability:F3}, policy={Policy}",
                             context.Request.Path, evidence.BotProbability, Name);
                     break;
             }
         else
             // Simple logging
             _logger.Log(_options.LogLevel,
-                "[SHADOW] {Action} {Method} {Path}: risk={Risk:F3}, band={RiskBand}",
+                "[SHADOW] {Action} {Method} {Path}: bot_probability={BotProbability:F3}, band={RiskBand}",
                 action, context.Request.Method, context.Request.Path,
                 evidence.BotProbability, evidence.RiskBand);
     }

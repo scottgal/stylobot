@@ -83,7 +83,7 @@ public sealed class ResponsePiiMaskGate
 
         _logger.LogWarning(
             "[ACTION] Auto-applied mask-pii for high-confidence malicious request on {Path} " +
-            "(risk={Risk:F2}, confidence={Confidence:F2})",
+            "(bot_probability={BotProbability:F2}, confidence={Confidence:F2})",
             context.Request.Path, evidence.BotProbability, evidence.Confidence);
     }
 

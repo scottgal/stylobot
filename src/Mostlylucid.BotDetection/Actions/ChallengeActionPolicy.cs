@@ -108,7 +108,7 @@ public class ChallengeActionPolicy : IActionPolicy
         }
 
         _logger?.LogInformation(
-            "Presenting challenge for {Path}: policy={Policy}, risk={Risk:F2}, type={ChallengeType}",
+            "Presenting challenge for {Path}: policy={Policy}, bot_probability={BotProbability:F2}, type={ChallengeType}",
             context.Request.Path, Name, evidence.BotProbability, _options.ChallengeType);
 
         // Use custom handler if provided
