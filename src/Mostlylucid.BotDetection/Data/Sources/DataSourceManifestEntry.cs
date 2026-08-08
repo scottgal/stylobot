@@ -17,6 +17,10 @@ public sealed partial class DataSourceManifestEntry
     public string Id { get; set; } = "";
 
     public string Url { get; set; } = "";
+
+    /// <summary>Optional second URL for a source that fetches two related feeds (e.g. Spamhaus DROP + EDROP). Null for single-URL sources.</summary>
+    public string? SecondaryUrl { get; set; }
+
     public bool Enabled { get; set; }
 
     /// <summary>Response format: json, yaml, or text. Documentation only — not consumed by the fetcher.</summary>

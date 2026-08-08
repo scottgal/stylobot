@@ -49,6 +49,7 @@ public sealed class DataSourcesYamlDefaultsConfigurator : IConfigureOptions<BotD
         Apply(sources.CoreRuleSetScanners, manifest, nameof(DataSourcesOptions.CoreRuleSetScanners), unmapped);
 
         ApplyWellKnownBots(options.WellKnownBots, manifest, unmapped);
+        ApplyThreatIntelProviders(options.ThreatIntel.Providers, manifest, unmapped);
 
         // A YAML file whose id doesn't match any known property is dead weight that will
         // never take effect - exactly the drift this exists to prevent.
@@ -85,6 +86,41 @@ public sealed class DataSourcesYamlDefaultsConfigurator : IConfigureOptions<BotD
         // so translate the manifest's enabled flag into that shape rather than adding a
         // second on/off knob with different semantics for the same source.
         target.Url = entry.Enabled ? entry.Url : "";
+    }
+
+    private static void ApplyThreatIntelProviders(
+        Mostlylucid.BotDetection.ThreatIntel.ThreatIntelProviderOptions target,
+        IReadOnlyDictionary<string, DataSourceManifestEntry> manifest,
+        List<string> unmapped)
+    {
+        if (manifest.TryGetValue("CisaKev", out var cisaKev))
+        {
+            unmapped.Remove("CisaKev");
+            target.CisaKev.Url = cisaKev.Url;
+            target.CisaKev.Enabled = cisaKev.Enabled;
+        }
+
+        if (manifest.TryGetValue("TorExit", out var torExit))
+        {
+            unmapped.Remove("TorExit");
+            target.TorExit.Url = torExit.Url;
+            target.TorExit.Enabled = torExit.Enabled;
+        }
+
+        if (manifest.TryGetValue("SpamhausDrop", out var spamhaus))
+        {
+            unmapped.Remove("SpamhausDrop");
+            target.SpamhausDrop.Url = spamhaus.Url;
+            target.SpamhausDrop.EdropUrl = spamhaus.SecondaryUrl ?? target.SpamhausDrop.EdropUrl;
+            target.SpamhausDrop.Enabled = spamhaus.Enabled;
+        }
+
+        if (manifest.TryGetValue("CloudRangesFastly", out var fastly))
+        {
+            unmapped.Remove("CloudRangesFastly");
+            target.CloudRanges.Fastly.Url = fastly.Url;
+            target.CloudRanges.Fastly.Enabled = fastly.Enabled;
+        }
     }
 }
 

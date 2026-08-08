@@ -1,0 +1,11 @@
+id: SpamhausDrop
+url: "https://www.spamhaus.org/drop/drop.txt"
+secondary_url: "https://www.spamhaus.org/drop/edrop.txt"
+enabled: false
+format: text
+purpose: >-
+  Spamhaus DROP + EDROP: netblocks hijacked or leased by professional spam/
+  cybercrime operations. secondary_url is EDROP (extended DROP); set empty to
+  skip it. Disabled by default (FOSS posture: everything under ThreatIntel is
+  opt-in).
+licence: "Spamhaus DROP/EDROP free for use, see spamhaus.org/drop for terms"

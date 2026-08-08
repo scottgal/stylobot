@@ -1,0 +1,10 @@
+id: CloudRangesFastly
+url: "https://api.fastly.com/public-ip-list"
+enabled: false
+format: json
+purpose: >-
+  Fastly's public IP list. The CloudRanges provider surfaces AWS/Azure/GCP/
+  Cloudflare too, but those come from BotListFetcher's own IP-range sources —
+  Fastly isn't covered there, so this provider fetches it directly. Disabled
+  by default (FOSS posture: everything under ThreatIntel is opt-in).
+licence: "Public data, no redistribution restriction (Fastly-published reference API)"

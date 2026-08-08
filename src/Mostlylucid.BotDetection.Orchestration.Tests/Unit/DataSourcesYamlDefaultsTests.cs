@@ -108,4 +108,33 @@ public class DataSourcesYamlDefaultsTests
 
         Assert.Equal("", disabledOptions.WellKnownBots.Url);
     }
+
+    [Fact]
+    public void ThreatIntel_providers_seed_from_yaml_including_secondary_url()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(BaseConfig()).Build();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddBotDetection(config);
+
+        var options = services.BuildServiceProvider().GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+        var providers = options.ThreatIntel.Providers;
+
+        // All four are FOSS-disabled-by-default (opt-in posture); the URLs must still
+        // seed from YAML so an operator flipping Enabled=true gets a working default.
+        Assert.False(providers.CisaKev.Enabled);
+        Assert.Equal(
+            "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+            providers.CisaKev.Url);
+
+        Assert.False(providers.TorExit.Enabled);
+        Assert.Equal("https://check.torproject.org/torbulkexitlist", providers.TorExit.Url);
+
+        Assert.False(providers.SpamhausDrop.Enabled);
+        Assert.Equal("https://www.spamhaus.org/drop/drop.txt", providers.SpamhausDrop.Url);
+        Assert.Equal("https://www.spamhaus.org/drop/edrop.txt", providers.SpamhausDrop.EdropUrl);
+
+        Assert.False(providers.CloudRanges.Fastly.Enabled);
+        Assert.Equal("https://api.fastly.com/public-ip-list", providers.CloudRanges.Fastly.Url);
+    }
 }

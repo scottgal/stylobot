@@ -1,0 +1,10 @@
+id: CisaKev
+url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+enabled: false
+format: json
+purpose: >-
+  CISA Known Exploited Vulnerabilities catalog. Flags requests exploiting CVEs
+  known to be actively used in the wild. Disabled by default (FOSS posture:
+  everything under ThreatIntel is opt-in) — without it, CVE-based threat
+  correlation doesn't run at all, not degraded, off.
+licence: "US government public data, no redistribution restriction"

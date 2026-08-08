@@ -1,0 +1,8 @@
+id: TorExit
+url: "https://check.torproject.org/torbulkexitlist"
+enabled: false
+format: text
+purpose: >-
+  Tor exit-node IP list. Flags traffic exiting the Tor network. Disabled by
+  default (FOSS posture: everything under ThreatIntel is opt-in).
+licence: "Tor Project public data, no redistribution restriction"
