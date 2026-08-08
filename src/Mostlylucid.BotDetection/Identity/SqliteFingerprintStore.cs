@@ -1791,6 +1791,7 @@ public class SqliteFingerprintStore : IFingerprintStore
                    cached_bot_type,
                    drift_magnitudes, drift_frequency, drift_reopened_until_utc
               FROM fingerprints
+             ORDER BY last_seen DESC
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
@@ -1798,10 +1799,12 @@ public class SqliteFingerprintStore : IFingerprintStore
         return results;
     }
 
-    // conn- 2026-08-08: ListFingerprintsAsync() above has no LIMIT (and no ORDER BY -- it relies
-    // on incidental rowid order, not the "most-recent first" the interface documents) -- fine for
-    // its intended internal-batch callers (brute-force anchor index rebuild, weight calibration),
-    // but it was also what GET /api/v1/fingerprints called on every request, materialising the
+    // conn- 2026-08-08: this method has no LIMIT -- fine for its intended internal-batch callers
+    // (brute-force anchor index rebuild, weight calibration), matches the Postgres commercial
+    // store's own unbounded method, which was already ORDER BY last_seen DESC (this one wasn't --
+    // fixed as a follow-up to make the interface's documented "most-recent first" contract true
+    // for both backends, not just the bounded overload; overview- caught the doc-drift). It was
+    // also what GET /api/v1/fingerprints called on every request, materialising the
     // whole table (every row carrying a full centroid vector + weights blob) per call. This is the
     // bound request-serving paths must use instead. limit is clamped server-side to
     // _engineOptions.MaxFingerprintsPerPage regardless of what the caller asks for.
