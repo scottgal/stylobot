@@ -1798,6 +1798,48 @@ public class SqliteFingerprintStore : IFingerprintStore
         return results;
     }
 
+    // conn- 2026-08-08: ListFingerprintsAsync() above has no LIMIT (and no ORDER BY -- it relies
+    // on incidental rowid order, not the "most-recent first" the interface documents) -- fine for
+    // its intended internal-batch callers (brute-force anchor index rebuild, weight calibration),
+    // but it was also what GET /api/v1/fingerprints called on every request, materialising the
+    // whole table (every row carrying a full centroid vector + weights blob) per call. This is the
+    // bound request-serving paths must use instead. limit is clamped server-side to
+    // _engineOptions.MaxFingerprintsPerPage regardless of what the caller asks for.
+    public async Task<IReadOnlyList<Fingerprint>> ListFingerprintsAsync(int offset, int limit, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        var clampedLimit = Math.Clamp(limit, 1, _engineOptions.MaxFingerprintsPerPage);
+        var clampedOffset = Math.Max(offset, 0);
+
+        var results = new List<Fingerprint>();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, centroid, centroid_maturity, weights, member_count,
+                   observation_count, correction_count, first_seen, last_seen, quality,
+                   archetype_origin, inferred_client_type, inferred_type_confidence,
+                   inferred_type_changed_at, cached_bot_probability,
+                   cached_score_updated_at, ambiguity_persistence,
+                   induced_name, induced_name_updated_at,
+                   llm_name, llm_evaluated_at, llm_description,
+                   given_name, given_name_updated_at, given_name_operator_id,
+                   root_centroid, root_centroid_at, root_source,
+                   claim_status, verification_method, verified_at, trust_observations,
+                   cached_bot_type,
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
+              FROM fingerprints
+             ORDER BY last_seen DESC
+             LIMIT $limit OFFSET $offset
+            """;
+        cmd.Parameters.AddWithValue("$limit", clampedLimit);
+        cmd.Parameters.AddWithValue("$offset", clampedOffset);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            results.Add(ReadFingerprint(reader));
+        return results;
+    }
+
     /// <summary>List unabsorbed observation vectors. Materialised; reader closes before return.</summary>
     public async Task<IReadOnlyList<(string FingerprintId, float[] Vector)>> ListActiveObservationsAsync(
         CancellationToken ct = default)

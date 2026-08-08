@@ -13,8 +13,41 @@ namespace Mostlylucid.BotDetection.Identity;
 /// </summary>
 public interface IFingerprintReader
 {
-    /// <summary>List all fingerprints (most-recent first). Used by the Identities tab.</summary>
+    /// <summary>
+    ///     List ALL fingerprints (most-recent first), unbounded. Reserved for internal batch
+    ///     work that genuinely needs the whole population in one pass (brute-force anchor
+    ///     index rebuild, weight calibration ticks) — <b>never call this from a request-serving
+    ///     path</b> (API endpoint, dashboard page render). Those must use
+    ///     <see cref="ListFingerprintsAsync(int,int,CancellationToken)"/> instead, which caps
+    ///     what a single call can return. conn- 2026-08-08: this method's lack of a bound was
+    ///     exactly what let <c>GET /api/v1/fingerprints</c> materialise an entire table (every
+    ///     row carrying a full centroid vector) on every call — see the bounded overload below.
+    /// </summary>
     Task<IReadOnlyList<Fingerprint>> ListFingerprintsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    ///     List fingerprints (most-recent first) bounded to a page — the version request-serving
+    ///     paths must use, never <see cref="ListFingerprintsAsync(CancellationToken)"/>.
+    ///     <paramref name="limit"/> is clamped to a sane maximum by the implementation
+    ///     regardless of what the caller requests, so a caller cannot get "everything" by
+    ///     passing a huge limit. Default implementation is a correctness-preserving fallback
+    ///     (fetches the unbounded list, then pages in memory) for implementers that have not
+    ///     been given a native paged query yet — <see cref="SqliteFingerprintStore"/> and the
+    ///     Postgres commercial store override this with real LIMIT/OFFSET SQL.
+    /// </summary>
+    async Task<IReadOnlyList<Fingerprint>> ListFingerprintsAsync(int offset, int limit, CancellationToken ct = default)
+    {
+        var clamped = Math.Clamp(limit, 1, DefaultMaxPageSize);
+        var all = await ListFingerprintsAsync(ct).ConfigureAwait(false);
+        return all.Skip(Math.Max(offset, 0)).Take(clamped).ToList();
+    }
+
+    /// <summary>
+    ///     Fallback page-size ceiling for <see cref="ListFingerprintsAsync(int,int,CancellationToken)"/>
+    ///     implementers that don't expose their own configurable cap. The two real stores
+    ///     (SQLite, Postgres) have their own Options-bound cap and don't use this constant.
+    /// </summary>
+    protected const int DefaultMaxPageSize = 200;
 
     /// <summary>Fetch a single fingerprint by id. Returns null when unknown.</summary>
     Task<Fingerprint?> GetFingerprintAsync(string fingerprintId, CancellationToken ct = default);

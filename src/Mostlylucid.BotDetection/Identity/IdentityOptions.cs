@@ -728,6 +728,16 @@ public sealed class IdentityEngineOptions
     public bool PreferSqliteVec { get; set; } = true;
 
     /// <summary>
+    /// Hard ceiling on <see cref="IFingerprintReader.ListFingerprintsAsync(int, int, System.Threading.CancellationToken)"/>'s
+    /// <c>limit</c> parameter -- enforced server-side (clamped, not trusted from the caller),
+    /// so a request-serving path (a paged REST endpoint, the dashboard Identities page)
+    /// cannot get "everything" by passing a huge limit. Kept low because each fingerprint row
+    /// carries a full centroid vector plus a weights blob, not a handful of scalar columns.
+    /// Default: 200 (conn- 2026-08-08, the ListFingerprintsAsync unbounded-scan finding).
+    /// </summary>
+    public int MaxFingerprintsPerPage { get; set; } = 200;
+
+    /// <summary>
     ///     Optional override for the sqlite-vec extension path. When null, the store calls
     ///     <c>conn.LoadExtension("vec0")</c> and SQLite resolves the binary from the OS
     ///     library search path (PATH on Windows, LD_LIBRARY_PATH on Linux, DYLD_LIBRARY_PATH
