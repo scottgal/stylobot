@@ -142,6 +142,30 @@ public sealed class TrafficController : Controller
         var countriesData = (IReadOnlyList<DashboardCountryStats>)(page.Geo ?? new List<DashboardCountryStats>());
         var endpointsData = (IReadOnlyList<DashboardEndpointStats>)(page.Endpoints ?? new List<DashboardEndpointStats>());
 
+        // P0 (operator 2026-08-08): endpoints MUST pre-render on the initial page load,
+        // exactly like every other widget. The middleware shell path seeds
+        // DashboardEndpointsFirstPaintContext; the MVC TrafficController path never did,
+        // so SbEndpointsList fell through to its parameter-driven store read on every
+        // load (the tag helper always forwards range=, which shadows the composed
+        // envelope) and a cold SWR placeholder rendered the warming shell. Seed the same
+        // reader here with the composed slice; when the envelope's endpoints slice is
+        // cold (the materializer does not cover endpoints), one authoritative direct
+        // read covers it so first paint carries real rows.
+        if (endpointsData.Count == 0)
+        {
+            try
+            {
+                endpointsData = await _eventStore.GetEndpointStatsAsync(
+                    count: 500, startTime: startTime, endTime: now, domains: domainsForQuery);
+            }
+            catch
+            {
+                // Defensive: a failed read degrades to the (possibly empty) composed slice.
+            }
+        }
+        DashboardEndpointsFirstPaintContext.Set(HttpContext,
+            new SsrEndpointsFirstPaintReader(endpointsData.ToList()));
+
         // Prior-window comparison for the counter deltas, routed through the content
         // cache (a prior-window envelope) so the tick materializer warms it too and this
         // render doesn't fan out — only summary + top-bots feed the deltas. Defensive: a
@@ -528,4 +552,17 @@ public sealed class TrafficController : Controller
                     HasPerf: hasPerf);
             })
             .ToList();
+
+    /// <summary>Bounded first-paint reader for the endpoints widget — serves the
+    ///     controller's already-composed slice so the VC never re-reads the store on
+    ///     the initial render (mirrors StyloBotDashboardMiddleware.SsrEndpointsFirstPaintReader).</summary>
+    private sealed class SsrEndpointsFirstPaintReader : Dashboard.IDashboardEndpointsFirstPaintReader
+    {
+        private readonly List<DashboardEndpointStats> _data;
+        public SsrEndpointsFirstPaintReader(List<DashboardEndpointStats> data) => _data = data;
+        public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
+            int count, DateTime? startTime, DateTime? endTime, string? audienceFilter,
+            IReadOnlyList<string>? domains, CancellationToken cancellationToken = default)
+            => Task.FromResult(_data);
+    }
 }
