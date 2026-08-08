@@ -79,4 +79,33 @@ public class DataSourcesYamlDefaultsTests
         Assert.True(options.DataSources.Matomo.Enabled);
         Assert.Equal("https://internal-mirror.example.com/bots.yml", options.DataSources.Matomo.Url);
     }
+
+    [Fact]
+    public void WellKnownBots_seeds_from_yaml_and_config_can_disable_via_empty_url()
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(BaseConfig()).Build();
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(config);
+        services.AddBotDetection(config);
+
+        var options = services.BuildServiceProvider().GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+
+        Assert.Equal(
+            "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json",
+            options.WellKnownBots.Url);
+
+        // WellKnownBotsOptions has no separate Enabled flag - "" is how this source is
+        // disabled (see WellKnownBotRefreshService.OnTickAsync), so config setting an
+        // empty Url must still be honored as a real override, not treated as "unset".
+        var disableValues = BaseConfig();
+        disableValues["BotDetection:WellKnownBots:Url"] = "";
+        var disableConfig = new ConfigurationBuilder().AddInMemoryCollection(disableValues).Build();
+        var disableServices = new ServiceCollection();
+        disableServices.AddSingleton<IConfiguration>(disableConfig);
+        disableServices.AddBotDetection(disableConfig);
+        var disabledOptions = disableServices.BuildServiceProvider()
+            .GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+
+        Assert.Equal("", disabledOptions.WellKnownBots.Url);
+    }
 }

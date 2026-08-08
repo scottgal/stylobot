@@ -1,0 +1,11 @@
+id: WellKnownBots
+url: "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json"
+enabled: true
+format: json
+purpose: >-
+  Structured catalog of known bot identities (name, category, operator, verification
+  method) used to name and classify detections beyond raw UA regex matching. Feeds
+  WellKnownBotIndex and seeds identity archetypes. Has an embedded baseline
+  (WellKnownBotBaseline) so classification still works cold-start or air-gapped —
+  losing this feed means the catalog goes stale, not empty.
+licence: "See github.com/arcjet/well-known-bots for terms"

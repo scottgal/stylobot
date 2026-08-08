@@ -4,14 +4,16 @@ using Mostlylucid.BotDetection.Models;
 namespace Mostlylucid.BotDetection.Data.Sources;
 
 /// <summary>
-///     Seeds <see cref="DataSourcesOptions"/> from the YAML manifests in
-///     <c>Data/Sources/*.source.yaml</c>. Registered as an <see cref="IConfigureOptions{TOptions}"/>
-///     for <see cref="BotDetectionOptions"/> that must run BEFORE the
-///     <c>appsettings</c>/env configuration-binding Configure call (see
-///     <c>ServiceCollectionExtensions.AddBotDetection</c>) — <see cref="ConfigurationBinder"/>
-///     only overwrites properties actually present in configuration, so running this
-///     first gives the standard precedence: YAML ships the default, config overrides it,
-///     including turning a source off entirely.
+///     Seeds every fetch source's defaults on <see cref="BotDetectionOptions"/> from the YAML
+///     manifests in <c>Data/Sources/*.source.yaml</c> — not just <see cref="DataSourcesOptions"/>;
+///     any nested Options type whose defaults should live in the fetch-source catalog (currently
+///     also <see cref="Definitions.WellKnownBots.WellKnownBotsOptions"/>) is handled here too, one
+///     explicit mapping per source. Registered as an <see cref="IConfigureOptions{TOptions}"/> for
+///     <see cref="BotDetectionOptions"/> that must run BEFORE the <c>appsettings</c>/env
+///     configuration-binding Configure call (see <c>ServiceCollectionExtensions.AddBotDetection</c>)
+///     — <see cref="ConfigurationBinder"/> only overwrites properties actually present in
+///     configuration, so running this first gives the standard precedence: YAML ships the default,
+///     config overrides it, including turning a source off entirely.
 ///     <para>
 ///         Explicit id-to-property mapping (no reflection) so a manifest with a typo'd
 ///         id fails loudly via <see cref="UnmappedManifestIdsException"/> instead of
@@ -46,8 +48,10 @@ public sealed class DataSourcesYamlDefaultsConfigurator : IConfigureOptions<BotD
         Apply(sources.ScannerUserAgents, manifest, nameof(DataSourcesOptions.ScannerUserAgents), unmapped);
         Apply(sources.CoreRuleSetScanners, manifest, nameof(DataSourcesOptions.CoreRuleSetScanners), unmapped);
 
-        // A YAML file whose id doesn't match any DataSourcesOptions property is dead
-        // weight that will never take effect - exactly the drift this exists to prevent.
+        ApplyWellKnownBots(options.WellKnownBots, manifest, unmapped);
+
+        // A YAML file whose id doesn't match any known property is dead weight that will
+        // never take effect - exactly the drift this exists to prevent.
         if (unmapped.Count > 0)
             throw new UnmappedManifestIdsException(unmapped);
     }
@@ -66,13 +70,29 @@ public sealed class DataSourcesYamlDefaultsConfigurator : IConfigureOptions<BotD
         target.Description = entry.Purpose;
         target.Licence = entry.Licence;
     }
+
+    private static void ApplyWellKnownBots(
+        Definitions.WellKnownBots.WellKnownBotsOptions target,
+        IReadOnlyDictionary<string, DataSourceManifestEntry> manifest,
+        List<string> unmapped)
+    {
+        const string id = nameof(BotDetectionOptions.WellKnownBots);
+        if (!manifest.TryGetValue(id, out var entry)) return;
+        unmapped.Remove(id);
+
+        // WellKnownBotsOptions has no separate Enabled flag -- its own documented
+        // convention is "empty Url = disabled" (see WellKnownBotRefreshService.OnTickAsync),
+        // so translate the manifest's enabled flag into that shape rather than adding a
+        // second on/off knob with different semantics for the same source.
+        target.Url = entry.Enabled ? entry.Url : "";
+    }
 }
 
-/// <summary>Thrown when a <c>*.source.yaml</c> manifest's id has no matching <see cref="DataSourcesOptions"/> property.</summary>
+/// <summary>Thrown when a <c>*.source.yaml</c> manifest's id has no matching Options property.</summary>
 public sealed class UnmappedManifestIdsException : Exception
 {
     public UnmappedManifestIdsException(IReadOnlyCollection<string> ids)
-        : base($"Fetch-source manifest id(s) not mapped to any DataSourcesOptions property: {string.Join(", ", ids)}")
+        : base($"Fetch-source manifest id(s) not mapped to any known Options property: {string.Join(", ", ids)}")
     {
     }
 }
