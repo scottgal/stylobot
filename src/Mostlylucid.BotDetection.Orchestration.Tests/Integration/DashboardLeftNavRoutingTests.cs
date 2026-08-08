@@ -33,6 +33,49 @@ public sealed class DashboardLeftNavRoutingTests
         _app = app;
     }
 
+    /// <summary>
+    ///     A BROWSER-SHAPED client. These tests previously used a bare
+    ///     <c>new HttpClient()</c> and asserted on its treatment, which tests the wrong thing:
+    ///     the dashboard sits BEHIND detection (<c>UseStyloBot()</c> registers
+    ///     <c>UseBotDetection()</c> before <c>StyloBotDashboardMiddleware</c>, which owns the
+    ///     legacy 301s), so a headerless client scores tool-shaped and is enforced with 403
+    ///     before the redirect ever runs. Every one of these tests failed on 403-instead-of-301.
+    ///
+    ///     <para>
+    ///         MEASURED 2026-08-08 against a live Demo app on <c>/stylobot/overview</c>:
+    ///         bare curl got 403, while <b>every</b> realistic browser shape got the expected
+    ///         301 — modern Chrome, Firefox 131 and Safari 17.6 (neither sends <c>sec-ch-ua</c>;
+    ///         it is Chromium-only), Chrome with <c>Sec-Fetch-*</c> stripped by a privacy
+    ///         extension, and Chrome behind a corporate proxy sending <c>Via</c>. So the 403 is
+    ///         confined to genuinely tool-shaped clients, and these tests should present as
+    ///         what a real user is.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         This is deliberately Firefox-shaped: it carries no <c>sec-ch-ua</c>, so the
+    ///         fixture cannot silently start depending on Chromium client hints being present.
+    ///     </para>
+    /// </summary>
+    private HttpClient BrowserClient(bool followRedirects = true)
+    {
+        var handler = new HttpClientHandler { AllowAutoRedirect = followRedirects };
+        var client = new HttpClient(handler) { BaseAddress = new Uri(_app.BaseUrl) };
+        var h = client.DefaultRequestHeaders;
+        h.TryAddWithoutValidation(
+            "User-Agent",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:131.0) Gecko/20100101 Firefox/131.0");
+        h.TryAddWithoutValidation(
+            "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        h.TryAddWithoutValidation("Accept-Language", "en-GB,en;q=0.5");
+        h.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate, br");
+        h.TryAddWithoutValidation("Sec-Fetch-Site", "none");
+        h.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate");
+        h.TryAddWithoutValidation("Sec-Fetch-User", "?1");
+        h.TryAddWithoutValidation("Sec-Fetch-Dest", "document");
+        h.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1");
+        return client;
+    }
+
     [Theory]
     [InlineData("/stylobot/traffic")]
     [InlineData("/stylobot/visitors")]
@@ -41,7 +84,7 @@ public sealed class DashboardLeftNavRoutingTests
     [InlineData("/stylobot/configuration")]
     public async Task Foss_row_returns_200_with_left_nav(string path)
     {
-        using var client = new HttpClient { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient();
         var res = await client.GetAsync(path);
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var html = await res.Content.ReadAsStringAsync();
@@ -59,8 +102,7 @@ public sealed class DashboardLeftNavRoutingTests
     [InlineData("/stylobot/?tab=configuration", "/stylobot/configuration")]
     public async Task Old_tab_querystring_301s_to_new_route(string from, string expectedTo)
     {
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false };
-        using var client = new HttpClient(handler) { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient(followRedirects: false);
         var res = await client.GetAsync(from);
         Assert.Equal(HttpStatusCode.MovedPermanently, res.StatusCode);
         Assert.Equal(expectedTo, res.Headers.Location!.ToString());
@@ -69,8 +111,7 @@ public sealed class DashboardLeftNavRoutingTests
     [Fact]
     public async Task Old_tab_querystring_preserves_other_query_params()
     {
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false };
-        using var client = new HttpClient(handler) { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient(followRedirects: false);
         var res = await client.GetAsync("/stylobot/?tab=traffic&fp=abc");
         Assert.Equal(HttpStatusCode.MovedPermanently, res.StatusCode);
         Assert.Equal("/stylobot/traffic?fp=abc", res.Headers.Location!.ToString());
@@ -84,8 +125,7 @@ public sealed class DashboardLeftNavRoutingTests
         // is the new aggregate. The redirect is a 302 (temporary) because the
         // landing target may flip again as packs add capabilities; the
         // *content* moves are still 301s (M2 below).
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false };
-        using var client = new HttpClient(handler) { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient(followRedirects: false);
         var res = await client.GetAsync("/stylobot/");
         Assert.True(
             res.StatusCode == HttpStatusCode.MovedPermanently ||
@@ -107,8 +147,7 @@ public sealed class DashboardLeftNavRoutingTests
         // Site. The seven deleted URLs (overview, activity, sessions, threats,
         // insights, investigate, endpoints) each 301 to their new home so
         // bookmarks, Slack pastes, and telemetry traces survive the rip.
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false };
-        using var client = new HttpClient(handler) { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient(followRedirects: false);
         var res = await client.GetAsync(from);
         Assert.Equal(HttpStatusCode.MovedPermanently, res.StatusCode);
         Assert.Equal(expectedTo, res.Headers.Location!.ToString());
@@ -120,8 +159,7 @@ public sealed class DashboardLeftNavRoutingTests
         // /threats is special-cased to land on Visitors pre-filtered to the
         // medium-and-up threat band — the V2 IA collapses the standalone
         // threats list into a Visitors filter pill (plan spec §9).
-        using var handler = new HttpClientHandler { AllowAutoRedirect = false };
-        using var client = new HttpClient(handler) { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient(followRedirects: false);
         var res = await client.GetAsync("/stylobot/threats");
         Assert.Equal(HttpStatusCode.MovedPermanently, res.StatusCode);
         // %2B is "+" URL-encoded; the redirect target spells out the threat
@@ -132,7 +170,7 @@ public sealed class DashboardLeftNavRoutingTests
     [Fact]
     public async Task Unknown_area_renders_unknown_section_panel()
     {
-        using var client = new HttpClient { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient();
         var res = await client.GetAsync("/stylobot/does-not-exist");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var html = await res.Content.ReadAsStringAsync();
@@ -142,7 +180,7 @@ public sealed class DashboardLeftNavRoutingTests
     [Fact]
     public async Task Legacy_countries_route_renders_for_back_compat()
     {
-        using var client = new HttpClient { BaseAddress = new Uri(_app.BaseUrl) };
+        using var client = BrowserClient();
         var res = await client.GetAsync("/stylobot/countries");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
     }
