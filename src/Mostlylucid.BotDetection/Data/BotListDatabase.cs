@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -351,7 +352,12 @@ public class BotListDatabase : IBotListDatabase, IDisposable
         if (result == null || result == DBNull.Value)
             return null;
 
-        return DateTime.Parse((string)result);
+        // Written via DateTime.UtcNow.ToString("O"), which round-trips with a "Z" suffix - a bare
+        // DateTime.Parse converts that to the MACHINE'S LOCAL time (Kind=Local) instead of leaving
+        // it as UTC, so every caller silently got a value off by the host's UTC offset. Explicit
+        // universal styles make the true meaning (always UTC) the actual Kind, everywhere.
+        return DateTime.Parse((string)result, CultureInfo.InvariantCulture,
+            DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal);
     }
 
     public async Task<IReadOnlyList<string>> GetBotPatternsAsync(CancellationToken cancellationToken = default)

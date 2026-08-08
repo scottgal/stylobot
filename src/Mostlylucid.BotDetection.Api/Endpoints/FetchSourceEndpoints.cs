@@ -60,12 +60,13 @@ public sealed record FetchSourceApiModel(
     DateTimeOffset? LastSuccessUtc,
     DateTimeOffset? LastFailureUtc,
     bool HasLiveState,
-    string HealthState)
+    string HealthState,
+    IReadOnlyList<string>? GroupedSourceIds)
 {
     public static FetchSourceApiModel From(FetchSourceStatus status, DateTimeOffset now)
         => new(
             status.Id, status.DisplayName, status.Url, status.Enabled, status.Purpose, status.Licence,
             status.Cadence, status.FailureMode.ToString(), status.OnDiskLocation,
             status.LastSuccessUtc, status.LastFailureUtc, status.HasLiveState,
-            status.GetHealthState(now).ToString());
+            status.GetHealthState(now).ToString(), status.GroupedSourceIds);
 }
