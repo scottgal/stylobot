@@ -46,21 +46,71 @@ public class ServiceCollectionExtensionsTests
     #region DatabasePath fail-loud contract
 
     /// <summary>
-    ///     Regression guard for the silent-in-memory drift: a null DatabasePath must
-    ///     FAIL LOUD (StyloBot persists to SQLite; a null path used to fall back
-    ///     silently to an unbounded in-memory DB that OOMs under load). Resolving the
-    ///     options must throw with actionable guidance, not quietly succeed.
+    ///     Regression guard for the silent-in-memory drift, restated at the level of the
+    ///     INTENT rather than the mechanism.
+    ///
+    ///     <para>
+    ///         The original outage: an unset DatabasePath fell back silently to
+    ///         <c>Data Source=file::memory:</c>, which grows unbounded and OOMs the process
+    ///         (found via soak+load). The first fix made "unset" throw. That was correct about
+    ///         the danger and wrong about the remedy: it also broke
+    ///         <c>AddBotDetection()</c> and <c>AddSimpleBotDetection()</c> with no
+    ///         configuration — the two minimal entry points CLAUDE.md documents — so the
+    ///         published getting-started path crashed at startup. Confirmed standalone
+    ///         2026-08-08 on a bare WebApplication.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         <b>What must remain true is not "unset throws" — it is "we never silently run
+    ///         on an unbounded in-memory database".</b> That is now guaranteed BY
+    ///         CONSTRUCTION: unset resolves to an on-disk file under
+    ///         <c>AppContext.BaseDirectory</c>. This test asserts the guarantee directly, so
+    ///         it still fails if anyone reintroduces an in-memory fallback — including via a
+    ///         "convenient" default — which a throw-on-unset assertion could not distinguish
+    ///         from a legitimate default.
+    ///     </para>
     /// </summary>
     [Fact]
-    public void AddBotDetection_NullDatabasePath_ThrowsWithGuidance()
+    public void AddBotDetection_UnconfiguredDatabasePath_DefaultsToDisk_NeverSilentInMemory()
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddMemoryCache();
-        // Deliberately NO DatabasePath key -> binds to null.
+        // Deliberately NO DatabasePath key -- the documented minimal setup.
         services.AddSingleton<IConfiguration>(
             new ConfigurationBuilder().AddInMemoryCollection().Build());
         services.AddBotDetection();
+
+        var provider = services.BuildServiceProvider();
+
+        // The minimal path must START, not crash. This is the shipped-defect half.
+        var options = provider.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+
+        // ...and it must land on a real file, never the unbounded in-memory DB.
+        Assert.False(string.IsNullOrEmpty(options.DatabasePath),
+            "unset DatabasePath must resolve to a concrete on-disk default; empty is the "
+            + "explicit AddBotDetectionInMemory() opt-in and must not happen implicitly");
+        Assert.DoesNotContain(":memory:", options.DatabasePath!, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith("botdetection.db", options.DatabasePath!, StringComparison.OrdinalIgnoreCase);
+        Assert.True(Path.IsPathRooted(options.DatabasePath),
+            $"default should be rooted so it does not depend on the working directory; got '{options.DatabasePath}'");
+    }
+
+    /// <summary>
+    ///     The fail-loud half of the contract survives: an EXPLICIT null is still a
+    ///     configuration error and still throws with actionable guidance. Only "the operator
+    ///     said nothing" is now serviced by a default; "the operator explicitly nulled it"
+    ///     remains loud.
+    /// </summary>
+    [Fact]
+    public void AddBotDetection_ExplicitNullDatabasePath_StillThrowsWithGuidance()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddMemoryCache();
+        services.AddSingleton<IConfiguration>(
+            new ConfigurationBuilder().AddInMemoryCollection().Build());
+        services.AddBotDetection(o => o.DatabasePath = null);
 
         var provider = services.BuildServiceProvider();
 

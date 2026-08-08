@@ -604,8 +604,29 @@ public class BotDetectionOptions
     ///     Only used when StorageProvider is Sqlite or Json.
     ///     Default for SQLite: {AppContext.BaseDirectory}/botdetection.db
     ///     Default for JSON: {AppContext.BaseDirectory}/botdetection.json
+    ///     <para>
+    ///     This default is REAL, not merely documented. The XML doc above promised it for a
+    ///     long time while the property was plain <c>null</c>, and the fail-fast validation in
+    ///     <c>BotDetectionModule</c> rejects null — so the documented minimal setups
+    ///     (<c>AddBotDetection()</c> and <c>AddSimpleBotDetection()</c> with no configuration,
+    ///     both advertised in CLAUDE.md as getting-started paths) threw
+    ///     <c>OptionsValidationException</c> at startup. Confirmed standalone 2026-08-08 on a
+    ///     bare WebApplication with no appsettings: both crashed. Doc and code now agree.
+    ///     </para>
+    ///     <para>
+    ///     Deliberately an ON-DISK default, NOT in-memory. The validation exists because an
+    ///     unset path used to fall back silently to <c>Data Source=file::memory:</c>, which
+    ///     grows unbounded and OOMs the process (found via soak+load). Defaulting to in-memory
+    ///     would reintroduce exactly that outage; a file keeps storage bounded and keeps the
+    ///     zero-dependency SQLite promise. The guard is not weakened, it is relocated: the
+    ///     silent in-memory fallback is now impossible BY CONSTRUCTION rather than by throwing.
+    ///     <c>AddBotDetectionInMemory()</c> remains the explicit ephemeral opt-in (it sets this
+    ///     to <see cref="string.Empty"/>, still allowed), and an explicit null is still rejected.
+    ///     See <c>ServiceCollectionExtensionsTests</c> "DatabasePath fail-loud contract".
+    ///     </para>
     /// </summary>
-    public string? DatabasePath { get; set; }
+    public string? DatabasePath { get; set; } =
+        System.IO.Path.Combine(AppContext.BaseDirectory, "botdetection.db");
 
     /// <summary>
     ///     Lifetime of a one-time fingerprint approval token before it expires.
