@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using Htmx;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Middleware;
 using System.Reflection;
@@ -165,16 +166,22 @@ public class StyloBotDashboardMiddleware
         !string.Equals(context.Request.Query["mode"].FirstOrDefault(), "foss", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    ///     True for any request that wants the active row's fragment back, not the
-    ///     full dashboard page: an explicit <c>?partial=1</c> (the SignalR-driven
-    ///     refresh convention predating htmx, e.g. Traffic's #sb-traffic-body) or a
-    ///     bare htmx <c>HX-Request</c> GET. ServeDashboardPageAsync is the single
-    ///     caller — the one place a dashboard row's HTML gets rendered, so this is
-    ///     the one place layout-suppression can be decided, structurally, instead of
-    ///     each row/endpoint deciding for itself and inevitably diverging.
+    ///     True for a genuine htmx AJAX request wanting the active row's fragment
+    ///     back, not the full dashboard page. Operator ruling 2026-08-09: detection
+    ///     must be <c>Htmx.NET</c>'s <see cref="HtmxRequestExtensions.IsHtmx"/>
+    ///     (the sanctioned library), never a hand-rolled header or query-string
+    ///     check — a direct navigation, bookmark, or F5 refresh must always get the
+    ///     full page back, even if its URL happens to carry <c>?partial=1</c> (the
+    ///     legacy SignalR-driven refresh convention's query param): only htmx's own
+    ///     AJAX requests set the <c>HX-Request</c> header, so keying on the query
+    ///     string alone -- the first version of this fix did -- would have served a
+    ///     bare fragment on refresh, a different bug in place of the one being
+    ///     fixed. ServeDashboardPageAsync is the single caller -- the one place a
+    ///     dashboard row's HTML gets rendered, so this is the one place
+    ///     layout-suppression can be decided, structurally, instead of each
+    ///     row/endpoint deciding for itself and inevitably diverging.
     /// </summary>
-    private static bool IsPartialSwapRequest(HttpContext context) =>
-        context.Request.Query["partial"] == "1" || context.Request.Headers.ContainsKey("HX-Request");
+    private static bool IsPartialSwapRequest(HttpContext context) => context.Request.IsHtmx();
 
     private readonly IWebHostEnvironment _env;
 
