@@ -1247,8 +1247,31 @@ public static class StyloBotDashboardServiceExtensions
     /// </example>
     public static IServiceCollection AddBotDetectionPersistence(this IServiceCollection services)
     {
-        // Shared options (Enabled=true but no UI path needed)
-        services.TryAddSingleton(new StyloBotDashboardOptions { Enabled = true });
+        // Shared options. This host maps the SignalR hub, so these options ARE the hub's
+        // authorization inputs -- they are not "no UI needed" bookkeeping.
+        //
+        // This used to be a bare `new StyloBotDashboardOptions { Enabled = true }`. On the
+        // gateway that meant RequireAuthentication=false, Auth.Mode=None,
+        // AuthorizationFilter=null, RequireAuthorizationPolicy=null,
+        // AllowUnauthenticatedAccess=false and IsDevelopment()=false under Staging -- so
+        // every auth branch fell through to DENY, deterministically, no matter what the
+        // website resolved for the page. The hub aborted every connection with "dashboard
+        // auth failed" and live updates were dead (2026-08-09).
+        //
+        // Resolved through DashboardAccessResolver, the SAME function the website host uses,
+        // rather than by copying its config block here: two hosts reading the same env var
+        // independently is the two-sources-of-truth trap that caused this. Registered as a
+        // FACTORY so IConfiguration / IHostEnvironment are resolved from DI at build time.
+        // Still TryAdd, so a host that configures its own options explicitly still wins.
+        services.TryAddSingleton(sp =>
+        {
+            var options = new StyloBotDashboardOptions { Enabled = true };
+            return DashboardAccessResolver.ApplyAccessPosture(
+                options,
+                sp.GetService<IConfiguration>(),
+                sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>()?.EnvironmentName
+                    .Equals("Development", StringComparison.OrdinalIgnoreCase) ?? false);
+        });
 
         // SignalR for broadcasting to connected dashboard clients
         services.AddSignalR();
