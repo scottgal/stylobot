@@ -231,78 +231,10 @@
             </script>
         }
 
-        @{
-            var registry = Context!.RequestServices
-                .GetRequiredService<Mostlylucid.BotDetection.UI.Dashboard.IDashboardRowRegistry>();
-            var match = registry.Resolve(rowRef.Area, rowRef.Sub);
-        }
-        @if (Model.SignatureDetailContent is not null)
-        {
-            @* Per-ID detail page (no static row registration) sharing this shell -- see
-               DashboardShellModel.SignatureDetailContent. Bypasses the registry dispatch below. *@
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", Model.SignatureDetailContent)
-        }
-        else if (Model.EndpointDetailContent is not null)
-        {
-            @* Per-(method,path) detail page sharing this shell -- see
-               DashboardShellModel.EndpointDetailContent. Bypasses the registry dispatch below. *@
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_EndpointDetail.cshtml", Model.EndpointDetailContent)
-        }
-        else if (match is null)
-        {
-            <div class="rounded-xl border p-6 text-sm text-base-content/60"
-                 style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                Unknown dashboard section. <a href="@bp/traffic" class="sb-link">Back to Traffic</a>.
-            </div>
-        }
-        else if (match.IsCommercialOnly && !Model.IsCommercial)
-        {
-            <div class="rounded-xl border p-6 text-sm text-base-content/60"
-                 style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                This section is part of the commercial dashboard.
-                <a href="https://stylo.bot/pricing" class="sb-link">View licensing</a>.
-            </div>
-        }
-        else if (match.ViewComponentName is not null)
-        {
-            @await Component.InvokeAsync(match.ViewComponentName)
-        }
-        else if (match.PartialPath is not null)
-        {
-            @* StatusStrip belongs on the configuration row only. *@
-            @if (rowRef.Area == "configuration" && Model.StatusStrip is not null)
-            {
-                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_StatusStrip.cshtml", Model.StatusStrip)
-            }
-            @* configuration partial needs the CspNonce on ViewBag (legacy contract). *@
-            @if (rowRef.Area == "configuration" && Model.Configuration is not null)
-            {
-                ViewBag.CspNonce = Model.CspNonce;
-                @await Html.PartialAsync(match.PartialPath, Model.Configuration)
-            }
-            else if (rowRef.Area == "configuration")
-            {
-                @* Configuration editor service isn't registered (trimmed / remote-viewer
-                   host). _ConfigurationEditor.cshtml is typed to ConfigurationEditorModel,
-                   so we must NOT fall through to the generic partial with the shell model. *@
-                <div class="rounded-xl border p-6 text-sm text-base-content/60"
-                     style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                    The configuration editor isn't available in this deployment.
-                </div>
-            }
-            else if (rowRef.Area == "compliance" && Model.Compliance is not null)
-            {
-                @await Html.PartialAsync(match.PartialPath, Model.Compliance)
-            }
-            else if (rowRef.Area == "clusters")
-            {
-                @await Html.PartialAsync(match.PartialPath, Model.Clusters)
-            }
-            else
-            {
-                @await Html.PartialAsync(match.PartialPath, Model)
-            }
-        }
+        @* Active-row dispatch content lives in its own partial (P0 fix 2026-08-09) so
+           an HTMX partial-swap request can render ONLY this block -- never the
+           drawer/left-nav chrome around it. See _DashboardRowContent.cshtml. *@
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_DashboardRowContent.cshtml", Model)
 
         </main>
     </div>

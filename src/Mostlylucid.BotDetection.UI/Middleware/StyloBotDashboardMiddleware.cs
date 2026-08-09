@@ -164,6 +164,18 @@ public class StyloBotDashboardMiddleware
         _options.EnableConfigEditing &&
         !string.Equals(context.Request.Query["mode"].FirstOrDefault(), "foss", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    ///     True for any request that wants the active row's fragment back, not the
+    ///     full dashboard page: an explicit <c>?partial=1</c> (the SignalR-driven
+    ///     refresh convention predating htmx, e.g. Traffic's #sb-traffic-body) or a
+    ///     bare htmx <c>HX-Request</c> GET. ServeDashboardPageAsync is the single
+    ///     caller — the one place a dashboard row's HTML gets rendered, so this is
+    ///     the one place layout-suppression can be decided, structurally, instead of
+    ///     each row/endpoint deciding for itself and inevitably diverging.
+    /// </summary>
+    private static bool IsPartialSwapRequest(HttpContext context) =>
+        context.Request.Query["partial"] == "1" || context.Request.Headers.ContainsKey("HX-Request");
+
     private readonly IWebHostEnvironment _env;
 
     public StyloBotDashboardMiddleware(
@@ -1854,6 +1866,23 @@ public class StyloBotDashboardMiddleware
             IsPrivilegedViewer = context.Items.TryGetValue(DashboardShellModel.PrivilegedViewerItemsKey, out var privilegedViewerFlag)
                 && privilegedViewerFlag is true
         };
+
+        // P0 fix 2026-08-09: an HTMX partial-swap request (either ?partial=1, the
+        // legacy SignalR-driven refresh convention, or a bare HX-Request GET) must
+        // get back ONLY the active row's content -- never the full page. Before this
+        // check, EVERY such request (e.g. Traffic's #sb-traffic-body listening for
+        // sb:summary-update) fell through to the same full-page render as a cold
+        // load, and the client swapped that whole document -- logo, top nav, left
+        // sidebar, everything -- into a content div, nesting a page inside a page.
+        // One mechanism, applied here before ANY row-specific branching, so a new
+        // row/pack cannot ship this bug by omission the way Traffic did.
+        if (IsPartialSwapRequest(context))
+        {
+            var fragmentHtml = await _razorViewRenderer.RenderViewToStringAsync(
+                "/Views/StyloBot/Dashboard/_DashboardRowContent.cshtml", model, context);
+            await context.Response.WriteAsync(fragmentHtml);
+            return;
+        }
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Index.cshtml", model, context, isMainPage: true);
