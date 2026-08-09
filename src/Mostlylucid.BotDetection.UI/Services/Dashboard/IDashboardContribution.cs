@@ -5,6 +5,14 @@ public enum DashboardContributionSlot
     TrafficCard,
     VisitorDetailSection,
     SiteEndpointDetailSection,
+    // Top of the dashboard shell's content column (inside drawer-content, above
+    // every tab's own content), for a scope-wide control that must be "in page"
+    // rather than a chrome band ignoring the left nav (operator 2026-08-09).
+    // FOSS has no shell-level contribution of its own for this slot today --
+    // it exists so the commercial site-wide domain/period selector bar can
+    // render there without Dashboard/Index.cshtml taking a hard dependency on
+    // a commercial-only ViewComponent (graceful absence on pure-FOSS hosts).
+    ShellTopBar,
 }
 
 /// <summary>

@@ -1,7 +1,9 @@
 @using Mostlylucid.BotDetection.Policies.Rules
 @using Mostlylucid.BotDetection.UI.Models
 @using Microsoft.Extensions.DependencyInjection
+@using Mostlylucid.BotDetection.UI.Services.Dashboard
 @model DashboardShellModel
+@inject DashboardContributionRegistry Contributions
 @{
     // No Layout = null. Host's _ViewStart picks the layout (the website's _Layout
     // for stylo.bot). The host owns the chrome: navbar, footer, vendor CSS/JS,
@@ -68,6 +70,17 @@
             <i class="bx bx-menu text-lg"></i>
         </label>
         <main class="max-w-7xl mx-auto px-2 py-4 w-full">
+
+        @* Shell-top-bar contribution slot (operator 2026-08-09): a scope-wide
+           control (commercial's site-level domain/period selector) that must
+           render IN PAGE -- inside drawer-content, respecting the left nav's
+           width -- not as a chrome band mounted outside the drawer entirely.
+           Graceful absence on pure-FOSS hosts: nothing registers here today,
+           so this renders nothing there. *@
+        @foreach (var c in Contributions.For(DashboardContributionSlot.ShellTopBar))
+        {
+            @await Component.InvokeAsync(c.ViewComponentName)
+        }
 
         @* M1 -- header type-ahead now lives in _StylobotNavbar (gated on
            dashboard path) so Traffic / Visitors / Site / endpoint detail all
