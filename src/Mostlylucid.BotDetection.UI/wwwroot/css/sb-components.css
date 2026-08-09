@@ -815,6 +815,41 @@
 .sb-widget > .card > .card-body,
 .sb-widget-grid > [class*="sb-w-"] > .card > .card-body { overflow: auto; min-height: 0; }
 
+/* ===========================================================================
+   sb-scroll-shell / sb-rows-scroll — ONE scrollbar per table widget (operator
+   2026-08-09: "Endpoints has TWO scrollbars! The rows should scroll not the
+   whole widget!"). Opt-in, additive: does NOT touch .card-body's own overflow
+   rule above, so widgets that don't use this are unaffected.
+
+   .card-body is already a real, bounded-height flex item (daisyUI's own
+   .card/.card-body are flex/flex:1) -- .sb-scroll-shell just continues that
+   chain as a flex column so a fixed header/chip block and ONE scrolling rows
+   region share the available space instead of both trying to own overflow.
+   Markup convention:
+     <div class="sb-scroll-shell">
+       <div>...heading, filter chips, pager (fixed, normal flow)...</div>
+       <div class="sb-rows-scroll">...table/list (only this scrolls)...</div>
+     </div>
+   =========================================================================== */
+.sb-scroll-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+.sb-scroll-shell > .sb-rows-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+.sb-scroll-shell > .sb-rows-scroll thead th {
+    position: sticky;
+    top: 0;
+    background: var(--sb-card-bg);
+    z-index: 1;
+}
+
 /* compact empty-state strip (replaces a full empty card) */
 .sb-widget-empty {
     display: flex; align-items: center; gap: .5rem; height: 100%;

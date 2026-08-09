@@ -81,7 +81,7 @@
      data-sb-widget="endpoints"
      data-sb-depends="endpoints"
      data-sb-params="page=@Model.Page&sort=@Model.SortField&dir=@Model.SortDir&pageSize=@Model.PageSize"
-     class="transition-colors duration-200">
+     class="transition-colors duration-200 sb-scroll-shell">
     <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-1">
             <h3 class="text-sm font-bold text-base-content">@Model.Heading</h3>
@@ -272,7 +272,7 @@
            are dropped, and `overflow-x-auto` is replaced with the tooltip-safe
            `.sb-table-scroll` wrapper so daisyUI cell tooltips can escape vertically. *@
         var compact = Model.IsCompact;
-        <div class="@(compact ? "sb-table-scroll" : "overflow-x-auto") rounded-xl border" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="@(compact ? "sb-table-scroll" : "overflow-x-auto") sb-rows-scroll rounded-xl border" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <table class="table table-xs w-full">
                 <thead>
                 @* Column order follows the operator's eye:
