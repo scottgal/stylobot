@@ -42,7 +42,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+      <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
       <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
       <!-- See the OpenApi ProjectReference note above: Api's public surface exposes
            Ephemeral.Atoms.Taxonomy types transitively; pin the direct ref so consumers

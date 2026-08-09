@@ -73,13 +73,22 @@
     <ItemGroup>
         <PackageReference Include="AngleSharp" Version="1.5.1" />
         <!-- LLM packages moved to Mostlylucid.BotDetection.Llm.Ollama / LlamaSharp projects -->
-        <PackageReference Include="MessagePack" Version="3.1.7" />
-        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
-        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
-        <PackageReference Include="System.IO.Hashing" Version="10.0.9" />
+        <!-- DO NOT REMOVE: this is a SECURITY PIN, not a used dependency. No source file
+             in this project references MessagePack, so every "unused package" tool and
+             audit will flag it. It is here to float the TRANSITIVE MessagePack that
+             Mostlylucid.BotDetection.StyloExtract pulls in (3.1.0) up to a safe version.
+             Removing it was tried on 2026-08-09 and immediately surfaced 12 advisories
+             against 3.1.0 in StyloExtract, 3 of them HIGH severity (GHSA-382j-8mxh-c7x2,
+             GHSA-hv8m-jj95-wg3x, GHSA-vh6j-jc39-fggf). Same role as the NuGet.CommandLine
+             pin below, which does carry a comment; this one did not, which is why it read
+             as dead weight. Bump it, never delete it. -->
+        <PackageReference Include="MessagePack" Version="3.1.8" />
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+        <PackageReference Include="System.IO.Hashing" Version="10.0.10" />
         <!-- StyloFlow: NuGet package references -->
-        <PackageReference Include="Mostlylucid.StyloFlow.Core" Version="2.8.1" />
-        <PackageReference Include="Mostlylucid.StyloFlow.Retrieval.Core" Version="2.8.1" />
+        <PackageReference Include="Mostlylucid.StyloFlow.Core" Version="2.8.2" />
+        <PackageReference Include="Mostlylucid.StyloFlow.Retrieval.Core" Version="2.8.2" />
         <!-- Ephemeral: Core signal/coordination infrastructure (NuGet packages) -->
         <PackageReference Include="Mostlylucid.Ephemeral" Version="2.10.0" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.10.0" />
@@ -95,7 +104,7 @@
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Molecules" Version="2.10.0" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Signalaware" Version="2.10.0" />
         <PackageReference Include="HNSW" Version="26.6.1848" />
-        <PackageReference Include="System.Numerics.Tensors" Version="10.0.9" />
+        <PackageReference Include="System.Numerics.Tensors" Version="10.0.10" />
         <!-- NSec.Cryptography: native Ed25519 / X25519 / ChaCha20-Poly1305 -->
         <PackageReference Include="NSec.Cryptography" Version="26.4.0" />
         <PackageReference Include="MathNet.Numerics" Version="5.0.0" />

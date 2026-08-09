@@ -26,12 +26,14 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Mostlylucid.Ephemeral" Version="2.10.0" />
+        <!-- Mostlylucid.Ephemeral removed 2026-08-09: no source file in this project
+             references it directly. Ephemeral.Logging below carries it transitively if
+             its own API needs it. -->
         <PackageReference Include="Mostlylucid.Ephemeral.Logging" Version="2.10.0" />
-        <PackageReference Include="Serilog" Version="4.3.1" />
-        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.16.0" />
-        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.16.0" />
-        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
+        <PackageReference Include="Serilog" Version="4.4.0" />
+        <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+        <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
         <PackageReference Include="MinVer" Version="7.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

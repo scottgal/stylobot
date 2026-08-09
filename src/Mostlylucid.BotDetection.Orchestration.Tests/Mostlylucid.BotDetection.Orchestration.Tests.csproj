@@ -10,7 +10,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
         <PackageReference Include="xunit" Version="2.9.3" />
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -21,25 +21,26 @@
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
 
-        <!-- Mocking -->
+        <!-- Mocking. NSubstitute removed 2026-08-09: no test in this project used it
+             (Moq is the mocking library here). Its removal also retires the pending
+             NSubstitute 5.x -> 6.x major upgrade for this project. -->
         <PackageReference Include="Moq" Version="4.20.72" />
-        <PackageReference Include="NSubstitute" Version="5.3.0" />
 
         <!-- Verify for snapshot testing -->
         <PackageReference Include="Verify.Xunit" Version="31.12.5" />
 
         <!-- ASP.NET Core test infrastructure (kept for non-Puppeteer integration tests) -->
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.9" />
-        <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.9" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.10" />
+        <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.10" />
 
         <!-- Extensions -->
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
-        <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.7.0" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
-        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.9" />
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
-        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.7.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.8.0" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.8.0" />
 
         <!-- Browser automation for integration testing.
              Playwright .NET (Microsoft.Playwright) replaces PuppeteerSharp.
@@ -47,7 +48,7 @@
              Firefox / WebKit in one harness, ships its own driver+browsers via the
              `playwright install` CLI run by the InstallChromiumIfNeeded helper in
              DemoAppFactory. -->
-        <PackageReference Include="Microsoft.Playwright" Version="1.60.0" />
+        <PackageReference Include="Microsoft.Playwright" Version="1.61.0" />
 
         <PackageReference Include="Xunit.Extensions.Logging" Version="1.1.0" />
     </ItemGroup>
