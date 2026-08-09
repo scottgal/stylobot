@@ -30,7 +30,14 @@ public sealed record TrafficPageModel(
     // prefix -- see DashboardLinkIntegrityTests. Defaults empty so existing
     // callers (TrafficController.Index, dead code on any real host) are
     // unaffected; the live path (_Traffic.cshtml) always passes Model.BasePath.
-    string BasePath = "");
+    string BasePath = "",
+    // Operator's own detection pill ("You: Human 1.4% VeryLow"), merged into
+    // _TrafficCounters.cshtml (operator 2026-08-09: "the visitors summary bar
+    // and your score should be on one [line]" -- previously its own full-width
+    // row in the shell above the tab content). Null default keeps every other
+    // caller (TrafficController.Index, dead code) unaffected; the live path
+    // (_Traffic.cshtml) always passes Model.YourDetection.
+    Mostlylucid.BotDetection.UI.Models.YourDetectionModel? YourDetection = null);
 
 /// <summary>
 ///     URL-bound filter set. Empty / null values mean "no filter on this axis".

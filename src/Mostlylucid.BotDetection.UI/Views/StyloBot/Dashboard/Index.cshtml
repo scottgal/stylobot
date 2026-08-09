@@ -91,7 +91,12 @@
            was REMOVED: it was a second, slightly-divergent source vs the per-tab
            counters (e.g. the Traffic visitors bar) and read as "wrong numbers".
            The per-tab widgets own their totals now (one source). What stays here is
-           the operator's own detection pill, which is genuinely global. *@
+           the operator's own detection pill, which is genuinely global -- EXCEPT on
+           the traffic row, where it's now merged into _TrafficCounters.cshtml's
+           VISITORS bar (operator 2026-08-09: "one bar, not two"), so this standalone
+           strip would just duplicate it one row up. *@
+        @if (rowRef.Area != "traffic")
+        {
         <div class="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-1.5 mb-3 rounded-lg border text-xs"
              style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             @* Your detection pill, right-aligned. Whole pill clicks through to the user's
@@ -126,6 +131,7 @@
                 <span class="ml-auto text-[10px] text-base-content/40">Detection pending…</span>
             }
         </div>
+        }
 
         @* B9a: the "N rules effective · last edit" status badge was removed —
            it burned prime top-of-dashboard space for a value the operator

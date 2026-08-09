@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @model TrafficCounters
 @{
@@ -11,6 +12,18 @@
         var mag = Math.Abs(pct) >= 1000d ? "new" : $"{Math.Abs(pct):F0}%";
         return $"{sign}{mag}";
     }
+
+    // Operator's own detection pill, merged in (operator 2026-08-09: "the visitors
+    // summary bar and your score should be on one line" -- was its own full-width
+    // shell row above the tab content). Passed via ViewData, not the model, since
+    // this partial's @model (TrafficCounters) is shared with the Visitors page,
+    // which has no equivalent pill. Null/absent = the caller didn't opt in
+    // (e.g. Visitors), same shape as the IsWarming ViewData convention used by
+    // the traffic-panel cards.
+    var yd = ViewData["YourDetection"] as YourDetectionModel;
+    var ydRiskClass = yd is { RiskBand: "VeryHigh" or "High" } ? "text-error"
+        : yd is { RiskBand: "Medium" or "Elevated" } ? "text-warning" : "text-success";
+    var ydProbPct = yd is not null ? (yd.BotProbability * 100).ToString("F1") : "";
 }
 @*
     Compact visitors bar. Replaces the old full-height VISITORS card — the split
@@ -46,5 +59,32 @@
                 <span class="bg-error" style="width:@((c.BotShare * 100).ToString("F1"))%"></span>
             </span>
         </span>
+
+        @if (yd is { HasData: true })
+        {
+            @* Whole pill clicks through to the operator's own signature page when linkable. *@
+            if (!string.IsNullOrEmpty(yd.Signature))
+            {
+                <a href="@yd.BasePath/signature/@Uri.EscapeDataString(yd.Signature)"
+                   class="flex items-center gap-1.5 hover:opacity-80 border-l border-base-300 pl-4"
+                   title="View your own detection detail">
+                    <span class="text-[10px] text-base-content/40 uppercase tracking-wider">You</span>
+                    @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
+                    else { <span class="badge badge-xs badge-success">Human</span> }
+                    <span class="text-[11px] font-bold @ydRiskClass">@ydProbPct%</span>
+                    <span class="text-[10px] text-base-content/50">@yd.RiskBand</span>
+                </a>
+            }
+            else
+            {
+                <span class="flex items-center gap-1.5 border-l border-base-300 pl-4">
+                    <span class="text-[10px] text-base-content/40 uppercase tracking-wider">You</span>
+                    @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
+                    else { <span class="badge badge-xs badge-success">Human</span> }
+                    <span class="text-[11px] font-bold @ydRiskClass">@ydProbPct%</span>
+                    <span class="text-[10px] text-base-content/50">@yd.RiskBand</span>
+                </span>
+            }
+        }
     </div>
 </div>

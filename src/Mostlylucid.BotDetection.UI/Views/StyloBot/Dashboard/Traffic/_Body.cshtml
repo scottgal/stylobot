@@ -133,6 +133,7 @@
        AND a bare chart at once. The warming state now lives ON each widget (warming-when),
        so the chart shows warming-OR-data, never both. See the sb-widget below. *@
 
+    @{ ViewData["YourDetection"] = Model.YourDetection; }
     @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
 
     @{
