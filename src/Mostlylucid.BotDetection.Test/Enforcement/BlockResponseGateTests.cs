@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Attributes;
@@ -37,6 +38,67 @@ public class BlockResponseGateTests
 
         Assert.True(block);
         Assert.Equal(BotBlockAction.StatusCode, action);
+    }
+
+    /// <summary>
+    ///     BotType.Internal is documented as an ABSOLUTE guarantee — InternalTrustOptions
+    ///     calls it "the LAN-traffic carve-out that routes a request to logonly instead of
+    ///     throttling/blocking it (admin curl, dashboard self-poll, sidecar loopback, the
+    ///     BDF runner)", and CLAUDE.md says Internal is "classified, listed, and filterable
+    ///     but never throttled".
+    ///
+    ///     <para>
+    ///         It was implemented in exactly ONE place: the
+    ///         <c>BotTypeActionPolicies["Internal"] = "logonly"</c> mapping consulted by
+    ///         PostDetectionActionGate. This gate — the one that actually returns 403 — had
+    ///         no knowledge of Internal at all, so ANY path returning NoOverride from that
+    ///         gate landed here and blocked on probability alone. An absolute guarantee with
+    ///         one enforcement point and a fall-through around it is not a guarantee; this
+    ///         pins it at the gate that does the blocking.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         Safe to trust: Internal is derived from the real TCP peer
+    ///         (<c>Connection.RemoteIpAddress</c> + InternalTrust config, see IpAtom), never
+    ///         from a forwarded header, precisely so it cannot be spoofed into a bypass.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public async Task Internal_traffic_is_never_blocked_even_at_certainty()
+    {
+        var evidence = new AggregatedEvidence
+        {
+            BotProbability = 1.0,          // maximally bot-like
+            Confidence = 1.0,
+            RiskBand = RiskBand.VeryHigh,
+            PrimaryBotType = BotType.Internal,
+        };
+
+        var outcome = await Gate().HandleAsync(new DefaultHttpContext(), evidence);
+
+        Assert.Equal(BlockResponseOutcome.Continue, outcome);
+    }
+
+    /// <summary>
+    ///     Parity guard: the carve-out must be keyed on Internal specifically, not a
+    ///     blanket softening of the gate. An identical non-Internal request at the same
+    ///     probability must still block — otherwise the test above would pass on a gate
+    ///     that had simply stopped blocking anything.
+    /// </summary>
+    [Fact]
+    public async Task Non_internal_traffic_at_the_same_probability_still_blocks()
+    {
+        var evidence = new AggregatedEvidence
+        {
+            BotProbability = 1.0,
+            Confidence = 1.0,
+            RiskBand = RiskBand.VeryHigh,
+            PrimaryBotType = BotType.Scraper,
+        };
+
+        var outcome = await Gate().HandleAsync(new DefaultHttpContext(), evidence);
+
+        Assert.Equal(BlockResponseOutcome.Blocked, outcome);
     }
 
     [Fact]

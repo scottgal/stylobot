@@ -156,6 +156,34 @@ public sealed class BlockResponseGate
         if (!block)
             return BlockResponseOutcome.Continue;
 
+        // INTERNAL CARVE-OUT, enforced here as well as in PostDetectionActionGate.
+        //
+        // BotType.Internal is documented as an absolute guarantee: InternalTrustOptions
+        // calls it "the LAN-traffic carve-out that routes a request to logonly instead of
+        // throttling/blocking it (admin curl, dashboard self-poll, sidecar loopback, the
+        // BDF runner)", and CLAUDE.md states Internal is "classified, listed, and
+        // filterable but never throttled".
+        //
+        // It was implemented in exactly ONE place -- the BotTypeActionPolicies["Internal"]
+        // = "logonly" mapping in PostDetectionActionGate -- and this gate had no knowledge
+        // of Internal at all. Any path that returns NoOverride from that gate (an
+        // unresolvable policy name, an early-exit branch, a future edit) lands here, and
+        // here the request is blocked on probability alone. An absolute guarantee with a
+        // single enforcement point and a fall-through around it is not a guarantee.
+        //
+        // Safe to trust: Internal is set from the real TCP peer
+        // (Connection.RemoteIpAddress + InternalTrust config, see IpAtom), never from
+        // X-Forwarded-For or any other header, precisely so it cannot be spoofed into an
+        // enforcement bypass.
+        if (evidence.PrimaryBotType == BotType.Internal)
+        {
+            _logger.LogDebug(
+                "[BLOCK] Suppressed for {Path}: BotType=Internal (peer-verified LAN traffic is never blocked). "
+                + "bot_probability={BotProbability:F2}",
+                context.Request.Path, evidence.BotProbability);
+            return BlockResponseOutcome.Continue;
+        }
+
         // Holodeck deflection: if the path was pre-tagged as a honeypot or
         // an attack signal fired, prefer routing through the "holodeck"
         // action policy (SimulationPack) before the hard block. Missing
