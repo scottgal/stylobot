@@ -37,6 +37,17 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Bounds parallel test execution to reduce CPU contention across the suite's many
+             real-wall-clock-timing tests (Task.Delay-based scheduling/adaptive-cost tests):
+             several were observed to flake under the default (ProcessorCount) parallelism
+             during a full-suite run, each passing reliably in isolation. Root cause is
+             contention, not a single bad test, so this is a systemic fix. -->
+        <None Update="xunit.runner.json">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
         <ProjectReference Include="..\Stylobot.Gateway\Stylobot.Gateway.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.ApiHolodeck\Mostlylucid.BotDetection.ApiHolodeck.csproj" />

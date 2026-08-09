@@ -72,11 +72,15 @@ public sealed class ScheduleCoordinatorTests
         var tickTask = coord.TickOnceAsync(TickCadence.Tick1s);
 
         // Both handlers must be inflight together before either is released.
-        await both.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        // 10s, not 2s: under a full parallel test-suite run (thread-pool contention across
+        // thousands of concurrent tests) the scheduler dispatching both handlers can take
+        // longer than 2s wall-clock even though the fan-out itself is correct -- this is a
+        // margin fix against contention, not a correctness change.
+        await both.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
         gate1.SetResult();
         gate2.SetResult();
-        await tickTask.WaitAsync(TimeSpan.FromSeconds(2));
+        await tickTask.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     // ---- Disposing the handle unsubscribes ----------------------------------

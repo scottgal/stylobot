@@ -22,9 +22,9 @@ public sealed class WriteBehindLfuSampleDrainTests
     {
         public readonly ConcurrentQueue<IReadOnlyList<KeyValuePair<string, Val>>> Flushes = new();
 
-        public Accumulator(int batchMaxSize = 50)
+        public Accumulator(int batchMaxSize = 50, TimeSpan? drainInterval = null)
             : base(maxEntries: 10_000, writeQueueCapacity: 10_000, batchMaxSize,
-                   drainInterval: TimeSpan.FromMilliseconds(25), NullLogger.Instance) { }
+                   drainInterval: drainInterval ?? TimeSpan.FromMilliseconds(25), NullLogger.Instance) { }
 
         protected override bool UseBehaviouralSampleDrain => true;
         protected override Val CreateInitial(string key, Val op) => op;
@@ -83,14 +83,19 @@ public sealed class WriteBehindLfuSampleDrainTests
     [Fact]
     public async Task HotKey_MutatedManyTimes_PersistsOnce_WithCurrentValue()
     {
-        using var store = new Accumulator();
+        // A real background timer (drainInterval) racing 500 synchronous Record calls is
+        // inherently flaky under CPU contention (e.g. the full suite running in parallel):
+        // if the 500 calls take longer than one interval, the drainer can fire mid-batch
+        // and persist key "A" twice, which is not what this test is asserting at all -- it
+        // is asserting COALESCING (many mutations -> one persisted value), not timing.
+        // Same fix FailingStore already uses: push the interval out of reach and drive
+        // exactly one drain deterministically via FlushDirtyAsync.
+        using var store = new Accumulator(drainInterval: TimeSpan.FromHours(1));
 
-        // 500 mutations to one key land (synchronously) inside one drain interval.
         for (var v = 1; v <= 500; v++) store.Record("A", new Val("A", v, Significance: 10));
         store.Record("B", new Val("B", 1, Significance: 5));
 
-        await WaitUntilAsync(() => store.AllPersisted().Count >= 2);
-        await Task.Delay(80); // give any extra cycles a chance to (wrongly) re-persist
+        await store.FlushDirtyAsync();
 
         var persisted = store.AllPersisted();
         persisted.Count(p => p.Key == "A").Should().Be(1,
