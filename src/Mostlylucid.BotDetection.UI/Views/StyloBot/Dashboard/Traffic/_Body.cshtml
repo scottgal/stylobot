@@ -164,10 +164,15 @@
                    empty-text="No data in this window">
             <vc:sb-chartlet model="hitsChart" />
         </sb-widget>
-        @* height=half, not tall: a 6-10 row bot list rarely fills the chart's "tall" tier,
-           leaving a void underneath (operator-reported). Dense grid flow backfills the gap
-           this leaves with the next widget instead of stretching Top Bots to match. *@
-        <sb-widget width="half" height="half">
+        @* height=tall (reverted from half, operator 2026-08-09): page-size is a fixed
+           6 rows, and 6 rows + header + pager does not fit inside the "half" tier
+           (~14.75rem) -- the card clipped to roughly one visible row with the rest
+           cut off behind a cramped scrollbar. "half" was chosen to avoid a void
+           underneath a SHORT bot list, but the void is the lesser problem: the
+           operator's bots must actually be visible without scrolling a mini box.
+           "tall" (~20.75rem) fits the fixed 6-row page size; dense grid flow still
+           backfills any leftover space with the next widget if this list is short. *@
+        <sb-widget width="half" height="tall">
             <sb-top-bots filter="bots" range="@Model.Filters.Window" page-size="6" widget-id="overview-topbots" />
         </sb-widget>
     </div>
