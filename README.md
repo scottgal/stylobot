@@ -20,7 +20,7 @@ This is the series of articles on my blog about StyloBot
 
 And NUMEROUS others in the coming weeks covering all of StyloBot's features at release. (These will also form the basis of a lucidSupport AI support system ;)) 
 
-**Bot detection that knows your site.** Cloud scoring services evaluate your traffic against generic baselines trained on other people's users. StyloBot learns what normal looks like on your specific application: the document-asset-API request sequence, the timing distribution of your real users, the session shape your checkout flow produces. Bots that adapt to evade a cloud service still diverge from those patterns.
+**Bot detection trained on your traffic, not everyone's.** Cloud scoring services fit one model across every customer they have, so "normal" is an average that describes no site precisely — including yours. StyloBot fits its baseline to your application alone: the document-asset-API request sequence, the timing distribution of your real users, the session shape your checkout flow produces. A baseline fitted to one site is tighter than one fitted to thousands, which is why it flags fewer of your real users and catches bots that have already learned to look average.
 
 Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone YARP gateway proxy, or sidecar detection API. 67 detectors, <150µs per request, no PII leaves your server.
 
@@ -33,13 +33,15 @@ Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone 
 
 ## Why StyloBot
 
-Cloud-based bot services work until your attacker adapts. When a sophisticated scraper learns to look like a user from your IP allow-list, a scoring API that doesn't know your application's normal behaviour has nothing to go on.
+A cloud bot service scores your traffic with a model trained on everyone's traffic. It has to be general — the same model serves a bank, a forum, a headless API and a Shopify store — so its idea of "normal" is an average that describes none of them precisely. Every judgement it makes about your users is made by something that has never seen your application.
+
+That generality costs you twice. It flags your legitimate oddities as suspicious because they deviate from a population you aren't part of, and it clears attackers who have learned to look like the average, because looking average is all they need to do. And when a scraper does adapt, a scoring API that doesn't know your application's normal behaviour has nothing left to go on.
 
 StyloBot runs in your own infrastructure. It knows what a real page-load sequence looks like on *your* site: document, then asset burst in 80-500ms, then API calls, then optionally SignalR. It knows the timing signatures of your real users' sessions compressed into 129-dimensional Markov chain vectors. It tracks identity across rotation attempts using cosine similarity walks across fingerprint neighbours. All of this runs in ~150µs per request on commodity hardware, with no network call to a third party and no PII leaving your server.
 
 ---
 
-## Zero-config by default. Nothing blocks until you say so.
+## It learns *your* traffic. That's why it's more accurate.
 
 ```bash
 stylobot 5080 http://localhost:3000
@@ -47,11 +49,19 @@ stylobot 5080 http://localhost:3000
 
 That's the whole setup. No YAML, no rules, no thresholds, no tuning.
 
-- **It learns your site**, not a generic cloud baseline — the document → asset → API sequence your app actually produces, and the timing your real users actually have.
+**The accuracy argument is the whole product.** A cloud bot service runs one model across every customer it has — a bank, a forum, a headless API, a Shopify store. That model has to be general enough to fit all of them, so "normal" is an average of everybody's traffic and nobody's in particular. Yours is a point in that cloud, not the centre of it.
+
+StyloBot fits a baseline to **one** site: yours. It learns the document → asset → API sequence *your* app actually emits, the timing distribution *your* real users actually have, the session shape *your* checkout flow produces. A distribution fitted to one population is tighter than one fitted to many — which cuts both ways at once:
+
+- **Fewer false positives**, because your unusual-but-normal traffic is *your* normal, not a deviation from someone else's average. The internal admin tool that hammers an endpoint every 30 seconds is a bot to a generic model and a known quantity to yours.
+- **Fewer misses**, because an attacker who has learned to look like generic human traffic still has to look like *your* users specifically — and they can't see what that means from outside.
+
+Two more things it does without being asked:
+
 - **It never blocks on its own.** The default mode runs every detector and fills the dashboard, but takes no action. Enforcement is opt-in, always, via `--mode production`. Nothing infers it for you — not a public tunnel, not a threshold, not traffic volume.
 - **It adapts to your deploys.** A release changes every asset hash and every page-load sequence at once, which is exactly what a bot wave looks like. `AssetHashMiddleware` and `EndpointDivergenceTracker` recognise the difference so a deploy doesn't read as an attack.
 
-The 67 detector atoms, Markov session vectors, Leiden clustering and HNSW neighbour walks are internal machinery. They are documented because the engine is open, not because you have to configure them.
+The 67 detector atoms, Markov session vectors, Leiden clustering and HNSW neighbour walks are the machinery that makes that fit possible. They are documented because the engine is open, not because you have to configure them.
 
 ### The whole configuration surface, in order of how likely you are to need it
 
