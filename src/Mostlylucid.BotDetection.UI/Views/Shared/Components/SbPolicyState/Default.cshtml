@@ -1,0 +1,50 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model IReadOnlyList<Mostlylucid.BotDetection.UI.Models.SbPolicyStateRowViewModel>
+@*
+    Per-policy live state card on the Policies tab. One row per registered action policy with the
+    params it contributed (content-cache policies show representation / match / cache mode / bounds /
+    hit-miss-bypass-eviction-override counters), plus configured-but-unregistered policies rendered
+    as NOT ENABLED — a configured policy is only enabled when its implementation is registered.
+*@
+@if (Model.Count > 0)
+{
+    <section class="sb-policy-state" data-policy-state aria-label="Action policy state">
+        <header class="sb-config-baseline-head">
+            <h3 class="sb-config-baseline-title">Action policy state</h3>
+            <p class="sb-config-baseline-hint">
+                Live per-policy state from the registry. A configured policy is only enabled when its
+                action implementation is registered and this row resolves to it.
+            </p>
+        </header>
+        <ul class="sb-config-baseline-rows">
+            @foreach (var row in Model)
+            {
+                <li class="sb-config-baseline-row @(row.IsEnabled ? "" : "is-unregistered")"
+                    data-policy-state-row="@row.Name">
+                    <span class="sb-config-baseline-target">@row.Name</span>
+                    <span class="verdict @(row.IsEnabled ? "verdict-success" : "verdict-warning")"
+                          role="note" title="@(row.EnabledReason ?? "implementation registered")">
+                        @(row.IsEnabled ? "ENABLED" : "NOT ENABLED")
+                    </span>
+                    @if (row.Params.TryGetValue("representation", out var representation))
+                    {
+                        <span class="badge source-pill" title="Response representation">@representation</span>
+                    }
+                    @if (row.Params.TryGetValue("match", out var match))
+                    {
+                        <span class="sb-config-baseline-desc" title="Effective match">@match</span>
+                    }
+                    @if (row.Params.Count > 0)
+                    {
+                        <span class="sb-policy-state-params" role="note">
+                            @foreach (var kv in row.Params)
+                            {
+                                <code class="sb-policy-state-param" title="@kv.Key">@kv.Key=@kv.Value</code>
+                            }
+                        </span>
+                    }
+                </li>
+            }
+        </ul>
+    </section>
+}

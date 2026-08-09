@@ -404,6 +404,11 @@ public static class StyloBotDashboardServiceExtensions
             // in both modes and reads the gateway's baseline when remote -- never a fabricated one.
             services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IConfigBaselineProvider>(
                 sp => sp.GetRequiredService<Mostlylucid.BotDetection.UI.Services.EffectivePolicyComposer>());
+            // Per-policy live state for the Policies tab (SbPolicyStateViewComponent). Same guard:
+            // only a host with a real registry gets a provider; a thin-client / remote-mode host has
+            // no registry and renders no policy-state card rather than a fabricated one.
+            services.TryAddSingleton<Mostlylucid.BotDetection.Actions.IPolicyStateProvider,
+                Mostlylucid.BotDetection.Actions.RegistryPolicyStateProvider>();
         }
         // Editor debounce timings carried to the JS via data-* attributes on
         // the edit-row article. Defaults match the historical FOSS literals

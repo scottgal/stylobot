@@ -44,11 +44,17 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<CacheKeyBuilder>();
         services.TryAddSingleton<CacheabilityEvaluator>();
         services.TryAddSingleton<IContentCacheTelemetry, ContentCacheTelemetry>();
-        services.TryAddSingleton<MarkdownResponseCache>(sp =>
-        {
-            var factory = sp.GetRequiredService<IOptionsFactory<StyloExtractActionOptions>>();
-            return new MarkdownResponseCache(factory.Create("content-cache-search").TransformedContentCache);
-        });
+        // ONE bounded LFU store PER policy, each with its own configured bounds (entry capacity,
+        // byte bounds, idle + absolute expiry, enablement). The two policies never shared the store
+        // in a spec-faithful way: a shared store made extract-markdown-cache-ai's configured
+        // TransformedContentCache section dead config. Keys carry policy variant + representation,
+        // so the per-policy stores can never cross-serve each other's payloads either way.
+        services.AddKeyedSingleton<MarkdownResponseCache>("content-cache-search", (sp, _) =>
+            new MarkdownResponseCache(sp.GetRequiredService<IOptionsFactory<StyloExtractActionOptions>>()
+                .Create("content-cache-search").TransformedContentCache));
+        services.AddKeyedSingleton<MarkdownResponseCache>("extract-markdown-cache-ai", (sp, _) =>
+            new MarkdownResponseCache(sp.GetRequiredService<IOptionsFactory<StyloExtractActionOptions>>()
+                .Create("extract-markdown-cache-ai").TransformedContentCache));
 
         // Register named options for each policy AND bind them to configuration sections.
         // Without BindConfiguration the per-policy Profile / Cache / Sidecar fields would

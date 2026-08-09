@@ -10,7 +10,8 @@ public sealed record ContentCachePolicyCounters(
     long Hits,
     long Misses,
     long Bypasses,
-    long Evictions);
+    long Evictions,
+    long Overrides);
 
 /// <summary>
 ///     Content-cache observability: per-policy hit / miss / bypass / eviction counters.
@@ -32,6 +33,13 @@ public interface IContentCacheTelemetry
     /// <summary>A claimed fill never produced a servable entry (abandoned fill, transform failure, oversize discard).</summary>
     void Eviction(string policy);
 
+    /// <summary>
+    ///     An explicit <c>?markdown=true</c> test-action request entered the cache path. Counted
+    ///     separately so test traffic is never blended with real AI-scraper traffic in the
+    ///     per-policy counters.
+    /// </summary>
+    void Override(string policy);
+
     /// <summary>Lock-free per-policy snapshot for the dashboard.</summary>
     IReadOnlyList<ContentCachePolicyCounters> Snapshot();
 }
@@ -44,6 +52,7 @@ public sealed class ContentCacheTelemetry : IContentCacheTelemetry, IDisposable
     private readonly Counter<long> _misses;
     private readonly Counter<long> _bypasses;
     private readonly Counter<long> _evictions;
+    private readonly Counter<long> _overrides;
     private readonly ConcurrentDictionary<string, PolicyCounter> _counters = new(StringComparer.Ordinal);
 
     public ContentCacheTelemetry()
@@ -53,12 +62,14 @@ public sealed class ContentCacheTelemetry : IContentCacheTelemetry, IDisposable
         _misses = _meter.CreateCounter<long>("content_cache.misses", "requests", "Cache misses per policy");
         _bypasses = _meter.CreateCounter<long>("content_cache.bypasses", "requests", "Not-cacheable traffic per policy");
         _evictions = _meter.CreateCounter<long>("content_cache.evictions", "entries", "Cache-slot releases without a served entry per policy");
+        _overrides = _meter.CreateCounter<long>("content_cache.overrides", "requests", "Explicit ?markdown=true test-action requests per policy");
     }
 
     public void Hit(string policy) { Increment(policy, static c => Interlocked.Increment(ref c.Hits)); _hits.Add(1, Tag(policy)); }
     public void Miss(string policy) { Increment(policy, static c => Interlocked.Increment(ref c.Misses)); _misses.Add(1, Tag(policy)); }
     public void Bypass(string policy) { Increment(policy, static c => Interlocked.Increment(ref c.Bypasses)); _bypasses.Add(1, Tag(policy)); }
     public void Eviction(string policy) { Increment(policy, static c => Interlocked.Increment(ref c.Evictions)); _evictions.Add(1, Tag(policy)); }
+    public void Override(string policy) { Increment(policy, static c => Interlocked.Increment(ref c.Overrides)); _overrides.Add(1, Tag(policy)); }
 
     // Compatibility aliases used by the legacy content-cache / extract-markdown policy classes
     // (kept compiling until their references are migrated to the two visible policies).
@@ -73,7 +84,8 @@ public sealed class ContentCacheTelemetry : IContentCacheTelemetry, IDisposable
                 Volatile.Read(ref pair.Value.Hits),
                 Volatile.Read(ref pair.Value.Misses),
                 Volatile.Read(ref pair.Value.Bypasses),
-                Volatile.Read(ref pair.Value.Evictions)))
+                Volatile.Read(ref pair.Value.Evictions),
+                Volatile.Read(ref pair.Value.Overrides)))
             .ToList();
 
     public void Dispose() => _meter.Dispose();
@@ -90,5 +102,6 @@ public sealed class ContentCacheTelemetry : IContentCacheTelemetry, IDisposable
         public long Misses;
         public long Bypasses;
         public long Evictions;
+        public long Overrides;
     }
 }

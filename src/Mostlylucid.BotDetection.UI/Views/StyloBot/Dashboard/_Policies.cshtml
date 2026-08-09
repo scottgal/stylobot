@@ -120,6 +120,15 @@
     {
         @await Component.InvokeAsync("SbConfigBaseline")
     }
+    @* Per-policy live state card: registered action policies with their contributed params
+       (content-cache representation / match / cache mode / bounds / counters) plus configured
+       policies whose implementation is not registered, rendered NOT ENABLED. Gated on the same
+       optional-DI pattern as SbConfigBaseline: only hosts with a real registry (never a
+       thin-client / remote-mode host) get a provider. *@
+    @if (Context?.RequestServices?.GetService(typeof(Mostlylucid.BotDetection.Actions.IPolicyStateProvider)) is not null)
+    {
+        @await Component.InvokeAsync("SbPolicyState")
+    }
     @if (templateGroups.Count > 0)
     {
         <div class="sb-policy-stack-template-groups" data-policy-stack-template-groups>

@@ -9,6 +9,17 @@ namespace Mostlylucid.BotDetection.StyloExtract.Middleware;
 /// <summary>Explicit, opt-in Markdown test route for a public response representation.</summary>
 public sealed class MarkdownQueryOverrideMiddleware
 {
+    /// <summary>
+    ///     <see cref="HttpContext.Items"/> marker set when this middleware routes a request into the
+    ///     Markdown policy. <see cref="Actions.ExtractMarkdownCacheAiActionPolicy"/> reads it to honour
+    ///     the override regardless of bot-type classification, and
+    ///     <see cref="Actions.ContentCacheActionPolicyBase"/> counts the request as an override in
+    ///     telemetry so test traffic is separately labelled from real AI-scraper traffic.
+    /// </summary>
+    public const string MarkerKey = "StyloExtract.MarkdownOverride";
+
+    private const string PolicyName = "extract-markdown-cache-ai";
+
     private readonly RequestDelegate _next;
     public MarkdownQueryOverrideMiddleware(RequestDelegate next) => _next = next;
 
@@ -17,7 +28,9 @@ public sealed class MarkdownQueryOverrideMiddleware
         IActionPolicyRegistry actions,
         IOptionsFactory<StyloExtractActionOptions> optionsFactory)
     {
-        var options = optionsFactory.Create("extract-markdown");
+        // Named options for the Markdown policy; the defaults are the spec's ?markdown=true
+        // test action (QueryParamName="markdown", QueryParamValue="true").
+        var options = optionsFactory.Create(PolicyName);
         if (!options.EnableQueryOverride ||
             !HttpMethods.IsGet(context.Request.Method) ||
             !context.Request.Query.TryGetValue(options.QueryParamName, out var value) ||
@@ -27,14 +40,15 @@ public sealed class MarkdownQueryOverrideMiddleware
             return;
         }
 
-        var policy = actions.GetPolicy("extract-markdown");
+        var policy = actions.GetPolicy(PolicyName);
         if (policy is null)
         {
+            // Pack not registered — the override cannot be honoured; fail open to origin.
             await _next(context);
             return;
         }
 
-        context.Items["StyloExtract.MarkdownOverride"] = true;
+        context.Items[MarkerKey] = true;
         var result = await policy.ExecuteAsync(context, new AggregatedEvidence
         {
             BotProbability = 0,

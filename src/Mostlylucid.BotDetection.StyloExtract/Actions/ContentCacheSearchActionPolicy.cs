@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
@@ -26,7 +27,7 @@ public sealed class ContentCacheSearchActionPolicy : ContentCacheActionPolicyBas
         ILogger<ContentCacheSearchActionPolicy> logger,
         ResponseBodyCapture capture,
         CacheControlWriter cacheWriter,
-        MarkdownResponseCache cache,
+        [FromKeyedServices("content-cache-search")] MarkdownResponseCache cache,
         CacheKeyBuilder keyBuilder,
         CacheabilityEvaluator cacheability,
         IContentCacheTelemetry telemetry)

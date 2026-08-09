@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
@@ -33,7 +34,7 @@ public sealed class ExtractMarkdownCacheAiActionPolicy : ContentCacheActionPolic
         ILogger<ExtractMarkdownCacheAiActionPolicy> logger,
         ResponseBodyCapture capture,
         CacheControlWriter cacheWriter,
-        MarkdownResponseCache cache,
+        [FromKeyedServices("extract-markdown-cache-ai")] MarkdownResponseCache cache,
         CacheKeyBuilder keyBuilder,
         CacheabilityEvaluator cacheability,
         IContentCacheTelemetry telemetry)
@@ -56,8 +57,11 @@ public sealed class ExtractMarkdownCacheAiActionPolicy : ContentCacheActionPolic
     protected override string HitContentType => "text/markdown; charset=utf-8";
 
     /// <inheritdoc />
-    protected override bool IsEligible(AggregatedEvidence evidence)
-        => evidence.PrimaryBotType == BotType.AiBot;
+    protected override string MatchDescription => "verified AI-scraper traffic (BotType=AiBot), plus the explicit ?markdown=true test action";
+
+    /// <inheritdoc />
+    protected override bool IsEligible(AggregatedEvidence evidence, bool overrideRequest)
+        => overrideRequest || evidence.PrimaryBotType == BotType.AiBot;
 
     /// <inheritdoc />
     protected override async Task<ContentTransformResult> TransformAsync(

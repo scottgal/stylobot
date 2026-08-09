@@ -1075,3 +1075,31 @@
     outline: 2px solid color-mix(in srgb, var(--color-primary) 65%, transparent);
     outline-offset: 1px;
 }
+
+/* ------------------------------------------------------------------------
+   sb-policy-state: per-policy live-state card on the Policies tab.
+   Reuses the sb-config-baseline row chrome; only the param chips and the
+   unregistered dim state are new.
+------------------------------------------------------------------------ */
+.sb-policy-state { margin-block-start: 1rem; }
+.sb-policy-state .sb-config-baseline-row.is-unregistered { opacity: 0.6; }
+.sb-policy-state-params {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+    margin-inline-start: auto;
+    justify-content: flex-end;
+    max-width: 60%;
+}
+.sb-policy-state-param {
+    font-size: 0.6875rem;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    color: color-mix(in srgb, var(--color-base-content) 78%, transparent);
+    background: color-mix(in srgb, var(--color-base-content) 7%, transparent);
+    padding: 0.125rem 0.35rem;
+    border-radius: 0.25rem;
+    white-space: nowrap;
+}
+@media (max-width: 767px) {
+    .sb-policy-state-params { max-width: 100%; margin-inline-start: 0; justify-content: flex-start; }
+}

@@ -236,7 +236,7 @@ try
     //       promotion runs in the action policy pipeline, not inside the orchestrator)
     builder.Services.AddBotDetectionModule();
 
-    // StyloExtract action policies: registers extract-markdown / extract-headers /
+    // StyloExtract action policies: registers extract-markdown-cache-ai / extract-headers /
     // extract-sidecar / extract-passthrough into the IActionPolicyRegistry. The
     // BotDetection middleware (UseBotDetection below) dispatches them by name from
     // BotDetection:DetectionPolicies:Rules so AI scrapers visiting /docs paths can
@@ -384,7 +384,7 @@ try
 
     // DetectionPolicyMiddleware: dispatches IActionPolicy entries by name from
     // BotDetection:DetectionPolicies:Rules based on the detection verdict.
-    // Required for the extract-markdown / extract-headers / extract-sidecar
+    // Required for the extract-markdown-cache-ai / extract-headers / extract-sidecar
     // policies (and the existing block-hard rules) to actually fire — without
     // this hook the rules are evaluated by no one. Must run AFTER UseBotDetection
     // so AggregatedEvidence is on HttpContext, and BEFORE MapReverseProxy so the

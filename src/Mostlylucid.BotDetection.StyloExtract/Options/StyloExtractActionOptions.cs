@@ -12,11 +12,11 @@ namespace Mostlylucid.BotDetection.StyloExtract.Options;
 /// {
 ///   "StyloExtract": {
 ///     "Actions": {
-///       "extract-markdown": {
+///       "extract-markdown-cache-ai": {
 ///         "Profile": "RagFull",
 ///         "EnableQueryOverride": true,
-///         "QueryParamName": "format",
-///         "QueryParamValue": "markdown",
+///         "QueryParamName": "markdown",
+///         "QueryParamValue": "true",
 ///         "Cache": {
 ///           "Mode": "Override",
 ///           "MaxAge": 86400,
@@ -40,15 +40,16 @@ public sealed class StyloExtractActionOptions
     /// <summary>
     /// When true, any request with the configured query parameter returns the Markdown form
     /// regardless of whether StyloBot's bot-type matcher triggered. Useful for demos and
-    /// debugging. Default: true.
+    /// debugging. Default: true. The override is an explicit test action: it is separately
+    /// labelled in telemetry and uses the Markdown variant's cache keys only.
     /// </summary>
     public bool EnableQueryOverride { get; set; } = true;
 
-    /// <summary>Name of the query parameter that triggers the query override. Default: "format".</summary>
-    public string QueryParamName { get; set; } = "format";
+    /// <summary>Name of the query parameter that triggers the query override. Default: "markdown" (spec).</summary>
+    public string QueryParamName { get; set; } = "markdown";
 
-    /// <summary>Value of the query parameter that triggers the query override. Default: "markdown".</summary>
-    public string QueryParamValue { get; set; } = "markdown";
+    /// <summary>Value of the query parameter that triggers the query override. Default: "true" (spec).</summary>
+    public string QueryParamValue { get; set; } = "true";
 
     /// <summary>
     /// Cache-Control behaviour applied to the transformed response.

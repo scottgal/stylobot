@@ -413,14 +413,14 @@ The StyloBot integration ships as `Mostlylucid.BotDetection.StyloExtract`. Addin
           "Path": "/docs/*",
           "Types": ["AiBot"],
           "Confidence": ">= 0.85",
-          "Action": "extract-markdown"
+          "Action": "extract-markdown-cache-ai"
         }
       ]
     }
   },
   "StyloExtract": {
     "Actions": {
-      "extract-markdown": {
+      "extract-markdown-cache-ai": {
         "Profile": "RagFull",
         "Cache": {
           "Mode": "Override",

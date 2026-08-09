@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Test.Actions;
 
@@ -137,5 +138,82 @@ public class PolicyStateProviderTests
             Array.Empty<IActionPolicyFactory>(),
             policies);
         return registry;
+    }
+
+    // ---------------------------------------------------------------------
+    // IPolicyStateContributor seam (pack-owned policies contribute their
+    // effective runtime state without core referencing the pack).
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void ContributorParams_AreMergedIntoPolicyState()
+    {
+        var registry = BuildRegistryWith(new ContributingPolicy("contrib-a"));
+        var provider = new RegistryPolicyStateProvider(registry);
+
+        var state = provider.Get("contrib-a");
+
+        Assert.NotNull(state);
+        Assert.Equal("html", state!.EffectiveParams["representation"]);
+        Assert.Equal(128, state.EffectiveParams["maxEntries"]);
+        Assert.Equal(7L, state.EffectiveParams["hits"]);
+        // The base actionType entry survives the merge.
+        Assert.Equal(ActionType.Custom.ToString(), state.EffectiveParams["actionType"]);
+    }
+
+    [Fact]
+    public void ContributorFiringStats_AreHonouredWhenNonNull()
+    {
+        var registry = BuildRegistryWith(new ContributingPolicy("contrib-b", stats: new PolicyFiringStats(12, 3, 1.0)));
+        var provider = new RegistryPolicyStateProvider(registry);
+
+        var state = provider.Get("contrib-b");
+
+        Assert.NotNull(state);
+        Assert.Equal(12, state!.Stats.Hits5m);
+        Assert.Equal(3, state.Stats.DistinctSignatures5m);
+    }
+
+    [Fact]
+    public void Contributor_WithoutStats_KeepsEmptyStats()
+    {
+        var registry = BuildRegistryWith(new ContributingPolicy("contrib-c"));
+        var provider = new RegistryPolicyStateProvider(registry);
+
+        var state = provider.Get("contrib-c");
+
+        Assert.NotNull(state);
+        Assert.Equal(0, state!.Stats.Hits5m);
+    }
+
+    /// <summary>Test-only policy implementing the contributor seam, standing in for a pack policy.</summary>
+    private sealed class ContributingPolicy : IActionPolicy, IPolicyStateContributor
+    {
+        private readonly PolicyFiringStats? _stats;
+
+        public ContributingPolicy(string name, PolicyFiringStats? stats = null)
+        {
+            Name = name;
+            _stats = stats;
+        }
+
+        public string Name { get; }
+        public ActionType ActionType => ActionType.Custom;
+        public PolicyIntent Intent => PolicyIntent.Pass;
+
+        public Task<ActionResult> ExecuteAsync(
+            Microsoft.AspNetCore.Http.HttpContext context,
+            AggregatedEvidence evidence,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ActionResult.Allowed("contrib"));
+
+        public IReadOnlyDictionary<string, object> EffectiveParams => new Dictionary<string, object>
+        {
+            ["representation"] = "html",
+            ["maxEntries"] = 128,
+            ["hits"] = 7L,
+        };
+
+        public PolicyFiringStats? FiringStats => _stats;
     }
 }

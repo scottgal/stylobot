@@ -12,8 +12,8 @@ Container_Boundary(foss, "StyloBot FOSS") {
     }
 
     Container_Boundary(cache_plane, "Content-Cache Plane") {
-        Component(ccap, "ContentCacheActionPolicy", "IActionPolicy · name=content-cache", "Cache hit → Blocked(200); miss → interceptor → publish")
-        Component(emap, "ExtractMarkdownActionPolicy", "IActionPolicy · name=extract-markdown", "Miss → HTML→Markdown transform → publish; gate: AiBot only")
+        Component(ccap, "ContentCacheSearchActionPolicy", "IActionPolicy · name=content-cache-search", "Cache hit → Blocked(200); miss → interceptor → publish")
+        Component(emap, "ExtractMarkdownCacheAiActionPolicy", "IActionPolicy · name=extract-markdown-cache-ai", "Miss → HTML→Markdown transform → publish; gate: AiBot only (+ ?markdown=true test action)")
         Component(mrc, "MarkdownResponseCache", "Lease-based SlidingCacheAtom wrapper", "AcquireAsync / TryBeginFill / Publish / Discard · per-policy instance")
         Component(ckb, "CacheKeyBuilder", "Pure function", "host | method | normalised path | selected query | representation | variant | salt")
         Component(cev, "CacheabilityEvaluator", "Pure function", "Rejects: auth/session cookies, personalised, Set-Cookie, 206, >=400, streamed, no-store|private")
@@ -64,13 +64,13 @@ Rel(pev, dvdp, "evaluates policy")
 
 1. **Short-circuit after detection.** Cache hit returns `ActionResult.Blocked(200)` — YARP never contacts upstream, but detection still runs. Cache-hit must call `MarkResponseFromStyloBot()` so `DegradationAtom` doesn't record a synthetic upstream 200.
 
-2. **One cache plane, two policies.** `content-cache-search` (HTML) and `extract-markdown-cache-ai` (Markdown) share `SlidingCacheAtom`-backed `MarkdownResponseCache`, `CacheabilityEvaluator`, `CacheKeyBuilder`. Distinct `VersionSalt` keeps old entries inert on config change.
+2. **Same primitive, per-policy stores.** `content-cache-search` (HTML) and `extract-markdown-cache-ai` (Markdown) each own a `SlidingCacheAtom`-backed `MarkdownResponseCache` instance with its OWN configured bounds (entry capacity, byte caps, sliding idle + absolute expiry, enablement) — keyed DI, one store per policy name. They share `CacheabilityEvaluator`, `CacheKeyBuilder` and the `IContentCacheTelemetry` counters. A per-policy store means `extract-markdown-cache-ai`'s configured expiry/enablement is load-bearing, never dead config. Distinct `VersionSalt` keeps old entries inert on config change.
 
 3. **Cache key composition.** host | method | normalised path | selected query values (per-policy allow-list) | response representation | policy variant | salt. Never includes all query params — only configured safe variance.
 
 4. **Never-cache rules in `CacheabilityEvaluator`.** Auth/session cookies, personalised responses, Set-Cookie, 206 Partial, ≥400 status, streamed, `Cache-Control: no-store|private`. Fail-open to origin; bypass counted in telemetry.
 
-5. **Markdown gate.** Stored Markdown served only to AiBot traffic. Browser can never receive Markdown — representation + variant are key components so a browser-hit key won't match a Markdown entry. `?format=markdown` query override dropped from the cached path.
+5. **Markdown gate.** Stored Markdown served only to AiBot traffic. Browser can never receive Markdown — representation + variant are key components so a browser-hit key won't match a Markdown entry. The explicit `?markdown=true` test action (`MarkdownQueryOverrideMiddleware`) is honoured as the one exception: it is separately labelled in telemetry (`content_cache.overrides`) and uses the Markdown variant's cache keys only, so it can never serve a browser or search HTML entry.
 
 6. **Fail-open, bounded.** Slot `Filling`/`Ready` states; failed/oversized/cancelled fill → slot invalidated. Cache-full → LFU eviction (lowest access count, then oldest access). Cache failure → origin served, counted as bypass.
 
@@ -84,7 +84,7 @@ Rel(pev, dvdp, "evaluates policy")
 {
   "StyloExtract": {
     "Actions": {
-      "content-cache": {
+      "content-cache-search": {
         "TransformedContentCache": {
           "Enabled": true,
           "MaxEntries": 128,
@@ -92,19 +92,21 @@ Rel(pev, dvdp, "evaluates policy")
           "MaxTotalBytes": 33554432,
           "SlidingExpiration": "00:02:00",
           "AbsoluteExpiration": "00:15:00",
-          "VersionSalt": "gateway-content-v1"
+          "VersionSalt": "gateway-content-v1",
+          "AllowedQueryKeys": ["q", "page"]
         }
       },
-      "extract-markdown": {
+      "extract-markdown-cache-ai": {
         "Profile": "RagFull",
         "TransformedContentCache": {
           "Enabled": true,
           "MaxEntries": 128,
           "MaxEntryBytes": 262144,
           "MaxTotalBytes": 33554432,
-          "SlidingExpiration": "00:02:00",
-          "AbsoluteExpiration": "00:15:00",
-          "VersionSalt": "gateway-markdown-v1"
+          "SlidingExpiration": "00:30:00",
+          "AbsoluteExpiration": "24:00:00",
+          "VersionSalt": "gateway-markdown-v2",
+          "AllowedQueryKeys": ["page", "q"]
         }
       }
     }
@@ -112,8 +114,8 @@ Rel(pev, dvdp, "evaluates policy")
   "BotDetection": {
     "DetectionPolicies": {
       "Rules": [
-        { "Name": "search-engine-docs-cache", "Path": "/docs/*", "Types": ["SearchEngine"], "Action": "content-cache" },
-        { "Name": "ai-bot-docs-markdown", "Path": "/docs/*", "Types": ["AiBot"], "Confidence": ">= 0.85", "Action": "extract-markdown" }
+        { "Name": "search-engine-docs-cache", "Path": "/docs/*", "Types": ["SearchEngine"], "Action": "content-cache-search" },
+        { "Name": "ai-bot-docs-markdown", "Path": "/docs/*", "Types": ["AiBot"], "Confidence": ">= 0.85", "Action": "extract-markdown-cache-ai" }
       ]
     }
   }
@@ -122,12 +124,14 @@ Rel(pev, dvdp, "evaluates policy")
 
 ## What already exists
 
-- `ContentCacheActionPolicy` (92 LOC) — cache-hit short-circuit, miss interceptor
-- `ExtractMarkdownActionPolicy` — HTML→Markdown transform
-- `MarkdownResponseCache` — lease-based `SlidingCacheAtom` wrapper
+- `ContentCacheSearchActionPolicy` (in `ContentCacheActionPolicyBase`) — cache-hit short-circuit, miss interceptor; per-policy LFU store via keyed DI
+- `ExtractMarkdownCacheAiActionPolicy` — HTML→Markdown transform; AiBot-only gate + `?markdown=true` test action
+- `MarkdownResponseCache` — lease-based `SlidingCacheAtom` wrapper (one instance per policy)
+- `MarkdownQueryOverrideMiddleware` — the explicit `?markdown=true` test action (gateway-wired after `UseDetectionPolicies`)
 - `ResponseBodyCapture` / `BodyInterceptStream` — response buffering
 - `CacheControlWriter` — header management
-- `TransformedContentCacheOptions` — config binding
+- `TransformedContentCacheOptions` — config binding (per-policy bounds, now all load-bearing)
+- `SbPolicyStateViewComponent` — dashboard policy-state card (effective match, representation, cache mode, bounds, hit/miss/bypass/eviction/override counters; configured-but-unregistered policies render NOT ENABLED)
 - Gateway rules wired: `search-engine-docs-cache` + `ai-bot-docs-markdown`
 
 ## What needs building

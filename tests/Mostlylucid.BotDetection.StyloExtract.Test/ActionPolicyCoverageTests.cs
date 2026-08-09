@@ -248,29 +248,21 @@ public sealed class ActionPolicyCoverageTests
         };
         var policy = PolicyFactory.Markdown(fake, opts);
         var originalBody = new MemoryStream();
-        // Evidence is Human, and query override is disabled.
+        // Evidence is Human, and the override is disabled: the middleware never sets the
+        // override marker, so the eligibility gate (AiBot only) refuses and the HTML
+        // passes through unchanged. The query parameter alone must never bypass the gate.
         var context = HttpContextBuilder.CreateHtmlContext("format=markdown");
         context.Response.Body = originalBody;
 
-        // The interceptor is installed but the transform only fires for HTML content.
-        // For a Human request without query override the policy still installs the
-        // interceptor (it always does). The HTML is passed through as-is because
-        // the evidence is Human and override is disabled.
-        // We verify that the content type is NOT changed to text/markdown.
         await ActionPolicyRunner.RunAndFlushAsync(
             context,
             c => policy.ExecuteAsync(c, Evidence.Human()),
             Html,
             originalBody);
 
-        // When the interceptor fires on HTML content with a Human evidence request,
-        // the transform still runs (interceptor doesn't inspect evidence -- the policy
-        // always installs it and the transform always converts). This is correct product
-        // behaviour: the interceptor runs for all HTML responses regardless of evidence.
-        // The query override is relevant only when the policy is gated externally.
-        // This test is therefore a documentation test confirming the interceptor behaviour.
-        context.Response.ContentType.Should().StartWith("text/markdown",
-            "the transform fires unconditionally for HTML responses when the interceptor is installed");
+        context.Response.ContentType.Should().StartWith("text/html",
+            "without the override marker a Human request is never served Markdown");
+        Encoding.UTF8.GetString(originalBody.ToArray()).Should().Be(Html);
     }
 
     // ---------------------------------------------------------------------------

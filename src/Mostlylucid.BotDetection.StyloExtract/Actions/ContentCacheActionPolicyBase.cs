@@ -32,7 +32,7 @@ public sealed record ContentTransformResult(string? Body, bool Store);
 ///     Process-local only — never distributed or persistent. Fail-open is structural: every bypass,
 ///     error and capture failure lets the request continue to origin.
 /// </summary>
-public abstract class ContentCacheActionPolicyBase : IActionPolicy, IAsyncDisposable
+public abstract class ContentCacheActionPolicyBase : IActionPolicy, IAsyncDisposable, IPolicyStateContributor
 {
     /// <summary>Startup snapshot only (FOSS hard rule: no runtime options-reload).</summary>
     protected readonly StyloExtractActionOptions Options;
@@ -87,8 +87,11 @@ public abstract class ContentCacheActionPolicyBase : IActionPolicy, IAsyncDispos
     /// <summary>
     ///     Representation gate. The base allows all traffic; the Markdown variant overrides this so it
     ///     only ever serves AI-scraper traffic — a browser routed to it falls through to origin.
+    ///     <paramref name="overrideRequest"/> is set when the explicit <c>?markdown=true</c> test action
+    ///     (<see cref="Middleware.MarkdownQueryOverrideMiddleware"/>) routed this request; variants may
+    ///     use it to admit the override even when the traffic class would not qualify.
     /// </summary>
-    protected virtual bool IsEligible(AggregatedEvidence evidence) => true;
+    protected virtual bool IsEligible(AggregatedEvidence evidence, bool overrideRequest) => true;
 
     /// <summary>Variant transform, run by the interceptor on flush. The base stores when <see cref="ContentTransformResult.Store"/> is set.</summary>
     protected abstract Task<ContentTransformResult> TransformAsync(
@@ -109,11 +112,20 @@ public abstract class ContentCacheActionPolicyBase : IActionPolicy, IAsyncDispos
             return ActionResult.Allowed($"{Name}: {requestDecision.Reason} bypass");
         }
 
-        if (!IsEligible(evidence))
+        // Explicit ?markdown=true test action: the override marker is set by
+        // MarkdownQueryOverrideMiddleware BEFORE ExecuteAsync, so variants can admit it past their
+        // eligibility gate. It is counted separately in telemetry (never blended with real
+        // AI-scraper traffic) and uses the Markdown variant's cache keys only.
+        var overrideRequest = context.Items.TryGetValue(
+                Middleware.MarkdownQueryOverrideMiddleware.MarkerKey, out var marker) && marker is true;
+
+        if (!IsEligible(evidence, overrideRequest))
         {
             Telemetry.Bypass(Name);
             return ActionResult.Allowed($"{Name}: not eligible traffic");
         }
+
+        if (overrideRequest) Telemetry.Override(Name);
 
         var key = KeyBuilder.Build(
             context.Request, _representation, Name, Options.VersionSaltForCache(),
@@ -199,4 +211,44 @@ public abstract class ContentCacheActionPolicyBase : IActionPolicy, IAsyncDispos
     /// <summary>Strips CR/LF from request paths before logging (CodeQL cs/log-injection).</summary>
     protected static string LogSanitize(string? value)
         => value is null ? string.Empty : value.Replace('\r', '_').Replace('\n', '_');
+
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Surfaces the spec's dashboard contract for a content-cache policy: effective match,
+    ///     representation, cache mode, configured bounds, and the live hit/miss/bypass/eviction
+    ///     (and override) counters.
+    /// </remarks>
+    public IReadOnlyDictionary<string, object> EffectiveParams
+    {
+        get
+        {
+            var counters = Telemetry.Snapshot().FirstOrDefault(c => c.Policy == Name);
+            return new Dictionary<string, object>
+            {
+                ["representation"] = _representation.ToString(),
+                ["match"] = MatchDescription,
+                ["cacheMode"] = Options.TransformedContentCache.Enabled ? "enabled" : "disabled",
+                ["maxEntries"] = Options.TransformedContentCache.MaxEntries,
+                ["maxEntryBytes"] = Options.TransformedContentCache.MaxEntryBytes,
+                ["maxTotalBytes"] = Options.TransformedContentCache.MaxTotalBytes,
+                ["slidingExpiration"] = Options.TransformedContentCache.SlidingExpiration.ToString(),
+                ["absoluteExpiration"] = Options.TransformedContentCache.AbsoluteExpiration.ToString(),
+                ["versionSalt"] = Options.VersionSaltForCache(),
+                ["allowedQueryKeys"] = Options.TransformedContentCache.AllowedQueryKeys.Count == 0
+                    ? "(all)"
+                    : string.Join(", ", Options.TransformedContentCache.AllowedQueryKeys.OrderBy(k => k, StringComparer.Ordinal)),
+                ["hits"] = counters?.Hits ?? 0,
+                ["misses"] = counters?.Misses ?? 0,
+                ["bypasses"] = counters?.Bypasses ?? 0,
+                ["evictions"] = counters?.Evictions ?? 0,
+                ["overrides"] = counters?.Overrides ?? 0,
+            };
+        }
+    }
+
+    /// <inheritdoc />
+    public PolicyFiringStats? FiringStats => null;
+
+    /// <summary>Human-readable description of which traffic this variant serves (dashboard 'match' field).</summary>
+    protected virtual string MatchDescription => "all traffic routed to this policy";
 }

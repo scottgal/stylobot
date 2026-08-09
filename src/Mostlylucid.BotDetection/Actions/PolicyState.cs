@@ -68,3 +68,28 @@ public interface IPolicyStateProvider
     /// </summary>
     PolicyState? Get(string policyName);
 }
+
+/// <summary>
+///     Optional per-policy detail seam for <see cref="IPolicyStateProvider"/>. An
+///     <see cref="IActionPolicy"/> whose implementation lives outside
+///     <c>Mostlylucid.BotDetection</c> (e.g. the content-cache policies in the StyloExtract
+///     pack) implements this so the dashboard policy tab can surface its effective runtime state
+///     without the core referencing the pack: <see cref="RegistryPolicyStateProvider"/> merges
+///     <see cref="EffectiveParams"/> into the row and honours <see cref="FiringStats"/> when
+///     non-null. Policy classes that need no detail simply don't implement it.
+/// </summary>
+public interface IPolicyStateContributor
+{
+    /// <summary>
+    ///     Effective runtime parameters as the operator should see them (e.g. representation,
+    ///     cache mode, configured bounds, live counters). Merged over the provider's base
+    ///     <c>actionType</c> entry; the policy's own keys win.
+    /// </summary>
+    IReadOnlyDictionary<string, object> EffectiveParams { get; }
+
+    /// <summary>
+    ///     Optional live firing stats. <c>null</c> when the policy has no stats shape of its own
+    ///     (its counters, if any, live in <see cref="EffectiveParams"/>).
+    /// </summary>
+    PolicyFiringStats? FiringStats { get; }
+}

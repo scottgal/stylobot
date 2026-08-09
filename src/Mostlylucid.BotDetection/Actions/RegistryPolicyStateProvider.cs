@@ -77,6 +77,21 @@ public sealed class RegistryPolicyStateProvider : IPolicyStateProvider
             stats = new PolicyFiringStats(0, 0, rl.CurrentMultiplier);
         }
 
+        // Pack-owned policies (content-cache etc.) contribute their effective runtime state via
+        // IPolicyStateContributor so the dashboard can render it without core knowing the pack.
+        if (policy is IPolicyStateContributor contributor)
+        {
+            foreach (var (key, value) in contributor.EffectiveParams)
+            {
+                paramsMap[key] = value;
+            }
+
+            if (contributor.FiringStats is { } contributorStats)
+            {
+                stats = contributorStats;
+            }
+        }
+
         return new PolicyState(
             Name: policy.Name,
             Intent: policy.Intent,

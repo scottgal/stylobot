@@ -1,6 +1,7 @@
 using System.Text;
 using FluentAssertions;
 using Mostlylucid.BotDetection.StyloExtract.Internals;
+using Mostlylucid.BotDetection.StyloExtract.Middleware;
 using Mostlylucid.BotDetection.StyloExtract.Options;
 using Xunit;
 
@@ -87,6 +88,10 @@ public sealed class ExtractMarkdownCacheAiActionPolicyTests
         var originalBody = new MemoryStream();
         var context = HttpContextBuilder.CreateHtmlContext("format=markdown");
         context.Response.Body = originalBody;
+        // The override marker is what the policy honours (MarkdownQueryOverrideMiddleware sets it
+        // BEFORE ExecuteAsync after matching the query parameter). A Human request carrying the
+        // marker is the explicit test action: it gets the Markdown variant, never HTML.
+        context.Items[MarkdownQueryOverrideMiddleware.MarkerKey] = true;
 
         var (body, _) = await ActionPolicyRunner.RunAndFlushAsync(
             context,
@@ -95,6 +100,27 @@ public sealed class ExtractMarkdownCacheAiActionPolicyTests
             originalBody);
 
         body.Should().Be(Markdown);
+    }
+
+    [Fact]
+    public async Task Human_without_override_marker_gets_html_not_markdown()
+    {
+        var fake = new FakeExtractor { MarkdownToReturn = Markdown };
+        var policy = PolicyFactory.Markdown(fake);
+        var originalBody = new MemoryStream();
+        var context = HttpContextBuilder.CreateHtmlContext("format=markdown");
+        context.Response.Body = originalBody;
+
+        // No marker (the middleware only sets it when the override is enabled and the query
+        // matches) and Human evidence -> eligibility gate refuses; HTML passes through.
+        var (body, _) = await ActionPolicyRunner.RunAndFlushAsync(
+            context,
+            c => policy.ExecuteAsync(c, Evidence.Human()),
+            Html,
+            originalBody);
+
+        body.Should().Be(Html);
+        fake.CallCount.Should().Be(0);
     }
 
     [Fact]

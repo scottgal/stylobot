@@ -123,6 +123,10 @@ internal static class HttpContextBuilder
         string? queryString = null)
     {
         var context = new DefaultHttpContext();
+        // DefaultHttpContext does NOT default the request method to GET — the cacheability
+        // gate bypasses non-GET, so every content-cache test was setting it explicitly
+        // per-test (a workaround that silently skipped the 7 that forgot).
+        context.Request.Method = "GET";
         context.Response.ContentType = "text/html; charset=utf-8";
         context.Response.StatusCode = 200;
 
