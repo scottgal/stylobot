@@ -55,11 +55,17 @@ public static class IdentityEndpoints
 
     private static async Task<Results<Ok<PaginatedResponse<Fingerprint>>, ServiceUnavailableHttpResult>> HandleList(
         [FromServices] IFingerprintReader? store,
+        [FromServices] IOptions<BotDetectionOptions> opts,
+        [FromQuery] int? offset = null,
+        [FromQuery] int? limit = null,
         CancellationToken ct = default)
     {
         if (store is null) return ApiEndpointHelpers.StoreUnavailable("Identity layer");
-        var fingerprints = await store.ListFingerprintsAsync(ct);
-        return ApiEndpointHelpers.Paginated(fingerprints, fingerprints.Count);
+        var cap = opts.Value.Identity?.Engine?.MaxFingerprintsPerPage ?? 200;
+        var effectiveOffset = offset ?? 0;
+        var effectiveLimit = Math.Clamp(limit ?? cap, 1, cap);
+        var fingerprints = await store.ListFingerprintsAsync(effectiveOffset, effectiveLimit, ct);
+        return ApiEndpointHelpers.Paginated(fingerprints, effectiveOffset, effectiveLimit);
     }
 
     private static async Task<Results<Ok<SingleResponse<Fingerprint>>, NotFound, ServiceUnavailableHttpResult>> HandleGet(

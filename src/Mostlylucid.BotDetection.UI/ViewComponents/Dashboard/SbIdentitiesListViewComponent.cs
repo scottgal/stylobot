@@ -36,11 +36,17 @@ public class SbIdentitiesListViewComponent(
             });
         }
 
-        var all = await store.ListFingerprintsAsync();
+        // Fetch a bounded window (most-recent first) — never the unbounded overload, which
+        // materialises every row carrying a full centroid vector (conn- 2026-08-08).
+        // The cap mirrors IdentityEngineOptions.MaxFingerprintsPerPage (default 200).
+        var cap = options.Value.Identity?.Engine?.MaxFingerprintsPerPage ?? 200;
+        var all = await store.ListFingerprintsAsync(0, cap);
         var unabsorbedByFp = await store.GetUnabsorbedObservationCountsAsync();
 
         // Sort: highest unabsorbed-observation count first so drift candidates float; tie-break
         // on most-recent activity. The operator's primary use case is "where do I look?".
+        // NOTE: sort is within the bounded window; a follow-up should push the sort to SQL
+        // so the unbounded TotalCount survives the bounded fetch.
         var ordered = all
             .OrderByDescending(fp => unabsorbedByFp.GetValueOrDefault(fp.FingerprintId, 0))
             .ThenByDescending(fp => fp.LastSeen)
