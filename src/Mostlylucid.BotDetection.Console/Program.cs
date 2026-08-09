@@ -94,6 +94,9 @@ switch (firstArg)
         return 0;
     case "clear":
         return await ClearLearnedPatternsAsync(cmdArgs);
+    case "dump":
+    case "export":
+        return await Mostlylucid.BotDetection.Console.Services.DumpCommand.RunAsync(cmdArgs);
     case "archetype-from-bdf":
         return await Mostlylucid.BotDetection.Console.ArchetypeFromBdfCommand.RunAsync(cmdArgs);
     case "man":
@@ -140,6 +143,9 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot dashboard hash-password           Hash a password for StyloBot:Dashboard:Auth:PasswordHash");
     Console.WriteLine("    stylobot genkey                             Generate a random 32-byte base64 key");
     Console.WriteLine("    stylobot clear [--sessions]                 Clear learned patterns (and optionally sessions)");
+    Console.WriteLine("    stylobot dump [opts] > out.jsonl            Export full detection detail (JSONL/CSV)");
+    Console.WriteLine("                                                --fingerprint / --min-score / --max-score /");
+    Console.WriteLine("                                                --since / --bots-only / --limit. `dump --help`");
     Console.WriteLine("    stylobot setup [--check-only] [--force]     Check and download missing resources");
     Console.WriteLine("    stylobot archetype-from-bdf <dir>          Import BDF fixtures as identity archetypes");
     Console.WriteLine();
