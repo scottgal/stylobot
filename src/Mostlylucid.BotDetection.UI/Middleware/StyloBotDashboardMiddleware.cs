@@ -1976,59 +1976,39 @@ public class StyloBotDashboardMiddleware
                 var page = await _contentCache.GetCurrentAsync(manifest, window, requestContext.RequestAborted);
                 if (page.IsWarming || !hasData(page))
                 {
-                    // Cold miss: don't just wait for the next scheduled Tick10s sweep --
-                    // GetCurrentAsync (above) already marked this envelope "live" (see
-                    // DashboardContentCache.GetAsync), so a priority re-warm fires now,
-                    // off the request path, so the NEXT request to this envelope hits
-                    // warm data sooner. Fire-and-forget: never awaited/blocking on this
-                    // request (see TriggerPriorityRewarm's own doc comment for why).
-                    TriggerPriorityRewarm(pageKey);
+                    // Self-healing read-through, not a fire-and-forget rewarm. GetAsync's cold
+                    // path deliberately never composes on the request thread (see
+                    // DashboardContentCache.GetAsync's structural "never compute on a cold
+                    // miss" rule); only WarmAsync does, and until now only the tick
+                    // materializer ever called it. On a remote-mode host (db13f2cc) that tick
+                    // loop never runs, so this envelope had no path to real data at all --
+                    // "warming" forever, not eventually. Awaiting WarmAsync here IS that call,
+                    // made on demand instead of on a schedule: it composes through the same
+                    // IDashboardPageComposer / IDashboardEventStore path the tick materializer
+                    // already uses (the gateway read-through in remote mode), populates the
+                    // atom, and this request gets real data too -- not just the next one.
+                    // Bounded, not per-request: SlidingCacheAtom.GetOrComputeAsync single-
+                    // flights concurrent callers onto one in-flight compose, and once warm the
+                    // envelope serves from cache like any other read until it ages out.
+                    var cursor = requestContext.RequestServices.GetService<Services.IDashboardChangeCursor>();
+                    var tick = cursor?.CurrentTick ?? 0L;
+                    var warmed = await _contentCache.WarmAsync(manifest, window, tick, requestContext.RequestAborted);
+                    if (!warmed.IsWarming && hasData(warmed))
+                    {
+                        return shape(warmed);
+                    }
+                    // Genuinely no data for this window (not a placeholder) -- render the
+                    // honest empty/warming shape instead of retrying in a loop.
                     return warmingFallback;
                 }
                 return shape(page);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "{PageKey} content-cache read failed; rendering the Warming placeholder", pageKey);
+                _logger.LogDebug(ex, "{PageKey} content-cache read/warm failed; rendering the Warming placeholder", pageKey);
                 return warmingFallback;
             }
         }
-    }
-
-    /// <summary>
-    ///     Fires an out-of-band priority re-warm for <paramref name="pageKey"/> via
-    ///     <see cref="DashboardMaterializerCoordinator.MarkDirtyAsync"/>, WITHOUT awaiting
-    ///     it on the request path -- it exists so the NEXT request to this envelope hits
-    ///     warm data sooner, not so the current request does (that would defeat the entire
-    ///     "never compute on the request thread" structural rule <see cref="GetOrWarmingAsync{T}"/>
-    ///     above enforces). Mirrors the existing fire-and-forget shape in this codebase
-    ///     (<c>DetectionBroadcastMiddleware</c>'s write-behind persist): <c>_ = Task.Run(...)</c>
-    ///     with every exception caught and logged so an unobserved-task fault never crashes
-    ///     the process. Uses <see cref="CancellationToken.None"/> deliberately -- the
-    ///     request's own token is cancelled once the response completes, which would abort
-    ///     the re-warm before <c>MarkDirtyAsync</c>'s compose finishes.
-    ///     <para>
-    ///         No-ops silently when <see cref="_materializerCoordinator"/> is null (a
-    ///         viewer-mode host that never registered the materialization stack) -- the
-    ///         request path degrades to the pre-existing "wait for the next tick" behavior.
-    ///     </para>
-    /// </summary>
-    private void TriggerPriorityRewarm(string pageKey)
-    {
-        if (_materializerCoordinator is null) return;
-
-        var coordinator = _materializerCoordinator;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await coordinator.MarkDirtyAsync(pageKey, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Priority re-warm failed for {PageKey}", pageKey);
-            }
-        });
     }
 
     /// <summary>
