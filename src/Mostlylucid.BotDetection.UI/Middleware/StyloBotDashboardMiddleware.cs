@@ -1635,6 +1635,34 @@ public class StyloBotDashboardMiddleware
                             shellWarming = true;
                         }
                     }
+                    else if (candidatePage.IsWarming && isRemoteHost)
+                    {
+                        // Remote-mode self-heal, same shape as GetOrWarmingAsync below: there
+                        // is no tick materializer running here (db13f2cc) to ever warm this
+                        // envelope, and the two branches above are both gated !isRemoteHost, so
+                        // without this a remote host had NO path to compose dashboard.traffic at
+                        // all -- composedPage stayed permanently null, _TrafficPanels (Traffic by
+                        // country / By source / Top visitors / Threats) read nothing from
+                        // HttpContext.Items["sb.dashboard.pageresult"], and rendered their own
+                        // honest "no data" defaults forever. Await WarmAsync inline: composes
+                        // through the same IDashboardPageComposer / IDashboardEventStore path
+                        // (the gateway read-through in remote mode) so THIS request gets it too.
+                        try
+                        {
+                            var cursor = context.RequestServices.GetService<Services.IDashboardChangeCursor>();
+                            var warmed = await _contentCache.WarmAsync(
+                                trafficManifest, pageWindow, cursor?.CurrentTick ?? 0L, context.RequestAborted);
+                            if (!warmed.IsWarming && IsPageBundleCompleteEnoughToStash(warmed))
+                            {
+                                composedPage = warmed;
+                                context.Items["sb.dashboard.pageresult"] = warmed;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "Remote-mode dashboard.traffic self-heal failed; using direct event-store reads");
+                        }
+                    }
                     // Remote compose can degrade to a non-null bundle with empty slices
                     // when the gateway endpoint is unavailable or returns an incomplete
                     // response. Do not stash that as authoritative: view components treat
