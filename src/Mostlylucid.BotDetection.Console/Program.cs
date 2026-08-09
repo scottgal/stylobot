@@ -153,13 +153,18 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("  Options:");
     Console.WriteLine("    --port <port>               Port to listen on (default: 5080)");
     Console.WriteLine("    --upstream <url>            Upstream server URL");
-    Console.WriteLine("    --mode <demo|production>    Detection mode (default: demo)");
+    Console.WriteLine("    --mode <demo|production>    Detection mode. ALWAYS defaults to demo:");
+    Console.WriteLine("                                detection runs and the dashboard fills up, but");
+    Console.WriteLine("                                nothing is ever blocked. Nothing infers this for");
+    Console.WriteLine("                                you -- enforcement is only ever opt-in, via");
+    Console.WriteLine("                                --mode production.");
     Console.WriteLine("    --policy <name>             Default action policy");
     Console.WriteLine("                                (default: block in production, logonly in demo)");
     Console.WriteLine("    --cert <path>               TLS certificate (.pfx or .pem)");
     Console.WriteLine("    --key <path>                TLS private key (required with .pem cert)");
     Console.WriteLine("    --cert-password <pass>      PFX certificate password");
-    Console.WriteLine("    --tunnel [[token]]            Cloudflare Tunnel (requires cloudflared)");
+    Console.WriteLine("    --tunnel [[token]]            Cloudflare Tunnel (requires cloudflared).");
+    Console.WriteLine("                                Networking only: does NOT enable blocking.");
     Console.WriteLine("    --threshold <0.0-1.0>       Bot probability threshold (default: 0.7)");
     Console.WriteLine("    --llm <provider>            LLM provider (openai, anthropic, gemini, groq,");
     Console.WriteLine("                                mistral, deepseek, ollama, or custom URL)");
@@ -287,12 +292,33 @@ if (!string.IsNullOrWhiteSpace(originTunnelHost))
 }
 
 var upstream = cliUpstream ?? positionalUpstream ?? originTunnelEffectiveUpstream ?? envUpstream ?? "http://localhost:8080";
-// --tunnel implies public traffic → default to production mode so the policy
-// stack is active. Operators that want observe-only on a tunnel can still pass
-// --mode demo explicitly.
+// SAFE DEFAULT, ALWAYS. The default mode never blocks, regardless of how traffic
+// reaches us. Enforcement is an explicit choice (--mode production), never inferred.
+//
+// This used to read `hasTunnel ? "production" : "demo"` -- adding --tunnel silently
+// flipped the default to blocking, on the reasoning that a tunnel implies public
+// traffic. The reasoning was sound and the behaviour was wrong: --tunnel is a
+// NETWORKING flag, and it was silently changing ENFORCEMENT. An operator who added
+// it to get a public URL started 403-ing real visitors having configured nothing
+// about blocking.
+//
+// Worse, it enforced at the single worst moment. StyloBot's whole premise is that it
+// learns what normal looks like on YOUR site; on a fresh install there is no learned
+// baseline yet, so second-zero is peak false-positive risk. Observe first, always.
 var hasTunnel = cmdArgs.Any(a => a.Equals("--tunnel", StringComparison.OrdinalIgnoreCase));
-var modeDefault = hasTunnel ? "production" : "demo";
-var mode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE") ?? modeDefault;
+var explicitMode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE");
+var mode = explicitMode ?? "demo";
+
+// Say so out loud. The old behaviour surprised people by blocking; the fix must not
+// surprise the other way by leaving a public endpoint unenforced silently.
+if (hasTunnel && explicitMode is null)
+{
+    Console.WriteLine(
+        "  Note: --tunnel exposes this publicly, and detection is running in observe mode "
+        + "(nothing is blocked).");
+    Console.WriteLine(
+        "        Let it learn your traffic, then add --mode production to start enforcing.");
+}
 var isDemoLikeMode = mode.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
                      mode.Equals("learning", StringComparison.OrdinalIgnoreCase);
 // production → use the policy stack (no flat override); demo → logonly shadow mode

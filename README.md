@@ -39,6 +39,42 @@ StyloBot runs in your own infrastructure. It knows what a real page-load sequenc
 
 ---
 
+## Zero-config by default. Nothing blocks until you say so.
+
+```bash
+stylobot 5080 http://localhost:3000
+```
+
+That's the whole setup. No YAML, no rules, no thresholds, no tuning.
+
+- **It learns your site**, not a generic cloud baseline — the document → asset → API sequence your app actually produces, and the timing your real users actually have.
+- **It never blocks on its own.** The default mode runs every detector and fills the dashboard, but takes no action. Enforcement is opt-in, always, via `--mode production`. Nothing infers it for you — not a public tunnel, not a threshold, not traffic volume.
+- **It adapts to your deploys.** A release changes every asset hash and every page-load sequence at once, which is exactly what a bot wave looks like. `AssetHashMiddleware` and `EndpointDivergenceTracker` recognise the difference so a deploy doesn't read as an attack.
+
+The 67 detector atoms, Markov session vectors, Leiden clustering and HNSW neighbour walks are internal machinery. They are documented because the engine is open, not because you have to configure them.
+
+### The whole configuration surface, in order of how likely you are to need it
+
+```
+stylobot 5080 http://localhost:3000          ← you are here. Observes, never blocks.
+        └── --mode production                ← one flag, when you're ready to enforce
+              └── --llm ollama               ← optional: richer bot naming
+                    └── --config-dir ./yaml  ← rare: per-endpoint policy overrides
+```
+
+### Worried about false positives?
+
+You should be — and the default is built around that. StyloBot ships observing. Let it watch real traffic for days or weeks; the dashboard shows exactly what it *would* have acted on and why. Flip to `--mode production` only once that list looks right. Enforcing on day one is the one thing the design actively discourages: on a fresh install there is no learned baseline yet, which is precisely when false positives are most likely.
+
+### Two honest caveats about "walk away"
+
+Everything above is true, and two things are worth knowing before you leave it unattended:
+
+- **First run reaches the network** to fetch the well-known-bot catalogue and GeoIP data. Air-gapped or CI? `--no-deps-check` skips it.
+- **Signatures don't survive a restart unless you set an HMAC key.** With none configured StyloBot generates a random one in memory and starts anyway (a crash would be worse than a lost key), but learned identities won't reconnect across restarts. `stylobot genkey` gives you one; set it once and forget it.
+
+---
+
 ## Quick start
 
 **macOS (Homebrew - recommended)**
