@@ -2,10 +2,13 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Services.Auth;
 
 namespace Mostlylucid.BotDetection.UI.Hubs;
 
@@ -73,6 +76,67 @@ public class StyloBotDashboardHub : Hub<IStyloBotDashboardHub>
             }
             if (result?.Principal != null)
                 context.User = result.Principal;
+            return context.User.Identity?.IsAuthenticated == true;
+        }
+
+        // FOSS config-credential login (DashboardAuthMode.Login + StyloBot:Dashboard:Auth:*,
+        // as produced by `stylobot dashboard hash-password`).
+        //
+        // THIS BRANCH WAS MISSING, and its absence killed live updates on every deployment
+        // that uses login auth -- i.e. staging and any real install. The page evaluates this
+        // mode in StyloBotDashboardMiddleware.IsAuthorizedAsync and authenticates fine; the
+        // hub had no equivalent, so the same client fell through to AllowUnauthenticatedAccess
+        // (false outside dev) and then IsDevelopment() (false on a server), was refused, and
+        // OnConnectedAsync aborted the connection with "dashboard auth failed". Every hub
+        // connection. The dashboard rendered once and then froze, because Signal Shingle's
+        // entire update path is SignalR beacon -> HTMX OOB swap.
+        //
+        // This is NOT a bypass: it ADDS the auth path the page already enforces so the hub
+        // reaches the same verdict for the same credential. The class doc above promises this
+        // type "enforces the same authorization rules as the dashboard middleware" and
+        // "cannot become an unauthenticated side door"; both remain true, and are now true in
+        // login mode as well. DashboardAuthConsistencyTests pins the two in lockstep so this
+        // cannot drift again -- which is how it broke: the mode was added to the middleware
+        // and not mirrored here.
+        if (options.Auth.Mode == DashboardAuthMode.Login && options.Auth.IsConfigured)
+        {
+            var policyProvider = context.RequestServices?.GetService<IAuthorizationPolicyProvider>();
+            var evaluator = context.RequestServices?.GetService<IPolicyEvaluator>();
+            if (policyProvider is not null && evaluator is not null)
+            {
+                var policy = await policyProvider.GetPolicyAsync(DashboardViewAuthDefaults.PolicyName);
+                if (policy is not null)
+                {
+                    var authn = await evaluator.AuthenticateAsync(policy, context);
+                    if (authn.Principal is not null) context.User = authn.Principal;
+                    var authz = await evaluator.AuthorizeAsync(policy, authn, context, resource: null);
+                    return authz.Succeeded;
+                }
+            }
+
+            // Fallback: authenticate the FOSS cookie scheme directly (mirrors the
+            // middleware's own fallback when the policy provider isn't available).
+            //
+            // Guarded the same way the RequireAuthentication branch above is: with no
+            // IAuthenticationService registered, AuthenticateAsync throws
+            // InvalidOperationException. Letting that escape OnConnectedAsync turns a clean
+            // refusal into an unhandled exception on every connection attempt, which is a
+            // worse failure than the one being fixed. Deny on absence, never throw.
+            if (context.RequestServices?.GetService<IAuthenticationService>() is null)
+                return context.User.Identity?.IsAuthenticated == true;
+
+            try
+            {
+                var cookie = await context.AuthenticateAsync(DashboardViewAuthDefaults.Scheme);
+                if (cookie?.Principal is not null) context.User = cookie.Principal;
+            }
+            catch (InvalidOperationException)
+            {
+                // Scheme not registered (e.g. a host that configured login mode but never
+                // called AddStyloBotDashboardViewAuth). Fall back to whatever principal the
+                // pipeline already established rather than failing the connection outright.
+            }
+
             return context.User.Identity?.IsAuthenticated == true;
         }
 
