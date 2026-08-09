@@ -607,10 +607,20 @@ try
     builder.Configuration.AddEnvironmentVariables();
     builder.Configuration.AddEnvironmentVariables("STYLOBOT_");
 
-    // Read signature logging configuration early (needed by YARP transforms)
-    // DEMO MODE: Enable PII logging by default for debugging (can be disabled in appsettings.json)
-    // PRODUCTION MODE: PII logging disabled by default (zero-PII)
-    var defaultLogPii = mode.Equals("demo", StringComparison.OrdinalIgnoreCase);
+    // Raw PII logging is OFF by default in EVERY mode, and is opt-in only via
+    // SignatureLogging:LogRawPii = true.
+    //
+    // This used to default to ON in demo mode, as a debugging affordance. That was
+    // defensible while "demo" meant "a few minutes, watching the console". It is not
+    // defensible now: demo is the unconditional default mode and the documented way to
+    // run StyloBot -- we explicitly tell operators to leave it observing for days or
+    // weeks before enforcing. Under the old default that meant raw PII accumulating in
+    // signatures-{date}.jsonl on disk, for an operator who opted into nothing and was
+    // told the product's headline is that no PII leaves their server.
+    //
+    // Debugging with raw values is still one config key away; a GDPR-relevant on-disk
+    // artefact should be a decision, not a side effect of the default path.
+    const bool defaultLogPii = false;
 
     // Resolve the HMAC key (6.8.2+: auto-generate random in-memory when no
     // key is configured, instead of fail-fast in production). Crashes always
