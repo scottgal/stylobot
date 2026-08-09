@@ -95,7 +95,7 @@ public class StyloBotDashboardHub : Hub<IStyloBotDashboardHub>
         // reaches the same verdict for the same credential. The class doc above promises this
         // type "enforces the same authorization rules as the dashboard middleware" and
         // "cannot become an unauthenticated side door"; both remain true, and are now true in
-        // login mode as well. DashboardAuthConsistencyTests pins the two in lockstep so this
+        // login mode as well. StyloBotDashboardHubAuthorizationTests + DashboardViewAuthGateIntegrationTests pin this so it
         // cannot drift again -- which is how it broke: the mode was added to the middleware
         // and not mirrored here.
         if (options.Auth.Mode == DashboardAuthMode.Login && options.Auth.IsConfigured)

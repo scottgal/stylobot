@@ -2,11 +2,14 @@ using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Services.Auth;
@@ -319,6 +322,91 @@ public sealed class DashboardViewAuthGateIntegrationTests : IAsyncDisposable
         var request = new HttpRequestMessage(HttpMethod.Post, "/dashboard/login") { Content = form };
         if (csrfCookie.Length > 0) request.Headers.Add("Cookie", csrfCookie);
         return await client.SendAsync(request);
+    }
+
+    /// <summary>
+    ///     THE LIVE DEFECT, end to end (2026-08-09): the gateway aborted every SignalR hub
+    ///     connection with "dashboard auth failed", so the dashboard rendered once and froze —
+    ///     Signal Shingle's update path is SignalR beacon → HTMX OOB swap, so a dead hub means
+    ///     no widget ever changes after first paint.
+    ///
+    ///     <para>
+    ///         This drives the REAL host in the exact configuration that broke
+    ///         (<c>RequireAuthentication=false</c>, <c>AllowUnauthenticatedAccess=false</c>,
+    ///         <c>Auth.Mode=Login</c>), logs in through the real login POST to obtain a real
+    ///         auth cookie, proves the PAGE accepts it, then asserts the HUB accepts the SAME
+    ///         cookie. Before the fix the hub had no <c>DashboardAuthMode.Login</c> branch at
+    ///         all, so it fell through to AllowUnauthenticatedAccess (false) then
+    ///         IsDevelopment() (false) and refused every client the page had just admitted.
+    ///     </para>
+    ///
+    ///     <para>
+    ///         The environment is pinned to Production deliberately: under Development the
+    ///         hub's final <c>environment.IsDevelopment()</c> fallback returns true and this
+    ///         test would pass vacuously on the broken code.
+    ///     </para>
+    /// </summary>
+    [Fact]
+    public async Task The_credential_the_page_accepts_is_also_accepted_by_the_SignalR_hub()
+    {
+        var client = await StartAsync();
+
+        // 1. Log in exactly as an operator does — real POST, real hash check, real cookie.
+        var login = await PostLoginAsync(client, "admin", Password);
+        var setCookie = login.Headers.GetValues("Set-Cookie")
+            .First(c => c.StartsWith("sb.dashboard.auth", StringComparison.Ordinal));
+        var cookie = setCookie.Split(';')[0];
+
+        // 2. The PAGE accepts it (not bounced back to /dashboard/login).
+        var pageRequest = new HttpRequestMessage(HttpMethod.Get, "/dashboard/traffic");
+        pageRequest.Headers.Add("Cookie", cookie);
+        var page = await client.SendAsync(pageRequest);
+        Assert.NotEqual(HttpStatusCode.Redirect, page.StatusCode);
+
+        // 3. THE ASSERTION THAT WAS FALSE IN PRODUCTION: the hub must reach the same
+        //    verdict for the same credential.
+        using var scope = _app!.Services.CreateScope();
+        var hubContext = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        hubContext.Request.Headers["Cookie"] = cookie;
+
+        var options = _app.Services.GetRequiredService<StyloBotDashboardOptions>();
+
+        var allowed = await StyloBotDashboardHub.IsAuthorizedAsync(
+            hubContext, options, new ProductionEnvironment());
+
+        Assert.True(allowed,
+            "the SignalR hub rejected the very credential the dashboard page just accepted — "
+            + "this is the 'dashboard auth failed' abort that killed live updates");
+    }
+
+    /// <summary>
+    ///     Parity guard: the hub must still refuse a client with NO credential in the same
+    ///     login-mode configuration. Without this, the test above would pass on a hub that had
+    ///     simply been made to allow everyone — which is the bypass we were told not to ship.
+    /// </summary>
+    [Fact]
+    public async Task The_hub_still_refuses_a_client_with_no_credential()
+    {
+        await StartAsync();
+
+        using var scope = _app!.Services.CreateScope();
+        var hubContext = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        var options = _app.Services.GetRequiredService<StyloBotDashboardOptions>();
+
+        var allowed = await StyloBotDashboardHub.IsAuthorizedAsync(
+            hubContext, options, new ProductionEnvironment());
+
+        Assert.False(allowed, "the hub must not become an unauthenticated side door");
+    }
+
+    private sealed class ProductionEnvironment : IWebHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Production";
+        public string ApplicationName { get; set; } = "test";
+        public string WebRootPath { get; set; } = "";
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+        public string ContentRootPath { get; set; } = "";
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
     private async Task<HttpClient> StartAsync()
