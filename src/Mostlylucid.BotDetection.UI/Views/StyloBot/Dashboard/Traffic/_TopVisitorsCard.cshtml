@@ -3,6 +3,10 @@
 @{
     // Configurable mount point — never hardcode /dashboard. Same source as _VisitorCard.
     var basePath = ViewData["BasePath"]?.ToString() ?? "/dashboard";
+    // Inherited from _TrafficPanels' ViewData (Razor partials share the parent's dict) --
+    // an empty list on a cold read must say "warming", not "no data" (absence of knowledge
+    // presented as knowledge of absence).
+    var isWarming = ViewData["IsWarming"] as bool? ?? false;
 }
 @*
     T3 — Top-visitors breakdown card. The full _VisitorCard primitive is too
@@ -14,7 +18,11 @@
 <div class="card bg-base-100 border border-base-300">
     <div class="card-body p-3">
         <div class="text-sm font-semibold mb-2">Top visitors</div>
-        @if (Model.Count == 0)
+        @if (Model.Count == 0 && isWarming)
+        {
+            <div class="text-xs text-base-content/40 py-4 text-center">Warming up — data will appear shortly</div>
+        }
+        else if (Model.Count == 0)
         {
             <div class="text-xs text-base-content/40 py-4 text-center">no data in this window</div>
         }

@@ -52,12 +52,24 @@
     var internalHits = Model.BotTypes
         .Where(b => string.Equals(b.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
         .Sum(b => b.Hits);
+
+    // Absence-of-knowledge vs knowledge-of-absence: an empty list because the content
+    // cache hasn't composed this envelope yet (cold read, materializer hasn't warmed it)
+    // must render "warming", not "no data" -- the same fix already applied to shellWarming
+    // widgets. _TopVisitorsCard/_ThreatsCard take a plain list as their model, so this
+    // rides the parent's ViewData (Razor partials inherit it automatically, same mechanism
+    // BasePath already uses below) rather than needing a wrapper type.
+    ViewData["IsWarming"] = Model.IsWarming;
 }
 <div id="traffic-panels" class="sb-widget-grid">
     @if (showMap)
     {
         <sb-widget width="third" height="tall" heading="Traffic by country">
-            @if (Model.Countries.Count == 0)
+            @if (Model.Countries.Count == 0 && Model.IsWarming)
+            {
+                <div class="text-center text-base-content/30 py-12 text-sm">Warming up — data will appear shortly</div>
+            }
+            else if (Model.Countries.Count == 0)
             {
                 <div class="text-center text-base-content/30 py-12 text-sm">No location data in this window</div>
             }
@@ -70,6 +82,7 @@
     else
     {
         <sb-widget width="third" height="tall" heading="By country"
+                   warming-when="@Model.IsWarming"
                    empty-when="@(Model.Countries.Count == 0)" empty-text="No data in this window">
             <vc:sb-chartlet model="countryChart" />
         </sb-widget>
@@ -78,7 +91,11 @@
     @if (showBySource)
     {
         <sb-widget width="third" height="tall" heading="By source">
-            @if (sources.Count == 0)
+            @if (sources.Count == 0 && Model.IsWarming)
+            {
+                <div class="text-center text-base-content/30 py-12 text-sm">Warming up — data will appear shortly</div>
+            }
+            else if (sources.Count == 0)
             {
                 <div class="text-center text-base-content/30 py-12 text-sm">No external traffic in this window</div>
             }
@@ -115,6 +132,7 @@
     else
     {
         <sb-widget width="third" height="tall" heading="By bot type"
+                   warming-when="@Model.IsWarming"
                    empty-when="@(Model.BotTypes.Count == 0)" empty-text="No data in this window">
             <vc:sb-chartlet model="botTypeChart" />
         </sb-widget>
