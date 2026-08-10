@@ -63,7 +63,19 @@
         <a href="@navBp/site" class="hover:text-base-content/70">All endpoints &rarr;</a>
     </div>
 }
-<div class="p-4 max-w-5xl mx-auto" data-endpoint-detail>
+@* sb:summary-update listener (commercial scope bar): the commercial range/domain
+   bar posts via hx-post and the controller replies HX-Trigger: sb:summary-update.
+   This page is served by ServeEndpointDetailPageAsync (full shell, NO
+   IsPartialSwapRequest branch), so the hx-get targets the partials/endpoint-detail
+   endpoint instead of the page URL — swapping in a full page would nest the shell
+   inside itself (the exact P0 defect class _DashboardRowContent.cshtml fixes). *@
+<div class="p-4 max-w-5xl mx-auto"
+     data-endpoint-detail
+     id="sb-endpoint-detail-body"
+     hx-get="@($"{Model.BasePath}/partials/endpoint-detail?method={Uri.EscapeDataString(Model.Method)}&path={Uri.EscapeDataString(Model.Path)}")"
+     hx-trigger="sb:summary-update from:body"
+     hx-target="this"
+     hx-swap="outerHTML">
     @if (!Model.Found)
     {
         <div class="text-xs text-base-content/40 text-center py-8">Endpoint detail not found</div>

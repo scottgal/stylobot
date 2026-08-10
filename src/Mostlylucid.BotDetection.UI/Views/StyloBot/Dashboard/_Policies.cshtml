@@ -73,7 +73,19 @@
         templateGroups = PolicyTemplateGrouping.Group(vm.Rows, registry);
     }
 }
-<section class="dashboard-policies" data-dashboard-page="policies" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
+@* sb:summary-update listener (commercial scope bar): the commercial range/domain
+   bar posts via hx-post and the controller replies HX-Trigger: sb:summary-update.
+   The middleware's IsPartialSwapRequest branch serves ONLY this row's content for
+   that hx-get, and DashboardScopeBaselineMiddleware rewrites ?window= from the new
+   cookie before the FOSS middleware runs — so the swapped content reflects the new
+   window without a full page reload (same mechanism as Traffic's #sb-traffic-body). *@
+<section class="dashboard-policies"
+         data-dashboard-page="policies"
+         id="sb-policies-body"
+         hx-get="@(Context.Request.Path + Context.Request.QueryString)"
+         hx-trigger="sb:summary-update from:body"
+         hx-target="this"
+         hx-swap="outerHTML" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
     @* Period selector: scopes the LIVE hit-count aggregation below (Config baseline +
        manually-authored rule rows), same ?window= vocabulary Traffic/Site use. *@
     <div class="flex justify-end mb-2">

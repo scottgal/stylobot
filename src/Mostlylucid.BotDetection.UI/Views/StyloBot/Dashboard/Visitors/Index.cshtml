@@ -29,8 +29,22 @@
     2. Below: two-column grid
        - LEFT: visitor list (SbVisitorList) with filters
        - RIGHT: stacked with signature shapes + world map
+
+    sb:summary-update listener (commercial scope bar): the commercial range/domain
+    bar posts via hx-post and the controller replies HX-Trigger: sb:summary-update.
+    The middleware's IsPartialSwapRequest branch serves ONLY this row's content for
+    that hx-get (the same P0-fix mechanism #sb-traffic-body uses), and the
+    DashboardScopeBaselineMiddleware rewrites ?window= from the new cookie before
+    the FOSS middleware runs — so the swapped content reflects the new window
+    without a full page reload. Explicit ?window= in the URL (local pills) still
+    wins, matching the baseline middleware's documented precedence.
 *@
-<section class="space-y-4">
+<section class="space-y-4"
+         id="sb-visitors-body"
+         hx-get="@(Context.Request.Path + Context.Request.QueryString)"
+         hx-trigger="sb:summary-update from:body"
+         hx-target="this"
+         hx-swap="outerHTML">
     <header class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold">Visitors</h2>
         <div class="join">

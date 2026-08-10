@@ -27,7 +27,18 @@
     var q = Context?.Request?.Query;
     string? QueryOrNull(string key) => q?[key].FirstOrDefault() is { Length: > 0 } v ? v : null;
 }
-<section data-dashboard-page="site" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
+@* sb:summary-update listener (commercial scope bar): the commercial range/domain
+   bar posts via hx-post and the controller replies HX-Trigger: sb:summary-update.
+   The middleware's IsPartialSwapRequest branch serves ONLY this row's content for
+   that hx-get, and DashboardScopeBaselineMiddleware rewrites ?window= from the new
+   cookie before the FOSS middleware runs — so the swapped content reflects the new
+   window without a full page reload (same mechanism as Traffic's #sb-traffic-body). *@
+<section data-dashboard-page="site"
+         id="sb-site-body"
+         hx-get="@(Context.Request.Path + Context.Request.QueryString)"
+         hx-trigger="sb:summary-update from:body"
+         hx-target="this"
+         hx-swap="outerHTML" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
     @if (showcaseDemo)
     {
         @* Showcase-demo surface renders the SAME interactive control the licensed
