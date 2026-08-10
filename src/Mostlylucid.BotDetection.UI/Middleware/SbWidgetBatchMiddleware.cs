@@ -302,6 +302,13 @@ public sealed class SbWidgetBatchMiddleware
         try
         {
             var page = await contentCache.GetCurrentAsync(manifest, window, ct);
+            // Never stash a Warming placeholder as a real bundle: the per-widget renderers
+            // treat a present stash as "real data, no self-fetch needed", so stashing
+            // DashboardPageResult.Warming would render empty shingles and cache them as
+            // authoritative (the L2 pre-render's cold-L1 race — the empty shingles then
+            // made the boot gate latch with nothing to serve). A Warming result falls
+            // through to the compose-on-delta subset instead, which fetches real data.
+            if (page.IsWarming) return false;
             context.Items["sb.dashboard.pageresult"] = page;
             return true;
         }
