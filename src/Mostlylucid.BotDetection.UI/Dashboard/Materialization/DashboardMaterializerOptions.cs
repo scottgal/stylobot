@@ -206,4 +206,35 @@ public sealed class DashboardMaterializerOptions
     ///     Tick10s cadence).
     /// </summary>
     public double AdaptiveCostSmoothingAlpha { get; set; } = 0.3;
+
+    /// <summary>
+    ///     Run one materializer pass at host start (from <c>StartAsync</c>) so the pinned
+    ///     <see cref="PrewarmPageKey"/> windows are composed BEFORE the first request can
+    ///     land. Without this, the very first warm waits for the first wall-clock Tick10s
+    ///     boundary (up to 10s after boot), so the first request on a host whose in-request
+    ///     cold-miss fallback is skipped (remote viewer mode) paints the warming shell for
+    ///     that window.
+    ///     <para>
+    ///         Off by default: FOSS hosts cover the same gap with the request path's
+    ///         synchronous first-warm fallback, and a boot-time compose pass is a behavior
+    ///         change no host should inherit silently. Hosts that want a pre-rendered first
+    ///         paint opt in (the commercial website does). The pass reuses
+    ///         <see cref="DashboardMaterializerCoordinator.MaterializeTickAsync"/> — one
+    ///         implementation of "do a materializer pass", fired early because the tick
+    ///         loop's first fire is wall-clock aligned. See
+    ///         <see cref="BootPrewarmTimeoutMs"/> for the boot-delay bound.
+    ///     </para>
+    /// </summary>
+    public bool BootPrewarmEnabled { get; set; } = false;
+
+    /// <summary>
+    ///     Upper bound (ms) on how long host startup awaits the boot prewarm pass
+    ///     (<see cref="BootPrewarmEnabled"/>) before declaring ready. The pass itself keeps
+    ///     running in the background if it overruns — this only bounds the boot delay, never
+    ///     the work (the pass is fault-observed either way, so boot can never hang or crash
+    ///     on it). &lt;= 0 awaits nothing (pure fire-and-forget; the first request can still
+    ///     race the pass). Default 30s, matching <see cref="MaxTickDurationMs"/>'s budget for
+    ///     the same serial pinned-tier warm.
+    /// </summary>
+    public int BootPrewarmTimeoutMs { get; set; } = 30_000;
 }

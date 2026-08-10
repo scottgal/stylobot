@@ -60,8 +60,24 @@
     // rides the parent's ViewData (Razor partials inherit it automatically, same mechanism
     // BasePath already uses below) rather than needing a wrapper type.
     ViewData["IsWarming"] = Model.IsWarming;
+    ViewData["BasePath"] = Model.BasePath;
 }
-<div id="traffic-panels" class="sb-widget-grid">
+@*
+    Beacon contract (sb-live-updates.js): this container is ONE widget to the
+    content-ready refresh. It carries data-sb-widget + data-sb-depends (the surface
+    kinds the four panels render: countries for the map, signature for by-source /
+    top-visitors, threats for the threats card) + data-sb-params (the page's current
+    filters, so a beacon refresh re-renders the SAME filtered view). SbWidgetBatchMiddleware
+    renders "traffic-panels" from the warm page bundle through TrafficPanelsProjector —
+    the identical projection used by the SSR first paint (_Traffic.cshtml) — and the OOB
+    swap replaces this whole grid, so all four panels warm-replace together the moment the
+    content-ready ping arrives. Before this, the four panels had no beacon contract at all:
+    a cold-miss first paint showed "Warming up" and nothing ever replaced it.
+*@
+<div id="traffic-panels" class="sb-widget-grid"
+     data-sb-widget="traffic-panels"
+     data-sb-depends="countries,signature,threats"
+     data-sb-params="window=@Uri.EscapeDataString(Model.Filters.Window)&country=@Uri.EscapeDataString(Model.Filters.Country ?? "")&bot_type=@Uri.EscapeDataString(Model.Filters.BotType ?? "")&threat=@Uri.EscapeDataString(Model.Filters.Threat ?? "")">
     @if (showMap)
     {
         <sb-widget width="third" height="tall" heading="Traffic by country">

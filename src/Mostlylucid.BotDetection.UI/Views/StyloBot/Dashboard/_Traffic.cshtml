@@ -292,23 +292,18 @@
     // Breakdown cards. Countries + endpoints come from their dedicated
     // event-store endpoints (per-detection-row aggregation, not the LFU's
     // running-total view). Bot types + visitors + threats come from the
-    // window-bounded top-bots projection.
-    var countries = countriesData
-        .Where(r => !string.IsNullOrEmpty(r.CountryCode))
-        .OrderByDescending(r => r.TotalCount)
-        .Take(topN)
-        .Select(r => new CountryRow(
-            CountryCode: r.CountryCode,
-            Hits: r.TotalCount,
-            BotShare: r.TotalCount > 0 ? r.BotCount / (double)r.TotalCount : 0d))
-        .ToList();
-    var botTypes = visitors
-        .Where(v => v.IsBot && !string.IsNullOrEmpty(v.BotType))
-        .GroupBy(v => v.BotType!)
-        .Select(g => new BotTypeRow(g.Key, g.Sum(v => v.Hits)))
-        .OrderByDescending(r => r.Hits)
-        .Take(topN)
-        .ToList();
+    // window-bounded top-bots projection. The four side panels project through
+    // TrafficPanelsProjector — the SAME projection SbWidgetBatchMiddleware's
+    // "traffic-panels" content-ready refresh uses — so an OOB swap can never
+    // disagree with this first paint (feedback_never_two_sources_of_truth).
+    // Endpoints stays inline: only the unified Endpoints control reads it, and
+    // that control has its own dedicated refresh surface.
+    var panels = TrafficPanelsProjector.Project(
+        visitors, countriesData, ThreatsOpts.Value ?? new ThreatsOptions(), topN);
+    var countries = panels.Countries;
+    var botTypes = panels.BotTypes;
+    var topVisitors = panels.TopVisitors;
+    var threats = panels.Threats;
     var endpoints = endpointsData
         .Where(r => !string.IsNullOrEmpty(r.Path))
         .OrderByDescending(r => r.TotalCount)
@@ -318,22 +313,6 @@
             Path: r.Path,
             Hits: r.TotalCount,
             BotShare: r.BotRate))
-        .ToList();
-    var topVisitors = visitors.Take(topN).ToList();
-    // Threats panel inclusion is delegated to ThreatsFilter so the test in
-    // Mostlylucid.BotDetection.Test/Dashboard/ThreatsFilterTests can pin the
-    // band-priority + probability-floor semantics. Before Task A4 this LINQ
-    // filtered to ThreatBand in {Medium, High, Critical} only, which after
-    // #178 ripped the parasitic header source matched only Internal pings —
-    // 11k+ classified-bot rows (Scraper / Tool / Unknown / "None" band)
-    // never surfaced. ThreatsFilter now ORs in BotProbability >= floor.
-    var threats = ThreatsFilter
-        .Apply(visitors, ThreatsOpts.Value ?? new ThreatsOptions())
-        .Select(v => new ThreatRow(
-            v.PrimarySignature,
-            v.BotName ?? string.Empty,
-            v.ThreatBand ?? "None",
-            v.LastSeen))
         .ToList();
 
     var pageModel = new TrafficPageModel(

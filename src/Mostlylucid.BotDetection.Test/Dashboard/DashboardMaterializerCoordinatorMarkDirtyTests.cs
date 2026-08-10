@@ -111,10 +111,22 @@ public sealed class DashboardMaterializerCoordinatorMarkDirtyTests
         var triggered = await coord.MarkDirtyAsync(Traffic.PageKey);
 
         Assert.True(triggered);
-        Assert.Contains(Traffic.PageKey, cursor.Bumped);
+        // The bump + broadcast carry the page's SURFACE KINDS -- the client
+        // (sb-live-updates.js) matches a widget's data-sb-depends against the beacon's
+        // dirtyKinds, and every depends declares a surface (summary/countries/...), never
+        // a page key. The raw "dashboard.traffic" never intersected any widget, which is
+        // exactly the unmatchable content-ready ping this change fixes.
+        Assert.Contains("summary", cursor.Bumped);
+        Assert.DoesNotContain(Traffic.PageKey, cursor.Bumped);
 
-        var signals = await hub.WaitForInvalidationsAsync(1, TimeSpan.FromSeconds(3));
-        Assert.Contains(Traffic.PageKey, signals);
+        // The BroadcastDirty beacon carries the full kind set in ONE message (deterministic
+        // -- the per-surface BroadcastInvalidation signals land in dictionary order, which
+        // the parallel flush emits in a race).
+        var beacon = await hub.WaitForDirtyBeaconAsync(TimeSpan.FromSeconds(3));
+        Assert.NotNull(beacon);
+        Assert.Contains("summary", beacon!.DirtyKinds);
+        Assert.Contains("countries", beacon.DirtyKinds);
+        Assert.DoesNotContain(Traffic.PageKey, beacon.DirtyKinds);
     }
 
     [Fact]

@@ -164,6 +164,12 @@ public sealed class SbWidgetBatchMiddleware
             ["live-visitors"] = DatasetKind.BotAggregate,
             ["live-activity"] = DatasetKind.BotAggregate,
             ["overview-topbots"] = DatasetKind.BotAggregate,
+            // The four Traffic side panels as ONE batch widget (see RenderTrafficPanelsAsync):
+            // needs the whole traffic bundle, and the warm-bundle path
+            // (TryStashWarmPageBundleAsync) supplies every slice; the kind entry exists so
+            // the compose-on-delta path doesn't skip it entirely when no warm bundle exists
+            // (BotAggregate is the heaviest slice it renders).
+            ["traffic-panels"] = DatasetKind.BotAggregate,
         };
 
     private async Task TryComposeAndStashAsync(
@@ -262,7 +268,17 @@ public sealed class SbWidgetBatchMiddleware
     {
         var q = context.Request.Query;
 
-        var windowToken = q["window"].FirstOrDefault() ?? "6h";
+        // The client forwards each widget's params PREFIXED (widget.key=val) -- see
+        // sb-live-updates.js flush(). All widgets on one page share the page's window, so
+        // fall back to the first prefixed *.window param when no bare window is present;
+        // otherwise every beacon refresh would read the 6h default while the page shows
+        // 24h, and the OOB swap would replace the page's widgets with a different window's
+        // data. A bare window= still wins (drill/chartlet requests send one).
+        var windowToken = q["window"].FirstOrDefault()
+            ?? q.Keys.Where(k => k.EndsWith(".window", StringComparison.Ordinal))
+                .Select(k => q[k].FirstOrDefault())
+                .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))
+            ?? "6h";
         var windowMinutes = ParseWindowToken(windowToken);
         var now = DateTime.UtcNow;
         var startTime = now.AddMinutes(-windowMinutes);
@@ -361,6 +377,7 @@ public sealed class SbWidgetBatchMiddleware
                 "sessions" => await RenderSessionsAsync(context, q),
                 "topbots" or "top-visitors" or "live-visitors" or "live-activity" or "overview-topbots" => await RenderTopBotsAsync(context, q, widgetId),
                 "threats" => await RenderThreatsAsync(context, q),
+                "traffic-panels" => await RenderTrafficPanelsAsync(context, q),
                 _ => ""
             };
         }
@@ -584,6 +601,94 @@ public sealed class SbWidgetBatchMiddleware
         };
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbThreatsList/Default.cshtml", model, context);
+    }
+
+    // -------------------------------------------------------------------------
+    // Traffic side panels (content-ready OOB refresh)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Re-renders the four Traffic side panels (by country, by source, top
+    ///     visitors, threats) for the content-ready OOB swap
+    ///     (<c>data-sb-widget="traffic-panels"</c> on <c>#traffic-panels</c>).
+    ///     Reads the warm page bundle the compose-on-delta path stashed
+    ///     (<see cref="TryStashWarmPageBundleAsync"/> serves the tick-materialized
+    ///     dashboard.traffic bundle for the update's window) and projects it through
+    ///     <see cref="TrafficPanelsProjector"/> — the SAME projection the SSR first
+    ///     paint uses (<c>_Traffic.cshtml</c>) — so the swap can never disagree with
+    ///     the initial render. Filters come from the widget's own data-sb-params
+    ///     (window/country/bot_type/threat), forwarded by the client verbatim.
+    ///     Returns empty (no swap) when no bundle is stashed yet — the page keeps
+    ///     its current (possibly warming) DOM and the next beacon retries.
+    /// </summary>
+    private async Task<string> RenderTrafficPanelsAsync(HttpContext context, IQueryCollection q)
+    {
+        var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult is null || pageResult.IsWarming) return "";
+
+        var layout = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<Models.Dashboard.Layout.DashboardLayoutOptions>>()
+            ?.Value;
+        var topN = layout?.TrafficCardTopN ?? 10;
+        var threatsOptions = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<ThreatsOptions>>()?.Value ?? new ThreatsOptions();
+        string? Nullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+        var windowToken = q["window"].FirstOrDefault() ?? DefaultWindowTokenFor(layout);
+
+        var filters = new Models.Dashboard.Traffic.TrafficFilters(
+            Country: Nullable(q["country"].FirstOrDefault()),
+            BotType: Nullable(q["bot_type"].FirstOrDefault()),
+            Window: windowToken,
+            Threat: Nullable(q["threat"].FirstOrDefault()));
+
+        // Same post-filter projection semantics as _Traffic.cshtml (shared helper).
+        var (visitors, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
+            pageResult.BotAggregate ?? [],
+            filter: "all", sortField: "hits", sortDir: "desc",
+            page: 1, pageSize: 500,
+            country: filters.Country, botType: filters.BotType, threat: filters.Threat);
+
+        var panels = Models.Dashboard.Traffic.TrafficPanelsProjector.Project(
+            visitors, pageResult.Geo ?? [], threatsOptions, topN);
+
+        // The panels partial only reads the four projected lists + Filters/BasePath/
+        // IsWarming; counters/timeseries/families are chart data this widget never
+        // renders, so they stay as empty placeholders rather than recomputed values.
+        var model = new Models.Dashboard.Traffic.TrafficPageModel(
+            Filters: filters,
+            Counters: new Models.Dashboard.Traffic.TrafficCounters(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            Timeseries: new Models.Dashboard.Traffic.TrafficTimeseries([], [], [], []),
+            BotFamilies: new Models.Dashboard.Traffic.BotFamilySeries([], []),
+            Countries: panels.Countries,
+            BotTypes: panels.BotTypes,
+            TopEndpoints: [],
+            TopVisitors: panels.TopVisitors,
+            Threats: panels.Threats,
+            BasePath: _options.BasePath.TrimEnd('/'));
+
+        return await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", model, context);
+    }
+
+    /// <summary>
+    ///     The window token the Traffic page resolves for a plain (no query) visit —
+    ///     same mapping as <c>_Traffic.cshtml</c>'s FormatWindow — so a fallback
+    ///     render never drifts from the SSR's default period.
+    /// </summary>
+    private static string DefaultWindowTokenFor(Models.Dashboard.Layout.DashboardLayoutOptions? layout)
+    {
+        var minutes = layout?.DefaultTimeWindowMinutes ?? 1440;
+        return minutes switch
+        {
+            15 => "15m",
+            60 => "1h",
+            360 => "6h",
+            720 => "12h",
+            1440 => "24h",
+            7 * 24 * 60 => "7d",
+            30 * 24 * 60 => "30d",
+            _ => "24h",
+        };
     }
 
     // -------------------------------------------------------------------------

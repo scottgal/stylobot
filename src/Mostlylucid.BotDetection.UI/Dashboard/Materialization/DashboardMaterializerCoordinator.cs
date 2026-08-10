@@ -123,14 +123,14 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     /// </summary>
     public bool HasWarmedSuccessfully => _hasWarmedSuccessfully;
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         // Self-disable only when there's no tick fabric to subscribe to (viewer-mode host).
         // Enabled is checked inside MaterializeTickAsync instead of gating the subscription --
         // structurally simpler (one code path) even though FOSS has no runtime reload to benefit
         // from it. Subscribing unconditionally costs one no-op Task per idle 10s tick when
         // disabled -- negligible.
-        if (_schedule is null) return Task.CompletedTask;
+        if (_schedule is null) return;
 
         try
         {
@@ -145,7 +145,26 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             _logger?.LogWarning(ex, "DashboardMaterializerCoordinator: failed to subscribe to Tick10s.");
         }
 
-        return Task.CompletedTask;
+        // Boot-time materializer pass (see DashboardMaterializerOptions.BootPrewarmEnabled):
+        // the tick loop's first fire waits for the next wall-clock Tick10s boundary, so a
+        // first request landing inside that gap would cold-miss. Fire one pass now, off the
+        // request thread (hosted-service lifecycle), fault-observed, and bound-await it so
+        // the first request lands on a composed pinned window. Mirrors the commercial
+        // DashboardBucketPrewarmService boot pass: one implementation of "do a pass"
+        // (MaterializeTickAsync), fired early because the tick loop is wall-clock aligned.
+        // MaterializeTickAsync never throws out of its per-envelope fault isolation, so the
+        // bound-await can never fail host startup -- a pass that overruns BootPrewarmTimeoutMs
+        // keeps running in the background and the tick subscription is the standing retry.
+        if (_options.BootPrewarmEnabled)
+        {
+            var bootWarm = MaterializeTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+            ObserveFault(bootWarm);
+            var timeout = TimeSpan.FromMilliseconds(_options.BootPrewarmTimeoutMs);
+            if (timeout > TimeSpan.Zero)
+            {
+                await Task.WhenAny(bootWarm, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
+            }
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
@@ -381,12 +400,25 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // rate-limiting (coalescing multiple signals into a single 10s flush window).
             // The cursor is bumped when signals are queued so BroadcastDirty carries the
             // tick at which these surfaces changed.
+            //
+            // The signals are the page's SURFACE KINDS, not the raw page key: the client
+            // (sb-live-updates.js) matches a widget's data-sb-depends against the beacon's
+            // dirtyKinds, and every view declares depends as a surface (summary/countries/
+            // threats/... -- the DashboardFreshnessBeacon.Surfaces catalog), never a page
+            // key. Queuing the raw pageKey ("dashboard.traffic") made the content-ready
+            // ping unmatchable -- no widget's depends ever intersected it, so widgets that
+            // cold-missed and painted the warming shell stayed warming even after this
+            // coordinator composed the bundle ("the SignalR content-ready ping never
+            // happens"). See PageSurfaceKindsFor for the page-key -> kinds mapping.
             if (warmedPages.Count > 0 && _hubContext is not null)
             {
                 foreach (var pageKey in warmedPages)
                 {
-                    _cursor.Bump(pageKey);
-                    SignalRBroadcastConstrainer.Queue(_hubContext, pageKey, _options.MaterializerBroadcastIntervalMs);
+                    foreach (var kind in PageSurfaceKindsFor(pageKey))
+                    {
+                        _cursor.Bump(kind);
+                        SignalRBroadcastConstrainer.Queue(_hubContext, kind, _options.MaterializerBroadcastIntervalMs);
+                    }
                 }
             }
         }
@@ -477,10 +509,86 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
         if (warmedAny && _hubContext is not null)
         {
-            _cursor.Bump(pageKey);
-            SignalRBroadcastConstrainer.Queue(_hubContext, pageKey, _options.MaterializerBroadcastIntervalMs);
+            foreach (var kind in PageSurfaceKindsFor(pageKey))
+            {
+                _cursor.Bump(kind);
+                SignalRBroadcastConstrainer.Queue(_hubContext, kind, _options.MaterializerBroadcastIntervalMs);
+            }
         }
 
         return warmedAny;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Page key -> beacon surface kinds
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    ///     Maps a warmed page key to the dashboard surface kinds its widgets declare
+    ///     (<c>data-sb-depends</c>), so the content-ready beacon's dirtyKinds intersect
+    ///     the client's widget dependencies. Keys are the <see cref="DashboardFreshnessBeacon.Surfaces"/>
+    ///     catalog constants (one source of truth per
+    ///     <c>feedback_centralised_change_detection</c>). Unknown page keys fall back to
+    ///     the key itself, preserving the pre-mapping behavior for pages this table has
+    ///     never seen.
+    /// </summary>
+    private static IReadOnlyList<string> PageSurfaceKindsFor(string pageKey)
+    {
+        if (_pageSurfaceKinds.TryGetValue(pageKey, out var kinds)) return kinds;
+        return new[] { pageKey };
+    }
+
+    private static readonly IReadOnlyDictionary<string, string[]> _pageSurfaceKinds =
+        new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            // dashboard.traffic bundles every slice of the Traffic row: the hits chart +
+            // counters depend on summary, the map on countries, the endpoints table on
+            // endpoints, the top-bots widget on topbots, the by-source / top-visitors
+            // panels on signature, the threats card on threats, the user-agents row on
+            // useragents. A warm for ANY slice re-keys the widgets whose data it feeds.
+            ["dashboard.traffic"] = new[]
+            {
+                DashboardFreshnessBeacon.Surfaces.Summary,
+                DashboardFreshnessBeacon.Surfaces.Countries,
+                DashboardFreshnessBeacon.Surfaces.Endpoints,
+                DashboardFreshnessBeacon.Surfaces.TopBots,
+                DashboardFreshnessBeacon.Surfaces.Signature,
+                DashboardFreshnessBeacon.Surfaces.Threats,
+                DashboardFreshnessBeacon.Surfaces.UserAgents,
+            },
+            ["dashboard.topbots"] = new[]
+            {
+                DashboardFreshnessBeacon.Surfaces.TopBots,
+                DashboardFreshnessBeacon.Surfaces.Signature,
+            },
+            ["dashboard.clusters"] = new[] { DashboardFreshnessBeacon.Surfaces.Clusters },
+            ["dashboard.sessions"] = new[] { DashboardFreshnessBeacon.Surfaces.Sessions },
+            ["dashboard.threats"] = new[] { DashboardFreshnessBeacon.Surfaces.Threats },
+            ["dashboard.visitors"] = new[]
+            {
+                DashboardFreshnessBeacon.Surfaces.Signature,
+                DashboardFreshnessBeacon.Surfaces.Countries,
+                DashboardFreshnessBeacon.Surfaces.UserAgents,
+            },
+        };
+
+    /// <summary>
+    ///     Observes a fire-and-forget task's fault so a background failure (the boot pass,
+    ///     an out-of-band warm) never surfaces as an unobserved-task exception. Same shape
+    ///     as the commercial <c>DashboardBucketPrewarmService</c> / <c>TickFreshMaterializer</c>
+    ///     fault observers.
+    /// </summary>
+    private static void ObserveFault(Task task)
+    {
+        if (task.IsCompleted)
+        {
+            _ = task.Exception;
+            return;
+        }
+        task.ContinueWith(
+            static t => { _ = t.Exception; },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 }
