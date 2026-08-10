@@ -1476,12 +1476,16 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var honeyPotOnly = string.Equals(audienceFilter, "honeypot", StringComparison.OrdinalIgnoreCase);
         await using var cmd = conn.CreateCommand();
         // Check if the bounded table has any data; fall back to detections
-        // scan on a pre-migration (empty) host.
+        // scan on a pre-migration (empty) host. Also fall back for audience
+        // filters that include Internal traffic (endpoint_stats excludes
+        // Internal at upsert time to keep the operator-facing list clean).
         await using (var checkCmd = conn.CreateCommand())
         {
+            var fallbackAudiences = string.Equals(audienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase)
+                                 || string.Equals(audienceFilter, "internal", StringComparison.OrdinalIgnoreCase);
             checkCmd.CommandText = "SELECT COUNT(*) FROM endpoint_stats";
             var rowCount = (long)(await checkCmd.ExecuteScalarAsync())!;
-            if (rowCount == 0)
+            if (rowCount == 0 || fallbackAudiences)
                 return await GetEndpointStatsFromDetectionsFallbackAsync(
                     conn, count, startTime, endTime, audienceFilter, domains);
         }
