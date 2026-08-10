@@ -387,15 +387,22 @@ public sealed class SqliteCompressionFoldTests : IDisposable
     public async Task Fusion_batch_drains_lowest_importance_first_and_merges_split_groups()
     {
         var now = DateTime.UtcNow;
+        // Truncate to the hour then add 15 min as a safe baseline — this
+        // prevents the per-row AddMinutes offsets from crossing an hour
+        // boundary when UtcNow lands near xx:58-x:59 (the fusion key
+        // includes the hour bucket, so a boundary cross scatters rows
+        // across two hours and silently breaks the expected row count).
+        var baseTs = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Utc)
+            .AddHours(-6).AddMinutes(15);
         // Two signatures, same hour: weights sig-lowest ≈ 0.05 (prob 0.1),
         // sig-mid ≈ 0.15 (prob 0.3) — both below the 0.4 floor, both
         // non-enforcement (a rate-limit action would be exempt from fusion).
         // Distinct per-row timestamps make the (weight, timestamp) drain order
         // deterministic across ticks (identical timestamps would tie).
         for (var i = 0; i < 3; i++)
-            await _store.AddDetectionAsync(Event("sig-lowest", now.AddHours(-6).AddMinutes(i), 0.1, "allow", null));
+            await _store.AddDetectionAsync(Event("sig-lowest", baseTs.AddMinutes(i), 0.1, "allow", null));
         for (var i = 0; i < 3; i++)
-            await _store.AddDetectionAsync(Event("sig-mid", now.AddHours(-6).AddMinutes(10 + i), 0.3, "allow", null));
+            await _store.AddDetectionAsync(Event("sig-mid", baseTs.AddMinutes(10 + i), 0.3, "allow", null));
 
         // batch=2 drains lowest-weight first: sig-lowest (0.05) consumes both
         // slots of tick 1, so the sig-mid group is SPLIT across the batch
