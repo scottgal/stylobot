@@ -119,8 +119,11 @@ public sealed class BotListBucketFetchSourceTests
         try
         {
             var db = await NewInitializedDbAsync(dbPath); // self-heal writes a "now" row to both buckets first
-            var botPatternsAt = new DateTime(2026, 8, 8, 15, 4, 0, DateTimeKind.Utc);
-            var datacenterIpsAt = new DateTime(2026, 8, 8, 14, 12, 0, DateTimeKind.Utc);
+            // Use recent timestamps relative to now, not hardcoded — the health gate
+            // is cadence (24h) × tolerance (1.5) = 36h; a fixed date goes stale as
+            // wall-clock advances, same hour-boundary-class bug fixed in DetectionCompressionTests.
+            var botPatternsAt = DateTime.UtcNow.AddHours(-2);
+            var datacenterIpsAt = DateTime.UtcNow.AddHours(-3);
             await OverwriteListUpdateAsync(dbPath, "bot_patterns", botPatternsAt);
             await OverwriteListUpdateAsync(dbPath, "datacenter_ips", datacenterIpsAt);
 
