@@ -1,0 +1,50 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "site1": {
+        "ClusterId": "www",
+        "Match": {
+          "Hosts": ["site1.test"],
+          "Path": "{**catch-all}"
+        }
+      },
+      "site2": {
+        "ClusterId": "site2",
+        "Match": {
+          "Hosts": ["site2.test"],
+          "Path": "{**catch-all}"
+        }
+      },
+      "site3": {
+        "ClusterId": "site3",
+        "Match": {
+          "Hosts": ["site3.test"],
+          "Path": "{**catch-all}"
+        }
+      }
+    },
+    "Clusters": {
+      "www": {
+        "Destinations": {
+          "stub": {
+            "Address": "http://www:80"
+          }
+        }
+      },
+      "site2": {
+        "Destinations": {
+          "stub": {
+            "Address": "http://site2:80"
+          }
+        }
+      },
+      "site3": {
+        "Destinations": {
+          "stub": {
+            "Address": "http://site3:80"
+          }
+        }
+      }
+    }
+  }
+}

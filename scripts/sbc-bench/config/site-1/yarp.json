@@ -1,0 +1,21 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "www": {
+        "ClusterId": "www",
+        "Match": {
+          "Path": "{**catch-all}"
+        }
+      }
+    },
+    "Clusters": {
+      "www": {
+        "Destinations": {
+          "stub": {
+            "Address": "http://www:80"
+          }
+        }
+      }
+    }
+  }
+}

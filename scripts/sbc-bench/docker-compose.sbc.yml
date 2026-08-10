@@ -1,0 +1,53 @@
+# SBC benchmark stack — default config, what an average user would see.
+#
+#   gateway          scottgal/stylobot-gateway:latest (multi-arch; arm64 on Pi/OPi)
+#   www/app stubs    nginx:alpine upstreams so the detection pipeline has a real
+#                    backend to proxy to (default config has no upstream stub
+#                    otherwise). Single-site = 1 stub; three-site = 3 stubs.
+#
+# Usage (via sbc-agent.sh on the device; or standalone):
+#   docker compose -f docker-compose.sbc.yml -f docker-compose.sbc.postgres.yml up -d
+#
+# Env:
+#   GATEWAY_IMAGE   image to run (default scottgal/stylobot-gateway:latest)
+#   SITES           1 | 3 (config dir selected by sbc-agent.sh)
+#   BENCH_API_KEY   the poison-safe logonly key k6 sends as X-SB-Api-Key
+services:
+  gateway:
+    image: ${GATEWAY_IMAGE:-scottgal/stylobot-gateway:latest}
+    container_name: stylobot-sbc-gw
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      # Detect + logonly (default-action behaviour for a bench): the synthetic
+      # flood must NOT block/tarpit (confounds latency) nor train the model
+      # (poison-safe key, see k6-sbc.js).
+      - BotDetection__ApiKeys__${BENCH_API_KEY_NAME:-SB-BENCH}__Enabled=true
+      - BotDetection__ApiKeys__${BENCH_API_KEY_NAME:-SB-BENCH}__ActionPolicyName=logonly
+    volumes:
+      - ./config/site-${SITES:-1}:/app/config:ro
+      - sbc-data:/app/data
+      - sbc-logs:/app/logs
+    restart: unless-stopped
+
+  www:
+    image: nginx:alpine
+    container_name: stylobot-sbc-www
+    restart: unless-stopped
+
+  site2:
+    image: nginx:alpine
+    container_name: stylobot-sbc-site2
+    profiles: ["three-site"]
+    restart: unless-stopped
+
+  site3:
+    image: nginx:alpine
+    container_name: stylobot-sbc-site3
+    profiles: ["three-site"]
+    restart: unless-stopped
+
+volumes:
+  sbc-data:
+  sbc-logs:
