@@ -2899,7 +2899,12 @@ public class StyloBotDashboardMiddleware
         DateTime? startTime = DateTime.TryParse(startTimeStr, out var st) ? st : null;
         DateTime? endTime = DateTime.TryParse(endTimeStr, out var et) ? et : null;
         var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
-        var storeFilters = audienceFilter is "humans" or "bots" or "honeypot";
+        // all_incl_internal MUST route through the store: the composed/cached
+        // snapshot never contains Internal rows (see SbWidgetBatchMiddleware),
+        // so the "Show self-probe" toggle is a no-op unless the audience token
+        // reaches the store's AudiencePredicate. Matches the storeFilters set
+        // in SbWidgetBatchMiddleware — same defect class fixed there.
+        var storeFilters = audienceFilter is "humans" or "bots" or "honeypot" or "all_incl_internal";
 
         List<DashboardEndpointStats> endpoints;
         if (startTime.HasValue || endTime.HasValue || storeFilters)
@@ -2907,6 +2912,8 @@ public class StyloBotDashboardMiddleware
             // honeypot is path-shape but still routes through the store so
             // IsHoneypot is populated per row by the path classifier and the
             // store applies the honeypot filter in-process post-query.
+            // all_incl_internal has the same requirement: only the store knows
+            // the Internal rows.
             endpoints = await _eventStore.GetEndpointStatsAsync(count, startTime, endTime,
                 storeFilters ? audienceFilter : null);
         }
@@ -8393,6 +8400,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             "method" => sortDir == "asc" ? all.OrderBy(e => e.Method) : all.OrderByDescending(e => e.Method),
             "path" => sortDir == "asc" ? all.OrderBy(e => e.Path) : all.OrderByDescending(e => e.Path),
             "bots" => sortDir == "asc" ? all.OrderBy(e => e.BotCount) : all.OrderByDescending(e => e.BotCount),
+            "humans" => sortDir == "asc" ? all.OrderBy(e => e.HumanCount) : all.OrderByDescending(e => e.HumanCount),
             "botrate" => sortDir == "asc" ? all.OrderBy(e => e.BotRate) : all.OrderByDescending(e => e.BotRate),
             "latency" => sortDir == "asc" ? all.OrderBy(e => e.AvgProcessingTimeMs) : all.OrderByDescending(e => e.AvgProcessingTimeMs),
             "threat" => sortDir == "asc" ? all.OrderBy(e => e.AvgThreatScore) : all.OrderByDescending(e => e.AvgThreatScore),

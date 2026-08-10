@@ -226,6 +226,7 @@ public class SbEndpointsListViewComponent(
         IEnumerable<DashboardEndpointStats> sorted = sort switch
         {
             "bots" => dir == "asc" ? data.OrderBy(x => x.BotCount) : data.OrderByDescending(x => x.BotCount),
+            "humans" => dir == "asc" ? data.OrderBy(x => x.HumanCount) : data.OrderByDescending(x => x.HumanCount),
             "botrate" => dir == "asc" ? data.OrderBy(x => x.BotRate) : data.OrderByDescending(x => x.BotRate),
             "latency" => dir == "asc" ? data.OrderBy(x => x.AvgProcessingTimeMs) : data.OrderByDescending(x => x.AvgProcessingTimeMs),
             "unique" => dir == "asc" ? data.OrderBy(x => x.UniqueSignatures) : data.OrderByDescending(x => x.UniqueSignatures),

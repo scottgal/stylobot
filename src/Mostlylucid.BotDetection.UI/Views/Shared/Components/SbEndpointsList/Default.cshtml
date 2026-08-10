@@ -109,10 +109,16 @@
        layouts (the half-width Activity card has no room for a second control
        row). Both controls drop back to page=1 so the new filter set is paged
        from the start. The path filter HTMX-debounces at 350ms so typing
-       doesn't fire a request per keystroke. *@
+       doesn't fire a request per keystroke.
+       Layout (operator 2026-08-10): two explicit rows, not one wrap-all flex
+       that spilled across three — row 1 holds every chip cluster (status /
+       honeypot / self-probe / mode), row 2 holds the method dropdown + path
+       input inline. Chips still wrap within row 1 on narrow widths, but the
+       dropdown + textbox never drop to their own line. *@
     @if (!Model.IsCompact)
     {
-        <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
+        <div class="mb-3 text-xs">
+        <div class="flex flex-wrap items-center gap-2">
             <span class="text-base-content/40 mr-1">Status</span>
             <a href="#" hx-get="@StatusUrl("all")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
@@ -189,11 +195,15 @@
             <a href="#" hx-get="@ModeUrl("realtime")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@ModeChipClass("realtime")" title="SignalR hub/negotiate + WebSocket upgrade paths">Realtime</a>
+        </div>
 
+        @* Row 2: method dropdown + path filter share one line (operator 2026-08-10:
+           they used to wrap onto their own third row). *@
+        <div class="flex flex-wrap items-center gap-2 mt-2">
             @* METHOD select (Si2 endpoint-IA unification): rather than a chip per verb
                (open-ended set -- CONNECT/OPTIONS/etc. are legitimate rows too), a
                compact select covers the common verbs plus "All". *@
-            <span class="text-base-content/30 mx-1">·</span>
+            <span class="text-base-content/30 mr-1">·</span>
             <select name="method"
                     class="select select-xs select-bordered font-mono"
                     hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&path=@Uri.EscapeDataString(Model.PathFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&mode=@Uri.EscapeDataString(currentMode)"
@@ -214,6 +224,7 @@
                    hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                    hx-trigger="keyup changed delay:350ms, search"
                    hx-include="this" />
+        </div>
         </div>
     }
     @if (Model.IsCommercial && Model.AllowEndpointPinning)
@@ -291,7 +302,18 @@
                     <th class="py-1 @ThClass("path") cursor-pointer" hx-get="@SortUrl("path")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Path@(Html.Raw(SortIcon("path")))</th>
                     <th class="py-1 text-center @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Bot pressure: bot hits as a fraction of total in the trailing window">Bot Pressure@(Html.Raw(SortIcon("botrate")))</th>
                     <th class="py-1 text-center @ThClass("threat") cursor-pointer @(compact ? "" : "hidden md:table-cell")" hx-get="@SortUrl("threat")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Threat@(Html.Raw(SortIcon("threat")))</th>
-                    <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Hits@(Html.Raw(SortIcon("total")))</th>
+                    @* Hit split columns (operator 2026-08-10): Human / Bot / Total
+                       per endpoint, replacing the single Hits column. Human + Bot
+                       always sum to Total, and each is independently sortable
+                       (sort=humans / sort=bots / sort=total in the partial
+                       handler). Compact/glance mode keeps just the total — the
+                       side-column widget is a glance, not the full control. *@
+                    @if (!compact)
+                    {
+                        <th class="py-1 text-right @ThClass("humans") cursor-pointer" hx-get="@SortUrl("humans")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Human@(Html.Raw(SortIcon("humans")))</th>
+                        <th class="py-1 text-right @ThClass("bots") cursor-pointer" hx-get="@SortUrl("bots")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Bot@(Html.Raw(SortIcon("bots")))</th>
+                    }
+                    <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Total@(Html.Raw(SortIcon("total")))</th>
                     @* Latency (avg / p95) shows in compact too — operators asked for
                        p95 on the overview's content-pages widget. Bytes / Sigs /
                        Policy / Split stay full-mode only (they don't fit a side column). *@
@@ -389,6 +411,11 @@
                         <td class="py-1 text-center @(compact ? "" : "hidden md:table-cell")">
                             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIcon)
                         </td>
+                        @if (!compact)
+                        {
+                            <td class="py-1 text-right text-xs font-mono tabular-nums text-success/80">@endpoint.HumanCount</td>
+                            <td class="py-1 text-right text-xs font-mono tabular-nums text-error/80">@endpoint.BotCount</td>
+                        }
                         <td class="py-1 text-right text-xs font-mono tabular-nums">@endpoint.TotalCount</td>
                         @* Latency (avg / p95) renders in compact too so the content-pages
                            widget carries p95; kept as its own cell outside the !compact gate. *@
