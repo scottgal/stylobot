@@ -43,11 +43,13 @@ recommend() {
   mem_max=$(awk -F, 'NR>1 && $4+0>max {max=$4+0} END{print max+0}' "$dir/metrics.csv" 2>/dev/null || echo 0)
   mem_rec=$(awk "BEGIN{printf \"%.0f\", ($mem_max * $RAM_HEADROOM) / 1024}")
 
-  # storage: growth over the run (first vs last db/pg bytes) -> per hour
-  local db_first db_last growth_h
+  # storage: growth over the whole run (first vs last db bytes) / run hours.
+  # Run duration = sample count x 5s (sampler cadence) — NOT a fixed multiplier.
+  local db_first db_last growth_h n
   db_first=$(awk -F, 'NR==2{print $7+0}' "$dir/metrics.csv" 2>/dev/null || echo 0)
   db_last=$(tail -1 "$dir/metrics.csv" 2>/dev/null | awk -F, '{print $7+0}')
-  growth_h=$(awk "BEGIN{printf \"%.1f\", (($db_last-$db_first)/1024/1024) * 12}")  # 5s samples x12 = per hour MB
+  n=$(($(wc -l < "$dir/metrics.csv" 2>/dev/null || echo 0) - 1))
+  growth_h=$(awk "BEGIN{ h=($n*5)/3600; if (h>0) printf \"%.1f\", (($db_last-$db_first)/1024/1024)/h; else printf \"0\" }")
 
   # soak verdict: flat if last window p95 <= 2x first window p95 and errors < 1%
   local soak_verdict="n/a"
