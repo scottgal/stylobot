@@ -117,6 +117,20 @@ public interface IDashboardEventStore
     Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null);
 
     /// <summary>
+    ///     Look up a single signature by its primary-signature id from the
+    ///     <c>signatures</c> table directly — no limit, no recency window.
+    ///     Returns null when the signature has never been seen. Used by the
+    ///     signature-detail page's empty-detections fallback to avoid the
+    ///     top-N recency window that can hide a high-hit but stale-last_seen
+    ///     signature (it appears in Top Bots by hit count but falls outside
+    ///     GetSignaturesAsync's last_seen DESC limit).
+    /// </summary>
+    Task<DashboardSignatureEvent?> TryGetSignatureAsync(string signatureId, CancellationToken ct = default)
+    {
+        return Task.FromResult<DashboardSignatureEvent?>(null);
+    }
+
+    /// <summary>
     ///     Upsert a single detection's endpoint stats into the bounded
     ///     <c>endpoint_stats</c> table — one row per (method, path, domain),
     ///     counters incremented atomically. Called from

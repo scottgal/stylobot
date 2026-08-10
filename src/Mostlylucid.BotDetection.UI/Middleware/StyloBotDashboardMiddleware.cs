@@ -7388,7 +7388,17 @@ public class StyloBotDashboardMiddleware
         // Check every available data source for this signature.
         var sigDetailLookup = await _eventStore.LoadSignatureLookupAsync();
         if (!sigDetailLookup.TryGetValue(signature, out var botName))
-            return null; // genuinely unknown — 404
+        {
+            // The top-N recency window (LoadSignatureLookupAsync → GetSignaturesAsync
+            // ordered by last_seen DESC) can hide a high-hit but stale-last_seen
+            // signature that appears in Top Bots (ordered by hit count) but falls
+            // outside the recency limit. Fall back to a direct single-signature
+            // lookup against the signatures table before giving up.
+            var sigRow = await _eventStore.TryGetSignatureAsync(signature, context.RequestAborted);
+            if (sigRow is null)
+                return null; // genuinely unknown — 404
+            botName = sigRow.BotName;
+        }
 
         var visitorCache = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitor = visitorCache?.GetVisitor(signature);

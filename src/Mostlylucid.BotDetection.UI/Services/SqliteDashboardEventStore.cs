@@ -578,6 +578,23 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         catch { return null; }
     }
 
+    public async Task<DashboardSignatureEvent?> TryGetSignatureAsync(
+        string signatureId, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM signatures WHERE signature = @sig LIMIT 1";
+        cmd.Parameters.AddWithValue("@sig", signatureId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (await reader.ReadAsync(ct))
+            return ReadSignature(reader);
+        return null;
+    }
+
     public async Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0, bool? isBot = null)
     {
         await EnsureInitializedAsync();
