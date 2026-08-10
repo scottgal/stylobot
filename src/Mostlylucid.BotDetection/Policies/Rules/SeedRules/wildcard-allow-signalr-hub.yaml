@@ -1,0 +1,33 @@
+# Wildcard baseline: the dashboard's SignalR hub transport
+# (/stylobot/hub + /stylobot/hub/negotiate) is the product's own live-data
+# channel on every deployment. The FOSS pipeline classifies hub requests
+# like any other request -- and when a visitor's fingerprint crosses the
+# bot threshold, the per-BotType fallback applies a throttle action.
+# A throttle response to a WebSocket UPGRADE is not a 101: behind a
+# WebSocket-aware edge (Cloudflare tunnel etc.) it surfaces to the browser
+# as the edge's own 502 page, the SignalR client reconnects, and the
+# reconnect traffic pushes the fingerprint further past the threshold --
+# a self-sustaining reconnect storm with a broken live dashboard.
+#
+# Detection STILL RUNS on hub requests (scored, logged, learned). This
+# rule suppresses ONLY the throttle/block ACTION, never the detection --
+# same rationale as wildcard-allow-stylobot-internal.yaml: without it the
+# dashboard's live feed is broken by default on a fresh deployment and
+# operators have to discover and add the rule themselves.
+#
+# Scope: wildcard (the hub path is a deployment default, not a domain
+# name); path narrowed in the predicate. Deployments that override
+# StyloBotDashboardOptions.HubPath need an equivalent rule for their
+# custom path.
+#
+# Priority 150 sits above the internal-allow rule (200) and the
+# block-confirmed-bot baseline (500), so it wins when both fire.
+id: 00000000-0000-0000-0000-000000000004
+scope:
+  kind: wildcard
+priority: 150
+predicate: 'request.path matches "^/stylobot/hub"'
+action:
+  kind: allow
+mode: live
+notes: "Default: allow the dashboard SignalR hub transport (upgrade + negotiate). Detection runs; throttle/block action suppressed."
