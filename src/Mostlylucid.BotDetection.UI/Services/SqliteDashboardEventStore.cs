@@ -212,6 +212,41 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             if (prunedDegradation > 0) _logger.LogDebug(
                 "Pruned {Count} old degradation snapshots", prunedDegradation);
 
+            // Bounded endpoint-stats table — one row per (method, path, domain).
+            // Counters are incremented atomically at detection-persist time;
+            // GetEndpointStatsAsync reads from here instead of scanning the
+            // per-request detections table. Operator directive (2026-08-10):
+            // "We do NOT have per-request stores ever. We CAN have endpoints
+            // as a limited store."
+            await using (var epCmd = conn.CreateCommand())
+            {
+                epCmd.CommandText = """
+                    CREATE TABLE IF NOT EXISTS endpoint_stats (
+                        method    TEXT NOT NULL,
+                        path      TEXT NOT NULL,
+                        domain    TEXT NOT NULL DEFAULT '',
+                        is_bot    INTEGER NOT NULL DEFAULT 0,
+                        hit_count INTEGER NOT NULL DEFAULT 0,
+                        bytes_sum INTEGER NOT NULL DEFAULT 0,
+                        ms_sum    REAL    NOT NULL DEFAULT 0,
+                        ms_max    REAL    NOT NULL DEFAULT 0,
+                        threat_sum REAL   NOT NULL DEFAULT 0,
+                        last_seen TEXT    NOT NULL DEFAULT '',
+                        s2xx      INTEGER NOT NULL DEFAULT 0,
+                        s3xx      INTEGER NOT NULL DEFAULT 0,
+                        s4xx      INTEGER NOT NULL DEFAULT 0,
+                        s5xx      INTEGER NOT NULL DEFAULT 0,
+                        us2xx     INTEGER NOT NULL DEFAULT 0,
+                        us3xx     INTEGER NOT NULL DEFAULT 0,
+                        us4xx     INTEGER NOT NULL DEFAULT 0,
+                        us5xx     INTEGER NOT NULL DEFAULT 0,
+                        us_none   INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (method, path, domain, is_bot)
+                    )
+                    """;
+                await epCmd.ExecuteNonQueryAsync(ct);
+            }
+
             _initialized = true;
             _logger.LogInformation("SQLite dashboard event store initialized at {Path}", _connectionString);
         }
@@ -279,6 +314,28 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
             // Upsert UA stats for analytics
             await UpsertUserAgentStatsAsync(conn, strippedUa, detection.IsBot);
+
+            // Maintain the bounded endpoint_stats table — operator directive
+            // (2026-08-10): endpoint list is a limited store, updated at
+            // detection-persist time, never scanned from per-request rows.
+            // Internal LAN traffic is excluded from endpoint stats (it's the
+            // product's own dashboard/API traffic, not an operator-facing
+            // endpoint).
+            if (!string.Equals(detection.BotType, "Internal", StringComparison.OrdinalIgnoreCase))
+            {
+                await UpsertEndpointStatsAsync(
+                    detection.Method ?? "GET",
+                    detection.Path ?? "/",
+                    detection.Domain,
+                    detection.IsBot,
+                    detection.BotProbability,
+                    detection.ThreatScore,
+                    detection.ResponseBytes,
+                    detection.ProcessingTimeMs,
+                    detection.StatusCode,
+                    detection.UpstreamStatusCode,
+                    detection.Timestamp);
+            }
         }
         finally
         {
@@ -1313,6 +1370,76 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         };
     }
 
+    public async Task UpsertEndpointStatsAsync(
+        string method,
+        string path,
+        string? domain,
+        bool isBot,
+        double botProbability,
+        double? threatScore,
+        long? responseBytes,
+        double? processingTimeMs,
+        int statusCode,
+        int? upstreamStatusCode,
+        DateTime timestamp,
+        CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO endpoint_stats
+                (method, path, domain, is_bot, hit_count,
+                 bytes_sum, ms_sum, ms_max, threat_sum, last_seen,
+                 s2xx, s3xx, s4xx, s5xx,
+                 us2xx, us3xx, us4xx, us5xx, us_none)
+            VALUES
+                (@method, @path, @domain, @isBot, 1,
+                 @bytes, @ms, @ms, @threat, @lastSeen,
+                 @s2xx, @s3xx, @s4xx, @s5xx,
+                 @us2xx, @us3xx, @us4xx, @us5xx, @usNone)
+            ON CONFLICT(method, path, domain, is_bot) DO UPDATE SET
+                hit_count = hit_count + 1,
+                bytes_sum = bytes_sum + @bytes,
+                ms_sum    = ms_sum + @ms,
+                ms_max    = MAX(ms_max, @ms),
+                threat_sum = threat_sum + @threat,
+                last_seen = MAX(last_seen, @lastSeen),
+                s2xx      = s2xx  + @s2xx,
+                s3xx      = s3xx  + @s3xx,
+                s4xx      = s4xx  + @s4xx,
+                s5xx      = s5xx  + @s5xx,
+                us2xx     = us2xx + @us2xx,
+                us3xx     = us3xx + @us3xx,
+                us4xx     = us4xx + @us4xx,
+                us5xx     = us5xx + @us5xx,
+                us_none   = us_none + @usNone
+            """;
+        var dom = domain ?? string.Empty;
+        cmd.Parameters.AddWithValue("@method", method);
+        cmd.Parameters.AddWithValue("@path", path);
+        cmd.Parameters.AddWithValue("@domain", dom);
+        cmd.Parameters.AddWithValue("@isBot", isBot ? 1 : 0);
+        cmd.Parameters.AddWithValue("@bytes", responseBytes ?? 0L);
+        var ms = processingTimeMs ?? 0;
+        cmd.Parameters.AddWithValue("@ms", ms);
+        cmd.Parameters.AddWithValue("@threat", threatScore ?? 0);
+        cmd.Parameters.AddWithValue("@lastSeen", timestamp.ToString("O"));
+        cmd.Parameters.AddWithValue("@s2xx", statusCode is >= 200 and <= 299 ? 1 : 0);
+        cmd.Parameters.AddWithValue("@s3xx", statusCode is >= 300 and <= 399 ? 1 : 0);
+        cmd.Parameters.AddWithValue("@s4xx", statusCode is >= 400 and <= 499 ? 1 : 0);
+        cmd.Parameters.AddWithValue("@s5xx", statusCode is >= 500 and <= 599 ? 1 : 0);
+        var us = upstreamStatusCode;
+        cmd.Parameters.AddWithValue("@us2xx", us is >= 200 and <= 299 ? 1 : 0);
+        cmd.Parameters.AddWithValue("@us3xx", us is >= 300 and <= 399 ? 1 : 0);
+        cmd.Parameters.AddWithValue("@us4xx", us is >= 400 and <= 499 ? 1 : 0);
+        cmd.Parameters.AddWithValue("@us5xx", us is >= 500 and <= 599 ? 1 : 0);
+        cmd.Parameters.AddWithValue("@usNone", us is null ? 1 : 0);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
         int count = 50,
         DateTime? startTime = null,
@@ -1326,28 +1453,140 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
         // Build WHERE clause. Time predicates fix the latent bug where startTime/endTime were
         // accepted by the signature but never applied. The audience filter maps "humans"/"bots"
-        // to the is_bot column written by AddDetectionAsync (detection.IsBot ? 1 : 0).
-        // "honeypot" is a path-shape filter applied post-query because IsHoneypot is derived
-        // from HoneypotPathDefinitions.Classify, not a column on detections.
-        // Drill-down: fused rows lost their (method, path) shape — exclude them.
-        var honeypotOnly = string.Equals(audienceFilter, "honeypot", StringComparison.OrdinalIgnoreCase);
+        // Read from the bounded endpoint_stats table — split by is_bot so
+        // audience filters work correctly. Aggregate across is_bot for the
+        // default (all) view.
+        var honeyPotOnly = string.Equals(audienceFilter, "honeypot", StringComparison.OrdinalIgnoreCase);
+        await using var cmd = conn.CreateCommand();
+        // Check if the bounded table has any data; fall back to detections
+        // scan on a pre-migration (empty) host.
+        await using (var checkCmd = conn.CreateCommand())
+        {
+            checkCmd.CommandText = "SELECT COUNT(*) FROM endpoint_stats";
+            var rowCount = (long)(await checkCmd.ExecuteScalarAsync())!;
+            if (rowCount == 0)
+                return await GetEndpointStatsFromDetectionsFallbackAsync(
+                    conn, count, startTime, endTime, audienceFilter, domains);
+        }
+
+        // Build WHERE for the inner per-is_bot row filter, then GROUP BY
+        // (method, path, domain) to merge bot + human rows.
+        var innerWhere = new System.Text.StringBuilder("WHERE 1=1");
+        if (startTime.HasValue) innerWhere.Append(" AND last_seen >= @start");
+        if (endTime.HasValue)   innerWhere.Append(" AND last_seen <= @end");
+        // Audience: filter to is_bot = 1 (bots) or 0 (humans), or all rows.
+        if (string.Equals(audienceFilter, "bots", StringComparison.OrdinalIgnoreCase))
+            innerWhere.Append(" AND is_bot = 1");
+        else if (string.Equals(audienceFilter, "humans", StringComparison.OrdinalIgnoreCase))
+            innerWhere.Append(" AND is_bot = 0");
+        // "honeypot" is a post-query path-based filter — no is_bot gate.
+        if (domains is { Count: > 0 })
+        {
+            innerWhere.Append(" AND domain IN (");
+            for (var i = 0; i < domains.Count; i++)
+            {
+                if (i > 0) innerWhere.Append(',');
+                innerWhere.Append($"@dom{i}");
+                cmd.Parameters.AddWithValue($"@dom{i}", domains[i]);
+            }
+            innerWhere.Append(')');
+        }
+
+        // Aggregate across the is_bot split. For the default audience, SUM
+        // both bot and human rows; for audience-filtered queries the inner
+        // WHERE already restricts to one is_bot value so the SUM is exact.
+        cmd.CommandText = $"""
+            SELECT method, path, domain,
+                   SUM(hit_count) as total,
+                   SUM(CASE WHEN is_bot = 1 THEN hit_count ELSE 0 END) as bots,
+                   SUM(bytes_sum) as bytes_out,
+                   SUM(ms_sum) as ms_sum,
+                   MAX(ms_max) as ms_max,
+                   SUM(threat_sum) as threat_sum,
+                   MAX(last_seen) as last_seen,
+                   SUM(s2xx) as s2xx, SUM(s3xx) as s3xx,
+                   SUM(s4xx) as s4xx, SUM(s5xx) as s5xx,
+                   SUM(us2xx) as us2xx, SUM(us3xx) as us3xx,
+                   SUM(us4xx) as us4xx, SUM(us5xx) as us5xx,
+                   SUM(us_none) as us_none
+            FROM endpoint_stats
+            {innerWhere}
+            GROUP BY method, path, domain
+            ORDER BY total DESC
+            LIMIT @count
+            """;
+        cmd.Parameters.AddWithValue("@count", count);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+
+        var results = new List<DashboardEndpointStats>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var total = reader.GetInt32(3);   // SUM(hit_count)
+            var bots  = reader.GetInt32(4);   // SUM(bot hit_count)
+            var sumMs = reader.GetDouble(6);  // SUM(ms_sum)
+            var maxMs = reader.IsDBNull(7) ? 0 : reader.GetDouble(7);
+            var avgMs = total > 0 ? sumMs / total : 0;
+            var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
+            var path = reader.GetString(1);
+            var honeypotTier = Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions
+                .Classify(path, out _);
+            var isHoneypot = honeypotTier > Mostlylucid.BotDetection.Honeypot.HoneypotTier.None;
+            if (honeyPotOnly && !isHoneypot) continue;
+            var threatSum = reader.IsDBNull(8) ? 0 : reader.GetDouble(8);
+            results.Add(new DashboardEndpointStats
+            {
+                Method              = reader.GetString(0),
+                Path                = path,
+                TotalCount          = total,
+                BotCount            = bots,
+                BotRate             = total > 0 ? (double)bots / total : 0,
+                UniqueSignatures    = 0, // bounded table
+                AvgProcessingTimeMs = avgMs,
+                MinProcessingTimeMs = 0,
+                MaxProcessingTimeMs = maxMs,
+                P95ProcessingTimeMs = p95Ms,
+                AvgThreatScore      = total > 0 ? threatSum / total : 0,
+                LastSeen            = DateTime.Parse(reader.GetString(9)),
+                BytesOut            = reader.IsDBNull(5) ? 0L : Convert.ToInt64(reader.GetValue(5)),
+                Status2xx           = reader.IsDBNull(10) ? 0 : reader.GetInt32(10),
+                Status3xx           = reader.IsDBNull(11) ? 0 : reader.GetInt32(11),
+                Status4xx           = reader.IsDBNull(12) ? 0 : reader.GetInt32(12),
+                Status5xx           = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
+                UpstreamStatus2xx   = reader.IsDBNull(14) ? 0 : reader.GetInt32(14),
+                UpstreamStatus3xx   = reader.IsDBNull(15) ? 0 : reader.GetInt32(15),
+                UpstreamStatus4xx   = reader.IsDBNull(16) ? 0 : reader.GetInt32(16),
+                UpstreamStatus5xx   = reader.IsDBNull(17) ? 0 : reader.GetInt32(17),
+                UpstreamNoneCount   = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
+                IsHoneypot          = isHoneypot,
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
+    ///     Fallback: scan the per-request detections table for endpoint stats
+    ///     when the bounded <c>endpoint_stats</c> table is empty (pre-migration
+    ///     hosts where the upsert hasn't been running yet).
+    /// </summary>
+    private async Task<List<DashboardEndpointStats>> GetEndpointStatsFromDetectionsFallbackAsync(
+        SqliteConnection conn,
+        int count,
+        DateTime? startTime,
+        DateTime? endTime,
+        string? audienceFilter,
+        IReadOnlyList<string>? domains)
+    {
+        var honeyPotOnly = string.Equals(audienceFilter, "honeypot", StringComparison.OrdinalIgnoreCase);
         var where = new System.Text.StringBuilder("WHERE fused = 0");
         if (startTime.HasValue) where.Append(" AND timestamp >= @start");
         if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
-        // Internal-exclusion + bot/human gate, shared with Postgres (see AudiencePredicate).
-        // "honeypot" falls to the default (exclude self); honeypot rows are then filtered
-        // in-memory after path classification.
         where.Append(AudiencePredicate(audienceFilter));
         var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
         if (domainPredicate.Length > 0) where.Append(domainPredicate);
 
         await using var cmd = conn.CreateCommand();
-        // SQLite lacks PERCENTILE_CONT, so p95 is approximated using avg + 90% of (max - avg).
-        // Crude but consistent with the existing convention; the Postgres backend returns true p95.
-        // Column order (0-based): method(0), path(1), total(2), bots(3), sigs(4),
-        //   avg_ms(5), min_ms(6), max_ms(7), avg_threat(8), last_seen(9), bytes_out(10),
-        //   s2xx(11), s3xx(12), s4xx(13), s5xx(14),
-        //   us2xx(15), us3xx(16), us4xx(17), us5xx(18), us_none(19)
         cmd.CommandText = $"""
             SELECT method, path,
                    COUNT(*) as total,
@@ -1378,7 +1617,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
         cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
-        foreach (var (name, value) in domainParams) cmd.Parameters.AddWithValue(name, value);
+        foreach (var (n, v) in domainParams) cmd.Parameters.AddWithValue(n, v);
 
         var results = new List<DashboardEndpointStats>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -1389,18 +1628,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             var avgMs = reader.GetDouble(5);
             var minMs = reader.IsDBNull(6) ? 0 : reader.GetDouble(6);
             var maxMs = reader.IsDBNull(7) ? 0 : reader.GetDouble(7);
-            // p95 approximation: avg + 90% of the gap to max. Matches the Postgres
-            // backend convention; real percentile requires PERCENTILE_CONT (Task 10).
             var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
             var path = reader.GetString(1);
-            // IsHoneypot is derived per-row from the static HoneypotPathDefinitions
-            // classifier rather than stored on dashboard_events. Cheap (substring
-            // + dictionary lookup); keeps schema migrations out of the dashboard.
-            // The view's badge + the new "honeypot" audience filter both read this.
             var honeypotTier = Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions
                 .Classify(path, out _);
             var isHoneypot = honeypotTier > Mostlylucid.BotDetection.Honeypot.HoneypotTier.None;
-            if (honeypotOnly && !isHoneypot) continue;
+            if (honeyPotOnly && !isHoneypot) continue;
             results.Add(new DashboardEndpointStats
             {
                 Method              = reader.GetString(0),

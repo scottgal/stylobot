@@ -117,6 +117,25 @@ public interface IDashboardEventStore
     Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null);
 
     /// <summary>
+    ///     Upsert a single detection's endpoint stats into the bounded
+    ///     <c>endpoint_stats</c> table — one row per (method, path, domain),
+    ///     counters incremented atomically. Called from
+    ///     <see cref="AddDetectionAsync"/> so the endpoint list is maintained
+    ///     at detection-persist time rather than scanned from the per-request
+    ///     detections table. The default implementation is a no-op (other
+    ///     store implementations that don't have an endpoint_stats table).
+    /// </summary>
+    Task UpsertEndpointStatsAsync(string method, string path, string? domain,
+        bool isBot, double botProbability, double? threatScore,
+        long? responseBytes, double? processingTimeMs,
+        int statusCode, int? upstreamStatusCode,
+        DateTime timestamp,
+        CancellationToken ct = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     ///     Get endpoint-level statistics aggregated by method + path.
     /// </summary>
     Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null);
