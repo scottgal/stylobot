@@ -46,7 +46,7 @@
         <UserSecretsId>0c2c1992-7d5d-4581-ada1-8af3d1aee8fc</UserSecretsId>
     </PropertyGroup>
     <PropertyGroup>
-        <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
+        <MinVerTagPrefix>allbot-v</MinVerTagPrefix>
     </PropertyGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Test" />
