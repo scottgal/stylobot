@@ -81,6 +81,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // separately-injected services.
     private readonly DashboardMaterializerAdaptiveController _adaptive;
 
+    // The boot-time pass task (see BootWarmCompletion). Null when disabled or no tick fabric.
+    private Task? _bootWarm;
+
     public DashboardMaterializerCoordinator(
         IDashboardContentCache cache,
         IDashboardChangeCursor cursor,
@@ -104,6 +107,19 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _hubContext = hubContext;
         _time = timeProvider ?? TimeProvider.System;
         _adaptive = new DashboardMaterializerAdaptiveController(options);
+
+        // Boot-time materializer pass, fired HERE (not StartAsync) so its completion is
+        // deterministic for any downstream boot step (the dashboard host's L2 shingle
+        // pre-render gate awaits BootWarmCompletion): hosted services start concurrently,
+        // so a StartAsync-fired pass could be read as CompletedTask by a racer. The
+        // tick subscription stays in StartAsync. Mirrors the commercial
+        // DashboardBucketPrewarmService's constructor-fired boot pass (same rationale:
+        // the tick loop's first fire waits for the next wall-clock boundary).
+        if (_options.BootPrewarmEnabled && _schedule is not null)
+        {
+            _bootWarm = MaterializeTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+            ObserveFault(_bootWarm);
+        }
     }
 
     /// <summary>Test/diagnostic seam onto the adaptive controller's current scale factor.</summary>
@@ -155,17 +171,29 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         // MaterializeTickAsync never throws out of its per-envelope fault isolation, so the
         // bound-await can never fail host startup -- a pass that overruns BootPrewarmTimeoutMs
         // keeps running in the background and the tick subscription is the standing retry.
-        if (_options.BootPrewarmEnabled)
+        // Bound-await the constructor-fired boot pass (see BootWarmCompletion) so host
+        // readiness — and, on this host's topology, real traffic reachability — doesn't
+        // outrun the first warm. The pass itself keeps running in the background if it
+        // overruns BootPrewarmTimeoutMs; the tick subscription is the standing retry.
+        if (_bootWarm is not null)
         {
-            var bootWarm = MaterializeTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
-            ObserveFault(bootWarm);
             var timeout = TimeSpan.FromMilliseconds(_options.BootPrewarmTimeoutMs);
             if (timeout > TimeSpan.Zero)
             {
-                await Task.WhenAny(bootWarm, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
+                await Task.WhenAny(_bootWarm, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
             }
         }
     }
+
+    /// <summary>
+    ///     The boot-time materializer pass's completion (see <see cref="DashboardMaterializerOptions.BootPrewarmEnabled"/>).
+    ///     <see cref="Task.CompletedTask"/> when the boot pass was not run (disabled, or no tick fabric).
+    ///     Downstream boot steps — e.g. the dashboard host's L2 shingle pre-render gate, which needs
+    ///     the L1 data warm before it renders — await this (bounded) so ordering is explicit rather
+    ///     than racing the parallel IHostedService start. Already fault-observed internally, so
+    ///     awaiting it can never throw.
+    /// </summary>
+    public Task BootWarmCompletion => _bootWarm ?? Task.CompletedTask;
 
     public Task StopAsync(CancellationToken cancellationToken)
     {

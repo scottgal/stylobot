@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.Common.Scheduling;
@@ -101,6 +102,11 @@ public sealed class DashboardMaterializerCoordinatorMarkDirtyTests
         var cache = new DashboardContentCache((_, _, _) => Task.FromResult(Result()),
             () => tick, Options.Create(new DashboardMaterializerOptions()));
         var cursor = new RecordingCursor(() => tick);
+        // Wire the constrainer's cursor the way BroadcastConstrainerCursorWire does at
+        // host start — the BroadcastDirty beacon is skipped for windows opened while the
+        // static cursor is unwired, and that static is shared across parallel test
+        // classes (order-flaky without this).
+        SignalRBroadcastConstrainer.SetCursor(cursor);
         var coord = new DashboardMaterializerCoordinator(
             cache, cursor, new DefaultDashboardPageManifestSource(),
             Options.Create(new DashboardMaterializerOptions()),

@@ -93,6 +93,21 @@ public sealed class SbWidgetBatchMiddleware
         var widgetList = context.Request.Query["widgets"].FirstOrDefault() ?? "summary";
         var widgets = widgetList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+        var html = await RenderBatchAsync(context, widgets, context.RequestAborted);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     The batch render core, shared by the live <c>/partials/update</c> request path
+    ///     and the boot-time L2 shingle pre-render (see <see cref="PrewarmShinglesAsync"/>):
+    ///     per-widget shingle fingerprint (widget + params + surface version) → warm/LFU
+    ///     split → one compose-on-delta for the misses (or the warm page bundle) → render
+    ///     each widget, tag it OOB and store the shingle. Returns the concatenated OOB
+    ///     HTML.
+    /// </summary>
+    internal async Task<string> RenderBatchAsync(HttpContext context, string[] widgets, CancellationToken ct)
+    {
         // Signal-Shingle: compute each widget's shingle fingerprint (widget + filter/params
         // + its surface's data-change version) and split the batch into WARM shingles (served
         // from the LFU as-is) and MISSES. A read boosts the fingerprint's LFU score, so the
@@ -114,9 +129,7 @@ public sealed class SbWidgetBatchMiddleware
         // catalog-covered misses instead of N self-fetches, stashed in HttpContext.Items for
         // the per-widget render helpers. Skipped entirely when everything is already warm.
         if (misses.Count > 0)
-            await TryComposeAndStashAsync(context, misses.ToArray(), context.RequestAborted);
-
-        context.Response.ContentType = "text/html; charset=utf-8";
+            await TryComposeAndStashAsync(context, misses.ToArray(), ct);
 
         var sb = new StringBuilder();
         for (var i = 0; i < widgets.Length; i++)
@@ -126,7 +139,49 @@ public sealed class SbWidgetBatchMiddleware
                 sb.Append(html);
         }
 
-        await context.Response.WriteAsync(sb.ToString());
+        return sb.ToString();
+    }
+
+    /// <summary>
+    ///     L2 shingle pre-render entry for the boot-time gate (dashboard host, off the
+    ///     request path): renders <paramref name="widgetIds"/> through the SAME pipeline
+    ///     as a <c>/partials/update</c> request against a synthetic context, so the L2
+    ///     shingle cache is fully populated for the default window/domain BEFORE the first
+    ///     request is served (the "page must not serve until L2 is populated" gate).
+    ///     <paramref name="query"/> carries the envelope params (e.g. window) — the
+    ///     per-widget prefixed params follow the SSR's data-sb-params convention when
+    ///     filters are in play; the default unfiltered view needs only the bare window.
+    ///     Failures are fault-observed and logged — the gate's bounded wait is the only
+    ///     consumer, so a broken render must never fail host boot.
+    /// </summary>
+    public static async Task<bool> PrewarmShinglesAsync(
+        IServiceProvider services, string[] widgetIds, IQueryCollection query)
+    {
+        try
+        {
+            var middleware = new SbWidgetBatchMiddleware(
+                next: null!,
+                options: services.GetRequiredService<StyloBotDashboardOptions>(),
+                razorViewRenderer: services.GetRequiredService<RazorViewRenderer>(),
+                eventStore: services.GetRequiredService<IDashboardEventStore>(),
+                aggregateCache: services.GetRequiredService<DashboardAggregateCache>(),
+                signatureCache: services.GetRequiredService<SignatureAggregateCache>(),
+                liquidRenderer: services.GetRequiredService<LiquidWidgetRenderer>(),
+                shingleCache: services.GetRequiredService<DashboardWidgetShingleCache>(),
+                logger: services.GetRequiredService<ILogger<SbWidgetBatchMiddleware>>());
+
+            var context = new DefaultHttpContext { RequestServices = services };
+            context.Request.QueryString = QueryString.Create(query);
+
+            var html = await middleware.RenderBatchAsync(context, widgetIds, CancellationToken.None);
+            return html.Length > 0;
+        }
+        catch (Exception ex)
+        {
+            var logger = services.GetService<ILogger<SbWidgetBatchMiddleware>>();
+            logger?.LogWarning(ex, "SbWidgetBatch: L2 shingle pre-render failed for {Widgets}", string.Join(',', widgetIds));
+            return false;
+        }
     }
 
     // -------------------------------------------------------------------------
