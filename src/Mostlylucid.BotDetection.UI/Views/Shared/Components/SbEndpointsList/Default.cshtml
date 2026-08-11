@@ -110,11 +110,9 @@
        row). Both controls drop back to page=1 so the new filter set is paged
        from the start. The path filter HTMX-debounces at 350ms so typing
        doesn't fire a request per keystroke.
-       Layout (operator 2026-08-10): two explicit rows, not one wrap-all flex
-       that spilled across three — row 1 holds every chip cluster (status /
-       honeypot / self-probe / mode), row 2 holds the method dropdown + path
-       input inline. Chips still wrap within row 1 on narrow widths, but the
-       dropdown + textbox never drop to their own line. *@
+       Layout (operator 2026-08-11): ONE row — every chip cluster (status /
+       honeypot / self-probe / mode) plus the method dropdown and path input all
+       inline in a single flex-wrap row. Chips wrap on narrow widths. *@
     @if (!Model.IsCompact)
     {
         <div class="mb-3 text-xs">
@@ -195,15 +193,11 @@
             <a href="#" hx-get="@ModeUrl("realtime")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@ModeChipClass("realtime")" title="SignalR hub/negotiate + WebSocket upgrade paths">Realtime</a>
-        </div>
 
-        @* Row 2: method dropdown + path filter share one line (operator 2026-08-10:
-           they used to wrap onto their own third row). *@
-        <div class="flex flex-wrap items-center gap-2 mt-2">
-            @* METHOD select (Si2 endpoint-IA unification): rather than a chip per verb
-               (open-ended set -- CONNECT/OPTIONS/etc. are legitimate rows too), a
-               compact select covers the common verbs plus "All". *@
-            <span class="text-base-content/30 mr-1">·</span>
+            @* Method dropdown + path filter merged into one row (operator 2026-08-11):
+               Si2 endpoint-IA unified the rows; a compact select covers common verbs
+               plus "All". *@
+            <span class="text-base-content/30 mx-1">·</span>
             <select name="method"
                     class="select select-xs select-bordered font-mono"
                     hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&path=@Uri.EscapeDataString(Model.PathFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&mode=@Uri.EscapeDataString(currentMode)"
@@ -216,7 +210,6 @@
                 }
             </select>
 
-            <span class="text-base-content/30 mx-1">·</span>
             <input type="text" name="path" value="@Model.PathFilter"
                    placeholder="filter path…"
                    class="input input-xs input-bordered w-44 font-mono"
