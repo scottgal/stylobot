@@ -322,18 +322,17 @@
                        chrome-wrapped endpoint-detail page, mirroring
                        _TopEndpointsCard.cshtml's already-correct pattern exactly -- a
                        real page load, not an htmx inline-swap into a sibling panel.
-                       The anchor lives in the Method cell and is stretched over the
-                       whole row (position:absolute inset-0 on a position:relative
-                       <tr>) so the entire row stays clickable without wrapping <tr>
-                       in <a> (invalid HTML) or duplicating the href on every cell. *@
-                    <tr class="endpoint-row hover:bg-base-200/50 transition-colors relative cursor-pointer"
-                        data-endpoint-key="@(endpoint.Method)|@(endpoint.Path)">
-                        <td class="py-1 text-[10px] font-bold relative" style="color: @methodColor;">
+                       The row carries an onclick for full-row click navigation
+                       (position:relative on <tr> doesn't work reliably for absolute
+                       children across browsers). The Method cell independently wraps
+                       its text in a regular <a> so right-click / cmd-click work. *@
+                    <tr class="endpoint-row hover:bg-base-200/50 transition-colors cursor-pointer"
+                        data-endpoint-key="@(endpoint.Method)|@(endpoint.Path)"
+                        onclick="window.location.href='@EndpointHref(endpoint.Method, endpoint.Path)'">
+                        <td class="py-1 text-[10px] font-bold" style="color: @methodColor;">
                             <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
-                               class="absolute inset-0"
-                               aria-label="@endpoint.Method @endpoint.Path detail"
-                               title="View @endpoint.Method @endpoint.Path detail →"></a>
-                            @endpoint.Method
+                               class="text-inherit no-underline"
+                               aria-label="@endpoint.Method @endpoint.Path detail">@endpoint.Method</a>
                         </td>
                         <td class="py-1 text-xs font-medium max-w-[280px] truncate" title="@endpoint.Path">
                             @if (endpoint.IsPinned)
