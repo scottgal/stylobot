@@ -243,6 +243,26 @@ public class StyloBotDashboardMiddleware
         var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
         var relLower = relativePath.ToLowerInvariant();
 
+        // Single-UI-gateway stopgap (StyloBotDashboardOptions.IsUiGateway): a non-UI pod
+        // does not run the L2 materializer or prewarm shingles; dashboard PAGE requests
+        // are redirected to the elected UI gateway pod (UiGatewayUrl) so ONE pod owns the
+        // dashboard cache. Only full page navigations redirect (non-HTMX, no partials/
+        // hub/static) — the browser lands on the UI pod via the page redirect, so its
+        // follow-up widget-batch/hub calls hit the UI pod; direct hits on an inert non-UI
+        // pod's partials serve warming placeholders only. UiGatewayUrl must address the
+        // POD directly (not the round-robin Service) to avoid redirect loops.
+        if (!_options.IsUiGateway && !string.IsNullOrEmpty(_options.UiGatewayUrl)
+            && context.Request.Headers["HX-Request"].Count == 0
+            && !relLower.Contains("/partials/", StringComparison.OrdinalIgnoreCase)
+            && !relLower.Contains("/hub", StringComparison.OrdinalIgnoreCase)
+            && !relativePath.Contains('.', StringComparison.Ordinal))
+        {
+            context.Response.Redirect(
+                _options.UiGatewayUrl.TrimEnd('/') + context.Request.Path + context.Request.QueryString,
+                permanent: false);
+            return;
+        }
+
         // Every dashboard-handled response (HTML, JSON, CSV export) carries nosniff
         // so a browser can never reinterpret an export or API payload as HTML.
         context.Response.Headers["X-Content-Type-Options"] = "nosniff";

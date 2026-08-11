@@ -32,6 +32,23 @@ public sealed class StyloBotDashboardOptions
     public string BasePath { get; set; } = "/stylobot";
 
     /// <summary>
+    ///     Single-UI-gateway stopgap (operator directive 2026-08-11): when false, this
+    ///     host does NOT run the L2 tick materializer or prewarm shingles, does not map
+    ///     the dashboard SignalR hub, and redirects dashboard page requests to
+    ///     <see cref="UiGatewayUrl"/> — one elected pod owns the dashboard cache until
+    ///     real leader election lands (plan-). Defaults true (single-pod hosts keep
+    ///     current behavior).
+    /// </summary>
+    public bool IsUiGateway { get; set; } = true;
+
+    /// <summary>
+    ///     Base URL of the elected UI gateway pod, used when <see cref="IsUiGateway"/>
+    ///     is false. Must address the POD directly (not the round-robin Service) so a
+    ///     redirected request cannot bounce back to another non-UI pod.
+    /// </summary>
+    public string? UiGatewayUrl { get; set; }
+
+    /// <summary>
     ///     URL used for back-navigation links (e.g. the back arrow on signature detail).
     ///     Defaults to <see cref="BasePath" />. Override to point users to a host dashboard
     ///     (e.g. "/Dashboard") while keeping the FOSS middleware mounted at its own path.

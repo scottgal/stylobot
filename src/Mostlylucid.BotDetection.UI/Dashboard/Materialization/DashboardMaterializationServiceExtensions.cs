@@ -27,7 +27,9 @@ internal static class DashboardMaterializationServiceExtensions
     ///         <c>IScheduleCoordinator</c>.
     ///     </para>
     /// </summary>
-    public static IServiceCollection AddDashboardMaterialization(this IServiceCollection services)
+    public static IServiceCollection AddDashboardMaterialization(
+        this IServiceCollection services,
+        bool runTickMaterializer = true)
     {
         services.AddOptions<DashboardMaterializerOptions>()
             .BindConfiguration("BotDetection:Dashboard:Materializer");
@@ -55,7 +57,13 @@ internal static class DashboardMaterializationServiceExtensions
         // SAME singleton rather than letting the container construct a second, independent
         // instance with its own tick subscription/state.
         services.TryAddSingleton<DashboardMaterializerCoordinator>();
-        services.AddHostedService(sp => sp.GetRequiredService<DashboardMaterializerCoordinator>());
+        // Single-UI-gateway stopgap (StyloBotDashboardOptions.IsUiGateway): a non-UI pod
+        // keeps the cache + coordinator singleton REGISTERED (TrafficController/
+        // VisitorsController require IDashboardContentCache -- a full skip would 500 them)
+        // but does not start the tick loop -- no per-replica materialization on pods that
+        // only redirect to the elected UI gateway.
+        if (runTickMaterializer)
+            services.AddHostedService(sp => sp.GetRequiredService<DashboardMaterializerCoordinator>());
 
         return services;
     }

@@ -695,8 +695,9 @@ public static class StyloBotDashboardServiceExtensions
         // Out-of-request materialization stack: the content cache (singleton over the
         // canonical SlidingCacheAtom, composing the scoped composer through a fresh scope
         // per compose) + the tick-driven materializer hosted service. Extracted so it can
-        // be resolution-tested in isolation.
-        services.AddDashboardMaterialization();
+        // be resolution-tested in isolation. Non-UI pods (StyloBotDashboardOptions.
+        // IsUiGateway=false) keep the cache but skip the tick loop.
+        services.AddDashboardMaterialization(runTickMaterializer: options.IsUiGateway);
 
         // Page manifest source: empty by default; Task 3 adds the traffic manifest.
         // TryAdd so a commercial host that seeds its own manifests keeps them.
@@ -1067,7 +1068,9 @@ public static class StyloBotDashboardServiceExtensions
             // SignalR hub for live updates
             // Use IEndpointRouteBuilder directly (not UseEndpoints) to avoid creating
             // a terminal middleware that blocks endpoint routing for later MapGroup/MapGet calls.
-            if (app is IEndpointRouteBuilder routeBuilder)
+            // Non-UI pods (IsUiGateway=false) do not map the hub — they redirect to the
+            // elected UI gateway, which serves the hub (or the gateway host does).
+            if (app is IEndpointRouteBuilder routeBuilder && options.IsUiGateway)
             {
                 routeBuilder.MapHub<StyloBotDashboardHub>(options.HubPath)
                     .WithMetadata(new BotDetection.Attributes.BotPolicyAttribute("default") { BlockThreshold = 0.95 });
@@ -1105,7 +1108,9 @@ public static class StyloBotDashboardServiceExtensions
         app.UseMiddleware<DetectionBroadcastMiddleware>();
         app.UseMiddleware<StyloBotDashboardMiddleware>();
 
-        if (app is IEndpointRouteBuilder routeBuilder2)
+        // Non-UI pods (IsUiGateway=false) do not map the hub — they redirect dashboard
+        // requests to the elected UI gateway pod, which serves the hub.
+        if (app is IEndpointRouteBuilder routeBuilder2 && options.IsUiGateway)
         {
             routeBuilder2.MapHub<StyloBotDashboardHub>(options.HubPath)
                 .WithMetadata(new BotDetection.Attributes.BotPolicyAttribute("default") { BlockThreshold = 0.95 });
