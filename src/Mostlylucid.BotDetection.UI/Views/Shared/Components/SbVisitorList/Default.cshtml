@@ -222,8 +222,16 @@
                         var actionLabel = ActionDisplayHelper.GetFriendlyName(v.Action);
                         var uaFamily = string.IsNullOrEmpty(v.UaFamily) ? "-" : v.UaFamily;
                         var uaVersion = ExtractMajorVersion(v.UserAgent, v.UaFamily);
+                        @* Real row navigation (operator directive 2026-08-12: EVERYTHING
+                           drills down — the bot name must navigate to the signature
+                           detail page). Mirrors SbEndpointsList's proven pattern: the row
+                           carries an onclick full-row navigation AND the name cell wraps
+                           a real <a> so right-click / cmd-click work. The old inert
+                           data-href attribute had no click handler — clicking a visitor
+                           did nothing. *@
                         <tr class="hover:bg-base-300/40 cursor-pointer"
-                            data-href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)">
+                            data-href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)"
+                            onclick="window.location.href='@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)'">
                             <td class="py-1 w-6">
                                 @if (!string.IsNullOrEmpty(v.CountryCode) && v.CountryCode.Length == 2 && v.CountryCode != "XX")
                                 {
@@ -240,7 +248,9 @@
                             <td class="py-1 max-w-[200px]"
                                 title="@displayName — Signature: @v.PrimarySignature">
                                 <div class="flex items-center gap-1 min-w-0">
-                                    <div class="block truncate font-medium text-xs hover:underline">@displayName</div>
+                                    <a href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)"
+                                       class="block truncate font-medium text-xs hover:underline"
+                                       aria-label="@displayName — signature detail">@displayName</a>
                                     @NameActionSlot.Render(v.PrimarySignature, displayName ?? v.PrimarySignature, v.BotType, v.IsBot)
                                 </div>
                             </td>
