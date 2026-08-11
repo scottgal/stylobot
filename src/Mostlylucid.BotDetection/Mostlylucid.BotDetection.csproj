@@ -129,7 +129,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Mostlylucid.Common" Version="8.0.0-alpha2" />
+        <ProjectReference Include="..\Mostlylucid.Common\Mostlylucid.Common.csproj" />
     </ItemGroup>
 
     <ItemGroup>
