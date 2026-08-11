@@ -1765,28 +1765,28 @@ public class StyloBotDashboardMiddleware
         var clustersTask = GetOrWarmingAsync(
             "dashboard.clusters",
             page => BuildClustersModelFromRaw(page.ClustersRaw!, page.ClusterDiagnosticsRaw, isWarming: false),
-            new ClustersListModel { Clusters = [], BasePath = basePath, IsWarming = false },
+            new ClustersListModel { Clusters = [], BasePath = basePath, IsWarming = true },
             page => page.ClustersRaw is not null,
             visitorWindow,
             context);
         var topBotsTask = GetOrWarmingAsync(
             "dashboard.topbots",
             page => BuildTopBotsModelFromRaw(page.TopBotsRaw!, page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
-            new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath, IsWarming = false },
+            new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath, IsWarming = true },
             page => page.TopBotsRaw is not null,
             visitorWindow,
             context);
         var sessionsTask = GetOrWarmingAsync(
             "dashboard.sessions",
             page => BuildSessionsModelFromRaw(page.SessionsRaw!, page.SessionsRawTotalCount ?? 0, page: 1, pageSize: 25, filter: null),
-            new SessionsListModel { Sessions = [], BasePath = basePath, IsWarming = false },
+            new SessionsListModel { Sessions = [], BasePath = basePath, IsWarming = true },
             page => page.SessionsRaw is not null,
             visitorWindow,
             context);
         var threatsTask = GetOrWarmingAsync(
             "dashboard.threats",
             page => BuildThreatsModelFromRaw(page.ThreatsRaw!),
-            new ThreatsListModel { BasePath = basePath, IsWarming = false },
+            new ThreatsListModel { BasePath = basePath, IsWarming = true },
             page => page.ThreatsRaw is not null,
             visitorWindow,
             context);
@@ -2032,77 +2032,21 @@ public class StyloBotDashboardMiddleware
                 var page = await _contentCache.GetCurrentAsync(manifest, window, requestContext.RequestAborted);
                 if (page.IsWarming || !hasData(page))
                 {
-                    // CRITICAL (operator directive 2026-08-11): "Warming up" is NEVER
-                    // valid on first paint. On a cold miss, fetch the row's raw data LIVE
-                    // from the store (the same fetchers the materializer's compose uses)
-                    // and shape it — real rows or the honest empty state (IsWarming=false),
-                    // never a warming placeholder. The fire-and-forget re-warm stays so
-                    // the L2 cache heals for subsequent requests.
+                    // Cold miss: don't just wait for the next scheduled Tick10s sweep --
+                    // GetCurrentAsync (above) already marked this envelope "live" (see
+                    // DashboardContentCache.GetAsync), so a priority re-warm fires now,
+                    // off the request path, so the NEXT request to this envelope hits
+                    // warm data sooner. Fire-and-forget: never awaited/blocking on this
+                    // request (see TriggerPriorityRewarm's own doc comment for why).
                     TriggerPriorityRewarm(pageKey);
-                    var live = await FetchRowRawLiveAsync(pageKey, window, requestContext.RequestAborted).ConfigureAwait(false);
-                    if (live is not null && hasData(live)) return shape(live);
                     return warmingFallback;
                 }
                 return shape(page);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "{PageKey} content-cache read failed; rendering the empty state", pageKey);
+                _logger.LogDebug(ex, "{PageKey} content-cache read failed; rendering the Warming placeholder", pageKey);
                 return warmingFallback;
-            }
-        }
-
-        /// <summary>
-        ///     Live row fetch for the four cache-gated rows (clusters/topbots/sessions/
-        ///     threats): the SAME raw fetchers the materializer's compose uses, invoked on
-        ///     the request path ONLY on a cold miss — the operator's "Warming up is never
-        ///     valid" directive (2026-08-11): first paint fetches real data or renders the
-        ///     honest empty state, never a warming placeholder.
-        /// </summary>
-        async Task<DashboardPageResult?> FetchRowRawLiveAsync(string pageKey, DashboardPageWindow w, CancellationToken ct)
-        {
-            var services = context.RequestServices;
-            try
-            {
-                switch (pageKey)
-                {
-                    case "dashboard.topbots":
-                    {
-                        var sigCache = services.GetService<SignatureAggregateCache>();
-                        var raw = await Dashboard.Composition.DashboardRowRawFetchers.FetchTopBotsRawAsync(
-                            _eventStore, sigCache?.MaxEntries ?? 500, w.StartTime, w.EndTime, null, ct);
-                        return new DashboardPageResult(bundle: null!, topBotsRaw: raw);
-                    }
-                    case "dashboard.threats":
-                    {
-                        var raw = await Dashboard.Composition.DashboardRowRawFetchers.FetchThreatsRawAsync(
-                            _eventStore, 20, w.StartTime, w.EndTime, ct);
-                        return new DashboardPageResult(bundle: null!, threatsRaw: raw);
-                    }
-                    case "dashboard.clusters":
-                    {
-                        var clusterReader = services.GetService<Mostlylucid.BotDetection.Services.IBotClusterReader>();
-                        var (clusters, diagnostics) = await Dashboard.Composition.DashboardRowRawFetchers.FetchClustersRawAsync(
-                            clusterReader, _eventStore, w.StartTime, w.EndTime, activityLookupCap: 500, ct);
-                        return new DashboardPageResult(bundle: null!, clustersRaw: clusters, clusterDiagnosticsRaw: diagnostics);
-                    }
-                    case "dashboard.sessions":
-                    {
-                        var archive = services.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
-                        var sigCache = services.GetService<SignatureAggregateCache>();
-                        var (entries, total) = await Dashboard.Composition.DashboardRowRawFetchers.FetchSessionsRawAsync(
-                            archive, _eventStore, sigCache!, _options.DetectionRetention, page: 1, pageSize: 25, filter: null,
-                            startTime: w.StartTime, ct);
-                        return new DashboardPageResult(bundle: null!, sessionsRaw: entries, sessionsRawTotalCount: total);
-                    }
-                    default:
-                        return null;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "{PageKey} live row fetch failed; rendering the empty state", pageKey);
-                return null;
             }
         }
     }
