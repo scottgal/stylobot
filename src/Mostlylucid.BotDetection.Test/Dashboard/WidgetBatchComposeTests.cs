@@ -256,4 +256,77 @@ public sealed class WidgetBatchComposeTests
         Assert.False(stashed);
         Assert.False(ctx.Items.ContainsKey("sb.dashboard.pageresult"));
     }
+
+    // ---------- compose-failure guard (prod P0: all-null bundle poisoned the shingle cache) ----------
+
+    /// <summary>
+    ///     The prod P0 regression guard: RemoteDashboardEventStore.ComposeBatchAsync returns
+    ///     an ALL-NULL DashboardDatasetBundle on any transport/non-success response, and
+    ///     TryComposeAndStashAsync must never stash that as authoritative — the renderers
+    ///     treat a present stash as real data, so stashing it cached EMPTY shingles and
+    ///     latched the boot gate with nothing to serve (a gateway down at site boot).
+    /// </summary>
+    [Fact]
+    public void Compose_failure_all_null_bundle_is_never_treated_as_data()
+    {
+        var failure = new DashboardDatasetBundle(null, null, null, null, null);
+        var requested = new[] { DatasetKind.SummaryStats, DatasetKind.BotAggregate, DatasetKind.EndpointStats };
+
+        Assert.False(SbWidgetBatchMiddleware.HasAnyRequestedData(failure, requested));
+    }
+
+    /// <summary>
+    ///     A genuine empty window still yields non-null EMPTY lists — that is real data
+    ///     ("we looked, there is nothing"), distinct from the all-null failure sentinel.
+    /// </summary>
+    [Fact]
+    public void Genuine_empty_window_is_real_data_not_a_failure()
+    {
+        var empty = new DashboardDatasetBundle(
+            Summary: EmptySummary(),
+            TimeBuckets: new List<DashboardTimeSeriesPoint>(),
+            BotAggregate: new List<DashboardTopBotEntry>(),
+            Geo: new List<DashboardCountryStats>(),
+            Endpoints: new List<DashboardEndpointStats>());
+        var requested = new[] { DatasetKind.BotAggregate };
+
+        Assert.True(SbWidgetBatchMiddleware.HasAnyRequestedData(empty, requested));
+    }
+
+    /// <summary>
+    ///     A partial bundle (compose returned some slices, others null) is acceptable —
+    ///     the render helpers self-fetch the missing slices. Only an all-null result is
+    ///     the failure sentinel.
+    /// </summary>
+    [Fact]
+    public void Partial_bundle_with_one_requested_slice_is_acceptable()
+    {
+        var partial = new DashboardDatasetBundle(
+            Summary: EmptySummary(),
+            TimeBuckets: null,
+            BotAggregate: null,
+            Geo: null,
+            Endpoints: null);
+        var requested = new[] { DatasetKind.BotAggregate, DatasetKind.SummaryStats };
+
+        Assert.True(SbWidgetBatchMiddleware.HasAnyRequestedData(partial, requested));
+    }
+
+    /// <summary>
+    ///     A bundle that carries only slices that were NOT requested is not "data" for
+    ///     this compose — the delta would render empty widgets and cache them.
+    /// </summary>
+    [Fact]
+    public void Bundle_with_only_unrequested_slices_is_not_data_for_this_compose()
+    {
+        var bundle = new DashboardDatasetBundle(
+            Summary: EmptySummary(),
+            TimeBuckets: null,
+            BotAggregate: null,
+            Geo: null,
+            Endpoints: null);
+        var requested = new[] { DatasetKind.BotAggregate, DatasetKind.GeoBreakdown };
+
+        Assert.False(SbWidgetBatchMiddleware.HasAnyRequestedData(bundle, requested));
+    }
 }

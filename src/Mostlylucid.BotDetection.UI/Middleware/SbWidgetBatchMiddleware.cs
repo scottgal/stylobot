@@ -267,6 +267,25 @@ public sealed class SbWidgetBatchMiddleware
             // One batched read (single-scan on Postgres, fan-out elsewhere), stashed so
             // the per-widget render helpers read their slice instead of self-fetching.
             var bundle = await _eventStore.ComposeBatchAsync(request, ct);
+
+            // Never stash a compose-FAILURE bundle as authoritative: RemoteDashboardEventStore.
+            // ComposeBatchAsync degrades to an ALL-NULL DashboardDatasetBundle on any transport
+            // or non-success response, and the per-widget renderers treat a present stash as
+            // "real data, no self-fetch needed" — stashing it would render EMPTY shingles and
+            // cache them as authoritative (the prod P0: a gateway down at site boot made the
+            // L2 pre-render latch empty panels that stayed zero until a surface-version bump).
+            // Same completeness shape the SSR path already enforces
+            // (StyloBotDashboardMiddleware.IsPageBundleCompleteEnoughToStash): a genuinely
+            // empty window still returns non-null EMPTY lists, so null slices mean the compose
+            // did not deliver — leave Items unset and let each widget's self-fetch fallback
+            // hit the live store instead.
+            if (!HasAnyRequestedData(bundle, kinds))
+            {
+                _logger.LogDebug(
+                    "SbWidgetBatch: compose returned no data for the requested kinds — falling back to per-widget self-fetch");
+                return;
+            }
+
             context.Items["sb.dashboard.pageresult"] = new DashboardPageResult(bundle);
         }
         catch (Exception ex)
@@ -274,6 +293,35 @@ public sealed class SbWidgetBatchMiddleware
             // Compose failure is non-fatal: widgets fall back to their self-fetch.
             _logger.LogDebug(ex, "SbWidgetBatch: compose failed — falling back to per-widget self-fetch");
         }
+    }
+
+    /// <summary>
+    ///     True when the composed bundle actually carries a slice for at least one of the
+    ///     requested <see cref="DatasetKind"/>s. Null (not empty-list) is the compose-failure
+    ///     sentinel — <see cref="RemoteDashboardEventStore.ComposeBatchAsync"/> returns an
+    ///     all-null bundle on any failure, while a genuine empty window yields non-null empty
+    ///     lists. A partial bundle (some slices null) is acceptable: the render helpers
+    ///     self-fetch the missing slices.
+    /// </summary>
+    internal static bool HasAnyRequestedData(DashboardDatasetBundle bundle, IReadOnlyList<DatasetKind> requested)
+    {
+        foreach (var kind in requested)
+        {
+            if (kind switch
+            {
+                DatasetKind.SummaryStats => bundle.Summary is not null,
+                DatasetKind.TimeBuckets => bundle.TimeBuckets is not null,
+                DatasetKind.BotAggregate => bundle.BotAggregate is not null,
+                DatasetKind.GeoBreakdown => bundle.Geo is not null,
+                DatasetKind.EndpointStats => bundle.Endpoints is not null,
+                DatasetKind.DegradationHistory => bundle.Degradations is not null,
+                _ => false
+            })
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -687,6 +735,14 @@ public sealed class SbWidgetBatchMiddleware
     {
         var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
         if (pageResult is null || pageResult.IsWarming) return "";
+
+        // The panels need the BotAggregate + Geo slices. A bundle that lacks them (e.g. a
+        // delta compose that didn't request Geo, or a partial compose) must NOT render
+        // empty panels as authoritative — that caches zero-shingles the same way the
+        // all-null compose-failure bundle did (prod P0). Return no swap instead: the page
+        // keeps its current (SSR, store-read) DOM and the next beacon retries with the
+        // warm traffic bundle, which always carries both slices.
+        if (pageResult.BotAggregate is null || pageResult.Geo is null) return "";
 
         var layout = context.RequestServices
             .GetService<Microsoft.Extensions.Options.IOptions<Models.Dashboard.Layout.DashboardLayoutOptions>>()
