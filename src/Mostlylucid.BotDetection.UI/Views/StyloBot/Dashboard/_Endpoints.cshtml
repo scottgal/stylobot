@@ -1,7 +1,10 @@
 @using Mostlylucid.BotDetection.Policies.Rules
+@using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @using Mostlylucid.BotDetection.UI.Services
 @inject IDashboardLinkResolver DashboardLinks
+@inject IDashboardEventStore EventStore
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @model Mostlylucid.BotDetection.UI.Models.DashboardShellModel
 @{
@@ -26,6 +29,36 @@
     // keys for the hx-get follow-up requests.
     var q = Context?.Request?.Query;
     string? QueryOrNull(string key) => q?[key].FirstOrDefault() is { Length: > 0 } v ? v : null;
+
+    // Umami-style analytics assembly (operator directive 2026-08-11): summary cards +
+    // bot-vs-human series above the endpoints control. Same window resolution as the
+    // component's parameter-driven reads (?window= or the 24h dashboard default) so all
+    // three surfaces agree. Existing widgets only — no new ones.
+    var analyticsWindow = QueryOrNull("window") ?? "24h";
+    var analyticsEnd = DateTime.UtcNow;
+    var analyticsSpan = analyticsWindow switch
+    {
+        "15m" => TimeSpan.FromMinutes(15),
+        "60m" or "1h" => TimeSpan.FromHours(1),
+        "6h" => TimeSpan.FromHours(6),
+        "12h" => TimeSpan.FromHours(12),
+        "7d" => TimeSpan.FromDays(7),
+        "30d" => TimeSpan.FromDays(30),
+        _ => TimeSpan.FromHours(24),
+    };
+    var analyticsStart = analyticsEnd - analyticsSpan;
+    TrafficTimeseries timeseries;
+    try
+    {
+        var bucket = HitsPerPeriodChartletBuilder.BucketSizeForWindow(analyticsWindow);
+        var points = await EventStore.GetTimeSeriesAsync(
+            analyticsStart, analyticsEnd, bucket, audienceFilter: null, domains: null);
+        timeseries = HitsPerPeriodChartletBuilder.BuildSeries(points, analyticsStart, analyticsEnd, bucket);
+    }
+    catch
+    {
+        timeseries = new TrafficTimeseries([], [], [], []);
+    }
 }
 @* sb:summary-update listener (commercial scope bar): the commercial range/domain
    bar posts via hx-post and the controller replies HX-Trigger: sb:summary-update.
@@ -60,6 +93,16 @@
    back/forward + address bar are the deep-link mechanism, no client-side
    re-triggering needed. *@
 <div class="grid grid-cols-1 gap-4">
+    @* Umami-style per-site analytics (operator directive 2026-08-11): summary cards +
+       bot-vs-human series, then the endpoints control. Existing widgets only. *@
+    <sb-summary-stats range="@analyticsWindow" />
+    <div class="card bg-base-100">
+        <div class="card-body p-4">
+            <h2 class="text-sm font-semibold mb-2">Traffic &mdash; bot vs human over time</h2>
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/_TimeseriesChart.cshtml", timeseries)
+        </div>
+    </div>
+
     @* Range drives SbEndpointsList's parameter-driven branch (the same feed the Traffic
        page's control takes — the middleware-seeded first-paint reader / windowed store
        read) instead of the cache/legacy branch that rendered "Warming up" on a cold
