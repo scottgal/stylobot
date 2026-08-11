@@ -82,7 +82,11 @@
      data-sb-depends="endpoints"
      data-sb-params="page=@Model.Page&sort=@Model.SortField&dir=@Model.SortDir&pageSize=@Model.PageSize"
      class="transition-colors duration-200 sb-scroll-shell">
-    <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
+    @* Operator directive 2026-08-12: the filter header must be ONE row in the title
+       bar — status/mode chips + method dropdown + path filter all inline. flex-wrap
+       was wrapping the header onto 2-3 lines on typical widths; overflow-x-auto keeps
+       it a single scrollable row (the title + filters never drop below the heading). *@
+    <div class="flex items-center gap-2 mb-3 text-xs overflow-x-auto whitespace-nowrap">
         <span class="flex items-center gap-1">
             <h3 class="text-sm font-bold text-base-content">@Model.Heading</h3>
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
