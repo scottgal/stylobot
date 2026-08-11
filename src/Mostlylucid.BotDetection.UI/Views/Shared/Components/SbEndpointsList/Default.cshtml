@@ -82,42 +82,15 @@
      data-sb-depends="endpoints"
      data-sb-params="page=@Model.Page&sort=@Model.SortField&dir=@Model.SortDir&pageSize=@Model.PageSize"
      class="transition-colors duration-200 sb-scroll-shell">
-    <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-1">
+    <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
+        <span class="flex items-center gap-1">
             <h3 class="text-sm font-bold text-base-content">@Model.Heading</h3>
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
-        </div>
-        @if (Model.IsCompact)
+        </span>
+        @if (!Model.IsCompact)
         {
-            @* Compact embeds (Traffic overview's "Top content pages" widget, the
-               Activity sidebar list) are a glance, not the full control -- link back
-               to the canonical, fully-filterable list. /site is the resolved landing
-               page for the unified endpoints control (the legacy /endpoints route
-               301s there). *@
-            <a href="@bp/site" class="text-[10px] text-base-content/40 hover:text-base-content/70">View all &rarr;</a>
-        }
-        else if (Model.IsCommercial && Model.AllowEndpointPinning)
-        {
-            <button class="btn btn-xs btn-ghost gap-1 text-base-content/60"
-                    data-action="toggle-pin-form">
-                <i class="bx bx-pin text-sm"></i>Pin Endpoint
-            </button>
-        }
-    </div>
-
-    @* Filter bar: status-code chips + free-text path filter. Hidden on compact
-       layouts (the half-width Activity card has no room for a second control
-       row). Both controls drop back to page=1 so the new filter set is paged
-       from the start. The path filter HTMX-debounces at 350ms so typing
-       doesn't fire a request per keystroke.
-       Layout (operator 2026-08-11): ONE row — every chip cluster (status /
-       honeypot / self-probe / mode) plus the method dropdown and path input all
-       inline in a single flex-wrap row. Chips wrap on narrow widths. *@
-    @if (!Model.IsCompact)
-    {
-        <div class="mb-3 text-xs">
-        <div class="flex flex-wrap items-center gap-2">
-            <span class="text-base-content/40 mr-1">Status</span>
+            @* Status chips *@
+            <span class="text-base-content/40 ml-2">Status</span>
             <a href="#" hx-get="@StatusUrl("all")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@ChipClass("all")">All</a>
@@ -134,11 +107,7 @@
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@ChipClass("5xx")">5xx</a>
 
-            @* Honeypot audience chip. Highlights rows whose path matches the
-               static HoneypotPathDefinitions classifier (Always / Probable).
-               Operators were missing the badge when IsHoneypot was always
-               false; this filter + the population fix in
-               GetEndpointStatsAsync make honeypot hits visible. *@
+            @* Honeypot audience chip *@
             <span class="text-base-content/30 mx-1">·</span>
             <a href="#" hx-get="@AudienceUrl("honeypot")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
@@ -147,20 +116,11 @@
                 <i class="bx bx-radar text-[11px] mr-0.5"></i>Honeypot
             </a>
 
-            @* "Show self-probe" toggle: self/health-probe traffic (bot_type=Internal --
-               loopback / RFC1918 / k8s liveness / StyloBot talking to itself) is excluded
-               from every endpoint view by DEFAULT (matches the direct-read /site table and
-               the composed "Top content pages" list, which now agree). This is the explicit,
-               investigation-only opt-in that restores it, via the "all_incl_internal"
-               audience-filter token -- a distinct value from "honeypot"/"internal"/"all" so
-               it means exactly "everything, Internal included, no bot/human gate" everywhere
-               it's recognized (SqliteDashboardEventStore + PostgreSQLDashboardEventStore,
-               both AudiencePredicate and ComposeAudiencePredicate). Same chip convention as
-               Honeypot above: click to turn on, use the "Clear" link below to turn off. *@
+            @* Self-probe toggle *@
             <a href="#" hx-get="@AudienceUrl("all_incl_internal")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@AudienceChipClass("all_incl_internal")"
-               title="Include self-probe / health-check traffic (bot_type=Internal) -- hidden from every endpoint view by default">
+               title="Include self-probe / health-check traffic (bot_type=Internal)">
                 <i class="bx bx-pulse text-[11px] mr-0.5"></i>Show self-probe
             </a>
             @if (!Model.AudienceFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
@@ -171,13 +131,9 @@
                    title="Clear audience filter">Clear</a>
             }
 
-            @* MODE chips (Si2 endpoint-IA unification): EndpointClassifier.ClassifyMode
-               buckets each row by path/method shape -- content page / API / static
-               asset / realtime (SignalR hub + negotiate + WebSocket upgrade; the
-               aggregate carries no per-request transport signal to split those two
-               further, see EndpointClassifier.EndpointMode's doc comment). *@
+            @* Mode chips *@
             <span class="text-base-content/30 mx-1">·</span>
-            <span class="text-base-content/40 mr-1">Mode</span>
+            <span class="text-base-content/40">Mode</span>
             <a href="#" hx-get="@ModeUrl("")"
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@ModeChipClass("")">All</a>
@@ -194,9 +150,7 @@
                hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                class="@ModeChipClass("realtime")" title="SignalR hub/negotiate + WebSocket upgrade paths">Realtime</a>
 
-            @* Method dropdown + path filter merged into one row (operator 2026-08-11):
-               Si2 endpoint-IA unified the rows; a compact select covers common verbs
-               plus "All". *@
+            @* Method dropdown *@
             <span class="text-base-content/30 mx-1">·</span>
             <select name="method"
                     class="select select-xs select-bordered font-mono"
@@ -210,6 +164,7 @@
                 }
             </select>
 
+            @* Path filter *@
             <input type="text" name="path" value="@Model.PathFilter"
                    placeholder="filter path…"
                    class="input input-xs input-bordered w-44 font-mono"
@@ -217,9 +172,19 @@
                    hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                    hx-trigger="keyup changed delay:350ms, search"
                    hx-include="this" />
-        </div>
-        </div>
-    }
+        }
+        @if (Model.IsCompact)
+        {
+            <a href="@bp/site" class="ml-auto text-[10px] text-base-content/40 hover:text-base-content/70">View all &rarr;</a>
+        }
+        else if (Model.IsCommercial && Model.AllowEndpointPinning)
+        {
+            <button class="btn btn-xs btn-ghost gap-1 text-base-content/60 ml-auto"
+                    data-action="toggle-pin-form">
+                <i class="bx bx-pin text-sm"></i>Pin Endpoint
+            </button>
+        }
+    </div>
     @if (Model.IsCommercial && Model.AllowEndpointPinning)
     {
         <div id="pin-endpoint-form" class="hidden mb-4 p-3 bg-base-200 rounded-lg">
