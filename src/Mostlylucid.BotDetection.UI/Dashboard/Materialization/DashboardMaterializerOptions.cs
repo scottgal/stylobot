@@ -121,6 +121,15 @@ public sealed class DashboardMaterializerOptions
     public IReadOnlyList<string> PrewarmWindows { get; set; } = new[] { "6h", "24h", "7d", "30d" };
 
     /// <summary>
+    ///     Disk persistence for the rendered-content caches (operator directive
+    ///     2026-08-11): when set, the L1 shingle cache (rendered widget HTML) is
+    ///     snapshotted to this local file each materializer cycle and restored on warm
+    ///     boot BEFORE the materializer refreshes — a restart with the gateway/DB down
+    ///     still serves the last-known-good rendered widgets. Empty = disabled.
+    /// </summary>
+    public string DiskCachePath { get; set; } = "";
+
+    /// <summary>
     ///     §7 Tier 3 (bounded parallelism): live envelopes are warmed in waves of at most
     ///     this many concurrent composes, mirroring <c>ScheduleCoordinator</c>'s own
     ///     <c>MaxConcurrentSubscribersPerTick</c> bounded-parallelism pattern. Kept

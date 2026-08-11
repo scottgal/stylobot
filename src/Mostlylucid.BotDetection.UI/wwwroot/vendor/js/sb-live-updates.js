@@ -381,6 +381,14 @@
         if (!statusEl) return;
         statusEl.className = 'w-2 h-2 rounded-full sb-' + state;
         statusEl.title = 'SignalR: ' + state;
+        // Broadcast to external surfaces (e.g. the scope bar's LIVE indicator):
+        // any element with [data-sb-live-dot] gets data-live="connected|connecting|paused|disconnected".
+        try {
+            window.dispatchEvent(new CustomEvent('sb:live-status', { detail: state }));
+            document.querySelectorAll('[data-sb-live-dot]').forEach(function (el) {
+                el.setAttribute('data-live', state);
+            });
+        } catch (e) { /* ignore */ }
     }
 
     var connection = new signalR.HubConnectionBuilder()

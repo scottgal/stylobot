@@ -155,18 +155,22 @@
         </div>
     }
 
-    @* Visitors table. Outer .overflow-auto keeps thead frozen above the rolling tbody;
-       the tbody itself is the data-region so SignalR-beacon swaps replace just the rows,
-       not the table chrome -- no flash, no scroll jump. *@
+    @* Visitors table. Outer .overflow-auto keeps thead frozen above the rolling tbody.
+       ONE region, one swap (same fix as SbTopBots, operator P0 2026-08-09): the tbody
+       used to be its own data-region, swapped independently of the widget root's
+       header/counts on a SignalR beacon -- the same two-independently-timed-swaps shape
+       that let Top Bots' badge and rows disagree. WidgetRenderHelpers.InjectOobAttribute
+       falls back to morphing the whole first tag when no data-region marker is present,
+       so removing the marker is the whole fix here too. *@
     @if (Model.IsWarming)
     {
-        <div id="visitor-rows" data-sb-data-region class="text-xs text-base-content/50 px-3 py-4 text-center">
-            Warming up — visitor data will appear shortly.
+        <div id="visitor-rows" class="flex items-center justify-center py-4">
+            <span class="loading loading-spinner loading-xs text-base-content/40"></span>
         </div>
     }
     else if (Model.Visitors.Count == 0)
     {
-        <div id="visitor-rows" data-sb-data-region class="text-center text-base-content/30 py-12 text-sm">
+        <div id="visitor-rows" class="text-center text-base-content/30 py-12 text-sm">
             No visitors match this filter
         </div>
     }
@@ -205,7 +209,7 @@
                         </th>
                     </tr>
                 </thead>
-                <tbody id="visitor-rows" data-sb-data-region>
+                <tbody id="visitor-rows">
                     @foreach (var v in Model.Visitors)
                     {
                         // SINGLE canonical name path. Resolve runs custom > catalog >

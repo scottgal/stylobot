@@ -130,6 +130,12 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // set-site in AwaitWarmAndClearAsync and the PART 4 guard in StyloBotDashboardMiddleware.
     private volatile bool _hasWarmedSuccessfully;
 
+    // When the cache was last refreshed by a successful warm (UTC). Operator directive
+    // 2026-08-11: surfaced in the UI as "Updated X ago" next to the domain/period
+    // selectors, so the operator sees how fresh the cached data is. Written on the warm
+    // task, read on the request thread — DateTimeOffset writes are atomic.
+    private DateTimeOffset? _lastWarmedAtUtc;
+
     /// <summary>
     ///     True once the tick materializer has warmed at least one envelope successfully --
     ///     i.e. the compose path is proven healthy. The request path gates its instant
@@ -138,6 +144,14 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     store fallback instead.
     /// </summary>
     public bool HasWarmedSuccessfully => _hasWarmedSuccessfully;
+
+    /// <summary>
+    ///     When the cache was last refreshed by a successful materializer warm (UTC), or
+    ///     null before the first successful warm. Surfaced in the dashboard UI as the
+    ///     "Updated X ago" freshness indicator (operator directive 2026-08-11) — the
+    ///     cache is at most the refresh cadence (default 60s) stale.
+    /// </summary>
+    public DateTimeOffset? LastWarmedAtUtc => _lastWarmedAtUtc;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -239,6 +253,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // false and the request path keeps its synchronous store fallback (honest data),
             // never a spinner that would warm forever with nothing to warm it.
             _hasWarmedSuccessfully = true;
+            // Freshness stamp for the "Updated X ago" indicator: the last time ANY
+            // envelope was actually re-warmed (a real compute, never a skip).
+            _lastWarmedAtUtc = _time.GetUtcNow();
             return result;
         }
         finally

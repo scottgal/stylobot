@@ -105,7 +105,7 @@
            real, warmed snapshot that happens to show zero bots. *@
         @if (Model.IsWarming)
         {
-            <div class="text-xs text-base-content/50 px-3 py-4 text-center">Warming up — bot activity will appear shortly.</div>
+            <div class="flex items-center justify-center py-4"><span class="loading loading-spinner loading-xs text-base-content/40"></span></div>
         }
         else if (Model.Bots.Count == 0)
         {

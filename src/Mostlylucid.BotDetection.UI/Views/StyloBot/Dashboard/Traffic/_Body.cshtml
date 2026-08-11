@@ -160,7 +160,7 @@
         <sb-widget width="half" height="tall" heading="@chartLabel"
                    depends="summary"
                    warming-when="@Model.IsWarming"
-                   warming-text="Warming up — chart data will appear shortly."
+                   warming-text=""
                    empty-when="@(!Model.IsWarming && Model.Timeseries.Buckets.Count == 0)"
                    empty-text="No data in this window">
             <vc:sb-chartlet model="hitsChart" />

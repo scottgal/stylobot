@@ -110,6 +110,21 @@ public sealed class BoundedCache<TKey, TValue> where TKey : notnull
     /// </summary>
     public void Clear() => _entries.Clear();
 
+    /// <summary>
+    ///     Materializes the live (non-expired) entries — used by the dashboard cache
+    ///     disk-persistence snapshot (operator directive 2026-08-11: persist rendered
+    ///     content so a warm boot serves from disk before the materializer refreshes).
+    /// </summary>
+    public IEnumerable<KeyValuePair<TKey, TValue>> Snapshot()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var kvp in _entries)
+        {
+            if (now < kvp.Value.ExpiresAt)
+                yield return new KeyValuePair<TKey, TValue>(kvp.Key, kvp.Value.Value);
+        }
+    }
+
     private void EvictIfNeeded()
     {
         if (_entries.Count <= _maxSize) return;

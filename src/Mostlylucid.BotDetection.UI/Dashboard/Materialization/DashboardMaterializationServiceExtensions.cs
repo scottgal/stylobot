@@ -65,6 +65,13 @@ internal static class DashboardMaterializationServiceExtensions
         if (runTickMaterializer)
             services.AddHostedService(sp => sp.GetRequiredService<DashboardMaterializerCoordinator>());
 
+        // Disk persistence for the rendered-content caches (operator directive
+        // 2026-08-11): restores the last-known-good shingles on warm boot and persists
+        // each cycle. Self-disables when DashboardMaterializerOptions.DiskCachePath is
+        // unset; registered on every host (UI-gateway or not — a non-UI pod may still
+        // serve widget batches from the disk-loaded shingles).
+        services.AddHostedService<DashboardCacheDiskPersistence>();
+
         return services;
     }
 }

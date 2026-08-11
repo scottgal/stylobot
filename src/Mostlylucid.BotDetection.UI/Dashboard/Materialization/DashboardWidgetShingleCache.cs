@@ -48,4 +48,21 @@ public sealed class DashboardWidgetShingleCache
 
     /// <summary>Resident shingle count (for diagnostics / the system-info surface).</summary>
     public int Count => _shingles.Count;
+
+    /// <summary>
+    ///     Live (non-expired) shingles as a fingerprint → HTML map — the disk-persistence
+    ///     snapshot (operator directive 2026-08-11: persist rendered content so a warm
+    ///     boot serves the last-known-good shingles from disk before the materializer
+    ///     refreshes).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Snapshot() =>
+        _shingles.Snapshot().ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+    /// <summary>Re-populates the cache from a persisted snapshot (warm-boot load).</summary>
+    public void Restore(IEnumerable<KeyValuePair<string, string>> entries)
+    {
+        foreach (var (fingerprint, html) in entries)
+            if (!string.IsNullOrEmpty(fingerprint) && !string.IsNullOrEmpty(html))
+                _shingles.Set(fingerprint, html);
+    }
 }
