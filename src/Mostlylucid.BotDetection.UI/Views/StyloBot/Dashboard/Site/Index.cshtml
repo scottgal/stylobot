@@ -23,8 +23,6 @@
             parts.Add($"threat={Uri.EscapeDataString(Model.Threat!)}");
         if (!string.Equals(axis, "bot_pressure", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(Model.BotPressure))
             parts.Add($"bot_pressure={Uri.EscapeDataString(Model.BotPressure!)}");
-        if (!string.IsNullOrEmpty(Model.Window))
-            parts.Add($"window={Uri.EscapeDataString(Model.Window!)}");
         return parts.Count == 0 ? $"{bp}/site" : $"{bp}/site?{string.Join("&", parts)}";
     }
 
@@ -37,7 +35,6 @@
         if (!string.IsNullOrEmpty(Model.Method)) parts.Add($"method={Uri.EscapeDataString(Model.Method!)}");
         if (!string.IsNullOrEmpty(Model.Threat)) parts.Add($"threat={Uri.EscapeDataString(Model.Threat!)}");
         if (!string.IsNullOrEmpty(Model.BotPressure)) parts.Add($"bot_pressure={Uri.EscapeDataString(Model.BotPressure!)}");
-        if (!string.IsNullOrEmpty(Model.Window)) parts.Add($"window={Uri.EscapeDataString(Model.Window!)}");
         // Strip the axis we're about to (re)set.
         var key = axis + "=";
         parts.RemoveAll(p => p.StartsWith(key, StringComparison.OrdinalIgnoreCase));
@@ -47,80 +44,52 @@
         return parts.Count == 0 ? $"{bp}/site" : $"{bp}/site?{string.Join("&", parts)}";
     }
 
-    // Window-period link: preserves all active filters, replaces only the window.
-    string LinkWithWindow(string window)
-    {
-        var parts = new List<string>();
-        if (!string.IsNullOrEmpty(Model.Path))   parts.Add($"path={Uri.EscapeDataString(Model.Path!)}");
-        if (!string.IsNullOrEmpty(Model.Method)) parts.Add($"method={Uri.EscapeDataString(Model.Method!)}");
-        if (!string.IsNullOrEmpty(Model.Threat)) parts.Add($"threat={Uri.EscapeDataString(Model.Threat!)}");
-        if (!string.IsNullOrEmpty(Model.BotPressure)) parts.Add($"bot_pressure={Uri.EscapeDataString(Model.BotPressure!)}");
-        // Only append window when it differs from the default 24h so URLs stay clean.
-        if (window != "24h")
-            parts.Add($"window={Uri.EscapeDataString(window)}");
-        return parts.Count == 0 ? $"{bp}/site" : $"{bp}/site?{string.Join("&", parts)}";
-    }
-
     string PillClass(bool on) => on
         ? "btn btn-xs join-item btn-primary"
         : "btn btn-xs join-item btn-ghost";
 
     string ChipClass() =>
         "inline-flex items-center gap-1 px-2 py-0.5 text-[10px] rounded-md font-semibold bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors";
-
-    var windowPills = new[] { ("6h", "6h"), ("24h", "24h"), ("7d", "7d"), ("30d", "30d") };
 }
 
 @*
     Site Analytics — Umami / Cloudflare-style per-site dashboard.
-    Composes self-fetching FOSS view components that query their own data
-    (IDashboardEventStore / DashboardContentCache) so the controller stays
-    thin — no model plumbing needed for the analytics widgets.
+    The period selector lives in the commercial shell's domain bar (ShellTopBar);
+    this page does NOT duplicate it. The ?window= query param set by that
+    selector is forwarded into all self-fetching widgets below.
 
     Layout, top to bottom:
-    1. Header + window selector pills
-    2. Summary stat cards (total requests, bot rate, visitors, response time)
-    3. Site health chartlets (response time over time, error rate over time)
-    4. Endpoint filter pills + active chips
-    5. Endpoints table with all columns
+    1. Header (title only — period is shell-owned)
+    2. Real-time bot ticker
+    3. Half-width grid: Summary Stats (left) + Domain Breakdown slot (right)
+    4. Site health (response time + error rate chartlets)
+    5. Endpoint filters + active chips
+    6. Endpoints table with all columns
 *@
-<section class="space-y-4">
+<section class="space-y-1.5">
 
-    @* ── Header + Time Window Selector ────────────────────────────────────── *@
-    <header class="flex items-center justify-between flex-wrap gap-2">
-        <h2 class="text-lg font-semibold">Site Analytics</h2>
-        <div class="join">
-            @foreach (var (val, label) in windowPills)
-            {
-                var active = string.Equals(activeWindow, val, StringComparison.OrdinalIgnoreCase);
-                <a href="@LinkWithWindow(val)"
-                   class="btn btn-xs join-item @(active ? "btn-primary" : "")">@label</a>
-            }
+    @* ── Header ── *@
+    <h2 class="text-lg font-semibold">Site Analytics</h2>
+
+    @* ── Real-time ticker ── *@
+    <bot-ticker />
+
+    @* ── Row 1: Summary Stats + Domain Breakdown (side by side) ──
+       SbSummaryStats self-fetches via IDashboardEventStore + SignatureAggregateCache.
+       The right column is a named slot — commercial overlays inject DomainBreakdown
+       here. On pure-FOSS hosts it renders empty (graceful absence). *@
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
+        <sb-summary-stats range="@activeWindow" />
+        <div id="site-domain-breakdown-slot">
+            @* Commercial DomainBreakdownViewComponent renders here *@
         </div>
-    </header>
+    </div>
 
-    @* ── Row 1: Summary Stat Cards ──────────────────────────────────────────
-       SbSummaryStats is self-fetching via IDashboardEventStore +
-       SignatureAggregateCache. Shows: fingerprints (total/bot/human),
-       bot traffic gauge, active now / unique visitors, bounce rate,
-       avg session duration, detection (uncertain requests).
-       The range param forwards the active window so the component
-       queries the correct time slice. *@
-    <sb-summary-stats range="@activeWindow" />
-
-    @* ── Row 2: Site Health — Response Time + Error Rate Timeseries ─────────
-       SbSiteHealth is self-fetching via IDashboardEventStore.GetDegradationHistoryAsync.
-       When healthy: collapses to a thin green "Upstream healthy" strip.
-       When degraded: expands to two chartlets (latency + error rate) side-by-side.
-       This IS the "response time over time" chart — shows real upstream
-       performance against the degradation baseline, not a fabricated metric. *@
+    @* ── Row 2: Site Health — response time + error rate timeseries ── *@
     <vc:sb-site-health window="@activeWindow" />
 
-    @* ── Row 3: Endpoint Filters ────────────────────────────────────────────
-       Method, threat floor, and bot-pressure preset pills. Each toggles
-       its own axis — click again to clear. The path filter lives as the
-       free-text input inside the SbEndpointsList widget below. *@
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs pt-2">
+    @* ── Row 3: Endpoint Filters ── *@
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         <div class="flex items-center gap-1">
             <span class="text-base-content/50 mr-1">Method</span>
             <div class="join">
@@ -161,10 +130,10 @@
         </div>
     </div>
 
-    @* Active filter chips — one removable chip per non-null filter axis. *@
+    @* Active filter chips *@
     @if (hasFilter)
     {
-        <div class="flex flex-wrap items-center gap-2 text-xs">
+        <div class="flex flex-wrap items-center gap-1.5 text-xs">
             <span class="text-base-content/50">Active:</span>
             @if (!string.IsNullOrEmpty(Model.Path))
             {
@@ -201,13 +170,7 @@
         </div>
     }
 
-    @* ── Row 4: Endpoints Table ─────────────────────────────────────────────
-       The full endpoints list control — method, path, hits, bot%, avg/P95/max
-       response time, status codes, bot pressure. The tag helper forwards URL
-       filter params so the first paint matches the selected filter set.
-       Columns: Status | Mode | Method | Path | Hits | Bot% | Avg ms | P95 ms |
-                Max ms | 4xx | 5xx | Bot Pressure
-       Sortable by column, per-page size control, path text filter inline. *@
+    @* ── Row 4: Endpoints Table ── *@
     <sb-endpoints-list heading="Endpoints"
                        path="@Model.Path"
                        method="@Model.Method"
