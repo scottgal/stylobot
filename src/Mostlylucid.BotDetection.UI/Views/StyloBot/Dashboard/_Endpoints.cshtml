@@ -60,12 +60,19 @@
    back/forward + address bar are the deep-link mechanism, no client-side
    re-triggering needed. *@
 <div class="grid grid-cols-1 gap-4">
+    @* Range drives SbEndpointsList's parameter-driven branch (the same feed the Traffic
+       page's control takes — the middleware-seeded first-paint reader / windowed store
+       read) instead of the cache/legacy branch that rendered "Warming up" on a cold
+       SWR key (2026-08-11 P0). Defaults to the dashboard's 24h window when ?window=
+       is absent, matching BuildVisitorsPageWindow's default so the seeded bundle and
+       the requested window agree. *@
     <sb-endpoints-list path="@QueryOrNull("path")"
                        method="@QueryOrNull("method")"
                        mode="@QueryOrNull("mode")"
                        status="@QueryOrNull("status")"
                        threat="@QueryOrNull("threat")"
-                       bot-pressure="@QueryOrNull("bot_pressure")" />
+                       bot-pressure="@QueryOrNull("bot_pressure")"
+                       range="@(QueryOrNull("window") ?? "24h")" />
     @* Lazy-loaded host-scoped policy stack. <details>/hx-get pattern lets
        operators open it without paying the render cost up-front. The
        sibling marker classes are what the integration smoke tests grep

@@ -27,7 +27,8 @@ public sealed class SiteController : Controller
         [FromQuery] string? path,
         [FromQuery] string? method,
         [FromQuery] string? threat,
-        [FromQuery(Name = "bot_pressure")] string? botPressure)
+        [FromQuery(Name = "bot_pressure")] string? botPressure,
+        [FromQuery(Name = "window")] string? window)
     {
         var basePath = _layout.Value.V2Enabled
             ? "/dashboard"
@@ -38,7 +39,12 @@ public sealed class SiteController : Controller
             Method: NullIfEmpty(method),
             Threat: NullIfEmpty(threat),
             BotPressure: NullIfEmpty(botPressure),
-            BasePath: basePath);
+            BasePath: basePath,
+            // Period selector (?window=) forwarded into SbEndpointsList so the component
+            // takes the same parameter-driven branch the Traffic page's control takes —
+            // the middleware-seeded first-paint reader (warm L2 bundle) instead of the
+            // SWR cold path that rendered "Warming up" on first paint (2026-08-11 P0).
+            Window: NullIfEmpty(window));
 
         return View("/Views/StyloBot/Dashboard/Site/Index.cshtml", model);
     }
@@ -76,4 +82,8 @@ public sealed record SitePageModel(
     string? Method,
     string? Threat,
     string? BotPressure,
-    string BasePath);
+    string BasePath,
+    // Active ?window= token (e.g. "6h"/"24h"/"7d"), or null for the dashboard default —
+    // forwarded as SbEndpointsList's range so the list reads through the same
+    // parameter-driven feed as the Traffic page (first-paint reader / windowed store).
+    string? Window = null);
