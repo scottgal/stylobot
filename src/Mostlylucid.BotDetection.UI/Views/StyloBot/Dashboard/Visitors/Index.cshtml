@@ -4,23 +4,17 @@
 @model VisitorsPageModel
 @{
     ViewData["Title"] = "Visitors";
+}
 
-    // Period selector: same ?window= token vocabulary as Traffic/Site/Policies,
-    // preserving the page's other filters (tab/country/bot_type/threat/fingerprint/
-    // internal) across a window change -- full-page nav, no cookie/session state.
-    string WindowHref(string? window)
+@{
+    // The period selector owns ?window= (scope-bar cookie -> baseline middleware);
+    // strip any baked window so the swap target follows the CURRENT selection.
+    string RefreshHref()
     {
-        var qs = new List<string>();
-        if (!string.IsNullOrEmpty(Model.Filter) && Model.Filter != "all") qs.Add($"filter={Uri.EscapeDataString(Model.Filter)}");
-        if (!string.IsNullOrEmpty(Model.Country)) qs.Add($"country={Uri.EscapeDataString(Model.Country)}");
-        if (!string.IsNullOrEmpty(Model.BotType)) qs.Add($"bot_type={Uri.EscapeDataString(Model.BotType)}");
-        if (!string.IsNullOrEmpty(Model.Threat)) qs.Add($"threat={Uri.EscapeDataString(Model.Threat)}");
-        if (!string.IsNullOrEmpty(Model.FingerprintId)) qs.Add($"fingerprint={Uri.EscapeDataString(Model.FingerprintId)}");
-        if (Model.Internal) qs.Add("internal=true");
-        if (!string.IsNullOrEmpty(window)) qs.Add($"window={Uri.EscapeDataString(window)}");
-        return qs.Count == 0 ? Model.BasePath + "/visitors" : $"{Model.BasePath}/visitors?{string.Join('&', qs)}";
+        var qs = System.Web.HttpUtility.ParseQueryString(Context.Request.QueryString.Value ?? "");
+        qs.Remove("window");
+        return Context.Request.Path + (qs.Count == 0 ? "" : "?" + qs.ToString());
     }
-    var activeWindow = string.IsNullOrWhiteSpace(Model.Window) ? "24h" : Model.Window;
 }
 
 @*
@@ -41,18 +35,12 @@
 *@
 <section class="space-y-4"
          id="sb-visitors-body"
-         hx-get="@(Context.Request.Path + Context.Request.QueryString)"
+         hx-get="@RefreshHref()"
          hx-trigger="sb:summary-update from:body"
          hx-target="this"
          hx-swap="outerHTML">
     <header class="flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold">Visitors</h2>
-        <div class="join">
-            @foreach (var w in new[] { "6h", "24h", "7d", "30d" })
-            {
-                <a href="@WindowHref(w)" class="btn btn-xs join-item @(w == activeWindow ? "btn-primary" : "")">@w</a>
-            }
-        </div>
     </header>
 
     @* Row 1: Accurate summary *@

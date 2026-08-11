@@ -39,15 +39,6 @@
     var aggregateWindow = rangeStart.HasValue && rangeEnd.HasValue
         ? rangeEnd.Value - rangeStart.Value
         : TimeSpan.FromHours(24);
-    string PoliciesWindowHref(string? window)
-    {
-        var qs = new List<string>();
-        if (!string.IsNullOrEmpty(scopeParam)) qs.Add($"scope={Uri.EscapeDataString(scopeParam)}");
-        if (!string.IsNullOrEmpty(window) && window != "24h") qs.Add($"window={Uri.EscapeDataString(window)}");
-        return qs.Count == 0 ? Context.Request.Path : $"{Context.Request.Path}?{string.Join('&', qs)}";
-    }
-    var activeWindow = string.IsNullOrWhiteSpace(windowParam) ? "24h" : windowParam;
-
     // Pull the same presenter + registry the SbPolicyStack uses so the
     // grouped view shows the same rule set the editor surface does. The
     // registry is optional in DI; when absent the group headers fall
@@ -73,6 +64,17 @@
         templateGroups = PolicyTemplateGrouping.Group(vm.Rows, registry);
     }
 }
+
+@{
+    // The period selector owns ?window= (scope-bar cookie -> baseline middleware);
+    // strip any baked window so the swap target follows the CURRENT selection.
+    string RefreshHref()
+    {
+        var qs = System.Web.HttpUtility.ParseQueryString(Context.Request.QueryString.Value ?? "");
+        qs.Remove("window");
+        return Context.Request.Path + (qs.Count == 0 ? "" : "?" + qs.ToString());
+    }
+}
 @* sb:summary-update listener (commercial scope bar): the commercial range/domain
    bar posts via hx-post and the controller replies HX-Trigger: sb:summary-update.
    The middleware's IsPartialSwapRequest branch serves ONLY this row's content for
@@ -82,20 +84,10 @@
 <section class="dashboard-policies"
          data-dashboard-page="policies"
          id="sb-policies-body"
-         hx-get="@(Context.Request.Path + Context.Request.QueryString)"
+         hx-get="@RefreshHref()"
          hx-trigger="sb:summary-update from:body"
          hx-target="this"
          hx-swap="outerHTML" @(showcaseDemo ? "data-showcase-readonly=true" : "")>
-    @* Period selector: scopes the LIVE hit-count aggregation below (Config baseline +
-       manually-authored rule rows), same ?window= vocabulary Traffic/Site use. *@
-    <div class="flex justify-end mb-2">
-        <div class="join">
-            @foreach (var w in new[] { "6h", "24h", "7d", "30d" })
-            {
-                <a href="@PoliciesWindowHref(w)" class="btn btn-xs join-item @(w == activeWindow ? "btn-primary" : "")">@w</a>
-            }
-        </div>
-    </div>
     @if (showcaseDemo)
     {
         @* Showcase-demo surface renders the SAME interactive editor-open control the

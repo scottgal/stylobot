@@ -60,22 +60,14 @@
     // ranges roll up rather than render thousands of thin buckets. The set is
     // CAPPED at the detection-retention policy — no point offering 30d when the
     // store only keeps, say, 7d.
-    var retention = DashOpts.Value.DetectionRetention;
-    var windows = new[]
-        {
-            ("6h",  TimeSpan.FromHours(6)),
-            ("24h", TimeSpan.FromDays(1)),
-            ("7d",  TimeSpan.FromDays(7)),
-            ("30d", TimeSpan.FromDays(30)),
-        }
-        .Where(w => w.Item2 <= retention)
-        .Select(w => (w.Item1, w.Item1))
-        .ToArray();
-    if (windows.Length == 0) windows = new[] { ("6h", "6h") };
-
     // Refresh URL preserves the active filter set so the SignalR-driven swap
     // re-renders the same view the operator is looking at, not a default one.
-    var refreshUrl = LinkWith() + (LinkWith().Contains("?") ? "&" : "?") + "partial=1";
+    // The WINDOW is deliberately NOT in the refresh URL: the period selector owns
+    // ?window= via its cookie and DashboardScopeBaselineMiddleware rewrites it from
+    // the cookie on every request — a baked SSR-time window here would make the
+    // swapped body ignore the operator's selection (the "changing the window does
+    // nothing" defect, 2026-08-12).
+    var refreshUrl = LinkWith(remove: "window") + (LinkWith(remove: "window").Contains("?") ? "&" : "?") + "partial=1";
 }
 <div id="sb-traffic-body"
      hx-get="@refreshUrl"
@@ -106,14 +98,6 @@
                    class="badge badge-sm badge-warning gap-1" title="Clear threat filter">
                     Threat ≥ @Model.Filters.Threat.TrimEnd('+') <span aria-hidden="true">×</span>
                 </a>
-            }
-        </div>
-        <div class="join">
-            @foreach (var (val, label) in windows)
-            {
-                var active = string.Equals(Model.Filters.Window, val, StringComparison.OrdinalIgnoreCase);
-                <a href="@LinkWith(window: val)"
-                   class="btn btn-xs join-item @(active ? "btn-primary" : "")">@label</a>
             }
         </div>
     </header>

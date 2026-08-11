@@ -8307,9 +8307,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             7 * 24 * 60 => "7d",
             _ => "24h"
         };
-        var token = context.Request.Query["window"].FirstOrDefault() ?? configuredToken;
-        var minutes = UI.Dashboard.DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: configuredMinutes);
-        var end = DateTime.UtcNow;
+        // Domain resolution shared by the token and custom branches below.
         var domains = context.Request.Query["domain"]
             .Where(v => !string.IsNullOrWhiteSpace(v))
             .Select(v => v!.Trim())
@@ -8328,6 +8326,32 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         IReadOnlyList<string>? effectiveDomains =
             scopedDomains is { Count: > 0 } ? scopedDomains
             : domains.Length == 0 ? null : domains;
+
+        var token = context.Request.Query["window"].FirstOrDefault() ?? configuredToken;
+        var end = DateTime.UtcNow;
+
+        // Phase A custom range (period-selector consolidation, operator directive
+        // 2026-08-12): window=custom&from=&to= (yyyy-MM-dd, UTC midnight, to-date
+        // inclusive) resolves to the explicit (start, end) pair instead of a token.
+        if (string.Equals(token, "custom", StringComparison.OrdinalIgnoreCase)
+            && context.Request.Query.TryGetValue("from", out var fromV)
+            && context.Request.Query.TryGetValue("to", out var toV))
+        {
+            var (customStart, customEnd) = Helpers.AnalyticsRangeParser.ParseCustom(fromV.FirstOrDefault(), toV.FirstOrDefault());
+            if (customStart is not null && customEnd is not null)
+            {
+                return new DashboardPageWindow(
+                    StartTime: customStart.Value,
+                    EndTime: customEnd.Value,
+                    AudienceFilter: "all",
+                    ProbMin: null,
+                    Domains: effectiveDomains,
+                    TopN: 500,
+                    BucketMinutes: 60);
+            }
+        }
+
+        var minutes = UI.Dashboard.DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: configuredMinutes);
 
         return new DashboardPageWindow(
             StartTime: end.AddMinutes(-minutes),

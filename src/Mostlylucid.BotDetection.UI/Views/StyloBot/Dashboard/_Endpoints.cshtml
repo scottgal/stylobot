@@ -60,6 +60,17 @@
         timeseries = new TrafficTimeseries([], [], [], []);
     }
 }
+
+@{
+    // The period selector owns ?window= (scope-bar cookie -> baseline middleware);
+    // strip any baked window so the swap target follows the CURRENT selection.
+    string RefreshHref()
+    {
+        var qs = System.Web.HttpUtility.ParseQueryString(Context.Request.QueryString.Value ?? "");
+        qs.Remove("window");
+        return Context.Request.Path + (qs.Count == 0 ? "" : "?" + qs.ToString());
+    }
+}
 @* sb:summary-update listener (commercial scope bar): the commercial range/domain
    bar posts via hx-post and the controller replies HX-Trigger: sb:summary-update.
    The middleware's IsPartialSwapRequest branch serves ONLY this row's content for
@@ -68,7 +79,7 @@
    window without a full page reload (same mechanism as Traffic's #sb-traffic-body). *@
 <section data-dashboard-page="site"
          id="sb-site-body"
-         hx-get="@(Context.Request.Path + Context.Request.QueryString)"
+         hx-get="@RefreshHref()"
          hx-trigger="sb:summary-update from:body"
          hx-target="this"
          hx-swap="outerHTML" @(showcaseDemo ? "data-showcase-readonly=true" : "")>

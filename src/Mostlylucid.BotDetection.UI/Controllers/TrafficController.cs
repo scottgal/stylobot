@@ -65,6 +65,8 @@ public sealed class TrafficController : Controller
         [FromQuery] string? country,
         [FromQuery(Name = "bot_type")] string? botType,
         [FromQuery] string? window,
+        [FromQuery] string? from,
+        [FromQuery] string? to,
         [FromQuery] string? threat,
         [FromQuery] int? partial,
         CancellationToken ct)
@@ -105,7 +107,19 @@ public sealed class TrafficController : Controller
         var topN = opts.TrafficCardTopN;
         var windowMinutes = ParseWindow(filters.Window);
         var now = DateTime.UtcNow;
+        // Phase A custom range (period-selector consolidation, operator directive
+        // 2026-08-12): window=custom&from=&to= resolves to the explicit pair.
         var startTime = now.AddMinutes(-windowMinutes);
+        var endTime = now;
+        if (string.Equals(filters.Window, "custom", StringComparison.OrdinalIgnoreCase))
+        {
+            var (customStart, customEnd) = Helpers.AnalyticsRangeParser.ParseCustom(from, to);
+            if (customStart is not null && customEnd is not null)
+            {
+                startTime = customStart.Value;
+                endTime = customEnd.Value;
+            }
+        }
         // Bucket width for the hits-per-period chart, scaled to the window so a
         // 30-day view rolls up rather than rendering thousands of thin bars.
         var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(filters.Window);
@@ -128,7 +142,7 @@ public sealed class TrafficController : Controller
         var manifest = _manifests.For("dashboard.traffic")!;
         var pageWindow = new DashboardPageWindow(
             StartTime: startTime,
-            EndTime: now,
+            EndTime: endTime,
             AudienceFilter: "all",
             ProbMin: null,
             Domains: domainsForQuery,

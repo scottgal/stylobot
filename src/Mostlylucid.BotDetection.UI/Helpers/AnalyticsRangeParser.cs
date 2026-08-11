@@ -43,4 +43,33 @@ public static class AnalyticsRangeParser
         var now = DateTime.UtcNow;
         return (now - window.Value, now);
     }
+
+    /// <summary>
+    ///     Parses a custom range's <c>from</c>/<c>to</c> date strings (yyyy-MM-dd,
+    ///     UTC) into the inclusive (start, end) pair — start = from-date midnight,
+    ///     end = to-date + 1 day (the to-date is INCLUSIVE). Returns (null, null)
+    ///     when either value is missing or unparseable (Phase A of the period-selector
+    ///     consolidation, operator directive 2026-08-12).
+    /// </summary>
+    public static (DateTime? StartTime, DateTime? EndTime) ParseCustom(string? from, string? to)
+    {
+        if (string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(to))
+            return (null, null);
+
+        if (!DateTime.TryParseExact(from.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var fromDate)
+            || !DateTime.TryParseExact(to.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var toDate))
+            return (null, null);
+
+        if (toDate < fromDate)
+            return (null, null);
+
+        // A range is never forward-looking: clamp the end to now.
+        var now = DateTime.UtcNow;
+        if (fromDate > now) return (null, null);
+        var end = toDate.Date.AddDays(1); // to-date inclusive
+        if (end > now) end = now;
+        return (fromDate.Date, end);
+    }
 }
