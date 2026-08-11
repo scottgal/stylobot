@@ -88,6 +88,25 @@ public sealed class DashboardMaterializerOptions
     public string PrewarmPageKey { get; set; } = "dashboard.traffic";
 
     /// <summary>
+    ///     §7 Tier 1 (pinned coverage) — the page manifests kept warm every tick at every
+    ///     <see cref="PrewarmWindows"/> token, regardless of live/demand status. The
+    ///     operator's architecture (2026-08-11): the materializer PREWARMS the default
+    ///     view of every top-level page — traffic AND the four cache-gated rows
+    ///     (clusters/topbots/sessions/threats) — so the SSR reads a populated cache and
+    ///     "Warming up" is never displayed. Defaults to all five seeded manifests; a host
+    ///     can narrow it (e.g. single-page hosts). <see cref="PrewarmPageKey"/> remains for
+    ///     back-compat as the single-key form.
+    /// </summary>
+    public IReadOnlyList<string> PrewarmPageKeys { get; set; } = new[]
+    {
+        "dashboard.traffic",
+        "dashboard.topbots",
+        "dashboard.clusters",
+        "dashboard.sessions",
+        "dashboard.threats",
+    };
+
+    /// <summary>
     ///     §7 Tier 1 (pinned coverage): the window tokens kept warm every tick for
     ///     <see cref="PrewarmPageKey"/>, regardless of live/demand status. Defaults to the
     ///     FOSS Traffic UI's own window-switcher buttons, so a visit at ANY of them after

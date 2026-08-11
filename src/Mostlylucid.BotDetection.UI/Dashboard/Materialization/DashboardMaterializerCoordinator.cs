@@ -318,28 +318,40 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // part of LiveEnvelopes()' hotness accounting), which is the cold/unscaled case --
             // dashboard.traffic still resolves to the Live-class base interval regardless (THE
             // NAMED INVARIANT), just without any hotness-driven acceleration below it.
-            if (_options.PrewarmDefaultEnvelope && _manifests.For(_options.PrewarmPageKey) is { } prewarmManifest)
+            if (_options.PrewarmDefaultEnvelope)
             {
+                // Operator architecture (2026-08-11): prewarm the DEFAULT view of every
+                // top-level page — traffic AND the four cache-gated rows — at every
+                // configured window token, so the SSR reads a populated cache and
+                // "Warming up" is never displayed. PrewarmPageKeys defaults to all five
+                // seeded manifests; PrewarmPageKey remains the single-key back-compat form.
+                var pinnedKeys = _options.PrewarmPageKeys.Count > 0
+                    ? _options.PrewarmPageKeys
+                    : new[] { _options.PrewarmPageKey };
                 var now = _time.GetUtcNow().UtcDateTime;
-                foreach (var token in _options.PrewarmWindows)
+                foreach (var pageKey in pinnedKeys)
                 {
-                    var minutes = DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: 1440);
-                    var pinnedWindow = new DashboardPageWindow(
-                        StartTime: now.AddMinutes(-minutes),
-                        EndTime: now,
-                        AudienceFilter: "all",
-                        ProbMin: null,
-                        Domains: null,
-                        TopN: 500,
-                        BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
+                    if (_manifests.For(pageKey) is not { } prewarmManifest) continue;
+                    foreach (var token in _options.PrewarmWindows)
+                    {
+                        var minutes = DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: 1440);
+                        var pinnedWindow = new DashboardPageWindow(
+                            StartTime: now.AddMinutes(-minutes),
+                            EndTime: now,
+                            AudienceFilter: "all",
+                            ProbMin: null,
+                            Domains: null,
+                            TopN: 500,
+                            BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
 
-                    var pinnedEnvelope = DashboardContentEnvelope.From(prewarmManifest, pinnedWindow);
-                    if (IsDueForWarm(pinnedEnvelope, prewarmManifest, accessCount: 0))
-                        // Pinned 7d/30d views can fan out into corpus-scale reads. Keep
-                        // the pinned tier serial so startup/idle recovery never launches
-                        // every standard window against the same FOSS SQLite store at once.
-                        // Demand-ranked live views retain their configured wave parallelism.
-                        warmQueue.Add((prewarmManifest, pinnedWindow, IsPinned: true));
+                        var pinnedEnvelope = DashboardContentEnvelope.From(prewarmManifest, pinnedWindow);
+                        if (IsDueForWarm(pinnedEnvelope, prewarmManifest, accessCount: 0))
+                            // Pinned 7d/30d views can fan out into corpus-scale reads. Keep
+                            // the pinned tier serial so startup/idle recovery never launches
+                            // every standard window against the same FOSS SQLite store at once.
+                            // Demand-ranked live views retain their configured wave parallelism.
+                            warmQueue.Add((prewarmManifest, pinnedWindow, IsPinned: true));
+                    }
                 }
             }
 
