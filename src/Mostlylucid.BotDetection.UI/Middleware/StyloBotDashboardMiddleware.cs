@@ -1669,7 +1669,7 @@ public class StyloBotDashboardMiddleware
                                 DateTimeOffset.UtcNow, context.RequestAborted);
                             candidatePage = await _contentCache.GetCurrentAsync(
                                 trafficManifest, pageWindow, context.RequestAborted);
-                            if (!candidatePage.IsWarming && IsPageBundleCompleteEnoughToStash(candidatePage))
+                            if (!candidatePage.IsWarming && IsPageBundleCompleteEnoughToStash(candidatePage, trafficManifest))
                             {
                                 composedPage = candidatePage;
                                 context.Items["sb.dashboard.pageresult"] = candidatePage;
@@ -1687,7 +1687,7 @@ public class StyloBotDashboardMiddleware
                     // non-null empty lists as a successful read and skip their populated
                     // IDashboardEventStore fallback. The direct store path is the same
                     // source used by the working Traffic render on remote hosts.
-                    else if (IsPageBundleCompleteEnoughToStash(candidatePage))
+                    else if (IsPageBundleCompleteEnoughToStash(candidatePage, trafficManifest))
                     {
                         composedPage = candidatePage;
                         context.Items["sb.dashboard.pageresult"] = candidatePage;
@@ -8287,16 +8287,23 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     ///     one or more empty slices; stashing that is worse than not stashing at all,
     ///     because <c>pageResult?.Slice is { }</c> at each render layer treats a non-null
     ///     empty list as a successful read and skips its own populated-store fallback --
-    ///     turning one missing slice into a permanently empty widget. Checks every slice the
-    ///     Traffic page manifest composes (Summary/BotAggregate/Geo/Endpoints); extend this
-    ///     when a future manifest slice joins the same bundle. Internal for regression
-    ///     coverage (DashboardPageBundleStashGateTests).
+    ///     turning one missing slice into a permanently empty widget. Completeness is judged
+    ///     against the slices the <paramref name="manifest"/> actually composes (its widget
+    ///     keys), NOT a fixed traffic shape: the site page's manifest only composes
+    ///     summary/endpoints/site-health, so the old fixed check (BotAggregate/Geo required)
+    ///     could never pass and the site summary strip cold-fetched every load -- the
+    ///     2026-08-12 site-page summary-0 P0. Internal for regression coverage
+    ///     (DashboardPageBundleStashGateTests).
     /// </summary>
-    internal static bool IsPageBundleCompleteEnoughToStash(DashboardPageResult candidatePage) =>
-        candidatePage.Summary is not null
-        && candidatePage.BotAggregate is { Count: > 0 }
-        && candidatePage.Geo is { Count: > 0 }
-        && candidatePage.Endpoints is { Count: > 0 };
+    internal static bool IsPageBundleCompleteEnoughToStash(
+        DashboardPageResult candidatePage, DashboardPageManifest manifest)
+    {
+        if (manifest.WidgetKeys.Contains("summary") && candidatePage.Summary is null) return false;
+        if (manifest.WidgetKeys.Contains("top-bots") && candidatePage.BotAggregate is not { Count: > 0 }) return false;
+        if (manifest.WidgetKeys.Contains("countries") && candidatePage.Geo is not { Count: > 0 }) return false;
+        if (manifest.WidgetKeys.Contains("endpoints") && candidatePage.Endpoints is not { Count: > 0 }) return false;
+        return true;
+    }
 
     internal static DashboardPageWindow BuildVisitorsPageWindow(HttpContext context)
     {

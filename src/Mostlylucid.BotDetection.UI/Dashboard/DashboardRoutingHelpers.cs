@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+
 namespace Mostlylucid.BotDetection.UI.Dashboard;
 
 /// <summary>
@@ -62,4 +64,28 @@ public static class DashboardRoutingHelpers
         "30d" => 30 * 24 * 60,
         _ => fallbackMinutes
     };
+
+    /// <summary>
+    ///     The Tier 1 pinned-prewarm window for a window token — the SINGLE derivation for
+    ///     "what a default view of a page means", shared between the materializer's pinned
+    ///     prewarm and page controllers that read the composed envelope (SiteController).
+    ///     Token → minutes via <see cref="WindowTokenToMinutes"/>; bucket width via
+    ///     <see cref="HitsPerPeriodChartletBuilder.BucketSizeForWindow"/>. Both sides MUST
+    ///     derive the window this way or the content-cache envelope keys diverge — a
+    ///     permanent cold miss that renders the pinned prewarm useless (the 2026-08-12
+    ///     site-page summary-0 root cause: the controller computed bucket minutes as
+    ///     windowMinutes/60 while the materializer used the chartlet bucket size).
+    /// </summary>
+    public static DashboardPageWindow BuildPinnedWindow(string token, DateTime now, IReadOnlyList<string>? domains = null)
+    {
+        var minutes = WindowTokenToMinutes(token, fallbackMinutes: 24 * 60);
+        return new DashboardPageWindow(
+            StartTime: now.AddMinutes(-minutes),
+            EndTime: now,
+            AudienceFilter: "all",
+            ProbMin: null,
+            Domains: domains,
+            TopN: 500,
+            BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
+    }
 }

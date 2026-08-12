@@ -54,11 +54,14 @@ public sealed class SiteController : Controller
             ? "/dashboard"
             : "/dashboard";
 
-        var time = ParseWindowOrDefault(window);
         var now = DateTime.UtcNow;
-        var start = now - time;
-        var dashOpts = _dashOpts.Value;
         var domainsForQuery = ReadDomainFilter();
+        // The window MUST be derived through the same pinned-prewarm builder the tick
+        // materializer uses (DashboardRoutingHelpers.BuildPinnedWindow) or the content-cache
+        // envelope key never matches the prewarmed bundle — the site page then cold-misses
+        // every load and the summary strip paints placeholder zeros (the 2026-08-12 P0).
+        // Only the tokens the pinned prewarm covers resolve; anything else falls back to 24h.
+        var windowToken = NormalizeWindowToken(window);
 
         // Compose a minimal page bundle so VCs read warm data instead of cold-fetching.
         // The Traffic page does the same via DashboardContentCache; the Site page uses a
@@ -68,14 +71,7 @@ public sealed class SiteController : Controller
         var manifest = _manifests.For("dashboard.site")
                        ?? new DashboardPageManifest("dashboard.site",
                            new[] { "summary", "site-health", "endpoints" });
-        var pageWindow = new DashboardPageWindow(
-            StartTime: start,
-            EndTime: now,
-            AudienceFilter: "all",
-            ProbMin: null,
-            Domains: domainsForQuery,
-            TopN: 500,
-            BucketMinutes: Math.Max(1, (int)time.TotalMinutes / 60));
+        var pageWindow = DashboardRoutingHelpers.BuildPinnedWindow(windowToken, now, domainsForQuery);
 
         DashboardPageResult? page = null;
         try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
@@ -87,7 +83,7 @@ public sealed class SiteController : Controller
         // middleware uses (IsPageBundleCompleteEnoughToStash); a miss leaves the VCs
         // on their self-fetch paths against live data.
         if (page is { IsWarming: false }
-            && Middleware.StyloBotDashboardMiddleware.IsPageBundleCompleteEnoughToStash(page))
+            && Middleware.StyloBotDashboardMiddleware.IsPageBundleCompleteEnoughToStash(page, manifest))
             HttpContext.Items["sb.dashboard.pageresult"] = page;
 
         // Seed the endpoints first-paint reader so SbEndpointsList renders real rows
@@ -98,7 +94,7 @@ public sealed class SiteController : Controller
             try
             {
                 endpointsData = await _eventStore.GetEndpointStatsAsync(
-                    count: 500, startTime: start, endTime: now, domains: domainsForQuery);
+                    count: 500, startTime: pageWindow.StartTime, endTime: now, domains: domainsForQuery);
             }
             catch { /* degrade to whatever the composed slice had */ }
         }
@@ -140,14 +136,19 @@ public sealed class SiteController : Controller
         return values.Length > 0 ? values : null;
     }
 
-    private static TimeSpan ParseWindowOrDefault(string? window) => window switch
+    /// <summary>
+    ///     Resolves the query window token against the pinned-prewarm token set. Only the
+    ///     tokens the materializer's Tier 1 prewarm covers pass through; null / unknown /
+    ///     custom fall back to the 24h default so the page's envelope key matches what the
+    ///     prewarm warmed. The resolved token feeds
+    ///     <see cref="DashboardRoutingHelpers.BuildPinnedWindow"/> — never a hand-rolled
+    ///     window here (the two derivations drifted once and the site summary painted
+    ///     zeros permanently, 2026-08-12).
+    /// </summary>
+    private static string NormalizeWindowToken(string? window) => window switch
     {
-        "6h"  => TimeSpan.FromHours(6),
-        "12h" => TimeSpan.FromHours(12),
-        "24h" => TimeSpan.FromHours(24),
-        "7d"  => TimeSpan.FromDays(7),
-        "30d" => TimeSpan.FromDays(30),
-        _     => TimeSpan.FromHours(24),
+        "6h" or "12h" or "24h" or "7d" or "30d" => window,
+        _ => "24h",
     };
 
     private static string? NullIfEmpty(string? value) =>

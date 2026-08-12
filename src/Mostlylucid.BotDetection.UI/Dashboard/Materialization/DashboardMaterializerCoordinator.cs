@@ -351,15 +351,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                     if (_manifests.For(pageKey) is not { } prewarmManifest) continue;
                     foreach (var token in _options.PrewarmWindows)
                     {
-                        var minutes = DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: 1440);
-                        var pinnedWindow = new DashboardPageWindow(
-                            StartTime: now.AddMinutes(-minutes),
-                            EndTime: now,
-                            AudienceFilter: "all",
-                            ProbMin: null,
-                            Domains: null,
-                            TopN: 500,
-                            BucketMinutes: (int)HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
+                        // Single derivation shared with page controllers (SiteController) so
+                        // a page's requested envelope can never key differently than the pinned
+                        // prewarm (the site-page summary-0 root cause, 2026-08-12).
+                        var pinnedWindow = DashboardRoutingHelpers.BuildPinnedWindow(token, now);
 
                         var pinnedEnvelope = DashboardContentEnvelope.From(prewarmManifest, pinnedWindow);
                         if (IsDueForWarm(pinnedEnvelope, prewarmManifest, accessCount: 0))

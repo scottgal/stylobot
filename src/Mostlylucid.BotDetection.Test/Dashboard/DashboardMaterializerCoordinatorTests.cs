@@ -94,9 +94,9 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody has ever viewed the page
 
-        // §7 Tier 1 + a490698a: pinned prewarm now covers all five top-level page manifests
-        // (traffic/topbots/clusters/sessions/threats) × 4 PrewarmWindows = 20 composes.
-        Assert.Equal(20, composes);
+        // §7 Tier 1 + a490698a + 3a345664: pinned prewarm now covers all six top-level page
+        // manifests (traffic/topbots/clusters/sessions/threats/site) × 4 PrewarmWindows = 24 composes.
+        Assert.Equal(24, composes);
     }
 
     [Fact]
@@ -114,13 +114,13 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s);
 
-        // a490698a: all five page manifests × 4 window tokens = 20 composes. Each manifest
-        // gets the same bucket sizes, so the sorted list has 5 of each bucket-minute value.
+        // a490698a + 3a345664: all six page manifests × 4 window tokens = 24 composes. Each
+        // manifest gets the same bucket sizes, so the sorted list has 6 of each bucket-minute value.
         var bucketMinutes = composedWindows.Select(w => w.BucketMinutes).OrderBy(m => m).ToArray();
-        Assert.Equal(20, bucketMinutes.Length);
+        Assert.Equal(24, bucketMinutes.Length);
         var expected = new[] { 5, 20, 120, 480 };
         foreach (var m in expected)
-            Assert.Equal(5, bucketMinutes.Count(bm => bm == m));
+            Assert.Equal(6, bucketMinutes.Count(bm => bm == m));
     }
 
     [Fact]
@@ -165,7 +165,7 @@ public sealed class DashboardMaterializerCoordinatorTests
             Assert.False(result.IsWarming, $"Expected prewarmed {token} Traffic envelope to be a cache hit.");
         }
 
-        Assert.Equal(20, composes); // all five page manifests × 4 windows warm; reads never compose.
+        Assert.Equal(24, composes); // all six page manifests × 4 windows warm; reads never compose.
         await coord.StopAsync(default);
     }
 

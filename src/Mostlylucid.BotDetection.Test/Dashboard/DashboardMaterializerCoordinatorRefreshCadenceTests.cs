@@ -161,8 +161,8 @@ public sealed class DashboardMaterializerCoordinatorRefreshCadenceTests
 
         await coord.StartAsync(default);
         tick = 2;
-        await sched.RaiseTickAsync(TickCadence.Tick10s); // first-ever: all 20 pinned envelopes warm
-        Assert.Equal(20, composedWindows.Count);
+        await sched.RaiseTickAsync(TickCadence.Tick10s); // first-ever: all 24 pinned envelopes warm
+        Assert.Equal(24, composedWindows.Count);
 
         composedWindows.Clear();
         // dashboard.traffic touches the Live-class "top-bots" widget -> 60s cadence. 10s
@@ -173,7 +173,7 @@ public sealed class DashboardMaterializerCoordinatorRefreshCadenceTests
         Assert.Empty(composedWindows);
 
         // Past 60s -- the Live-class envelopes are due again; Aggregate-class
-        // (300s cadence) are not, so only 16/20 re-warm this tick.
+        // (300s cadence: clusters + site) are not, so only 16/24 re-warm this tick.
         time.Advance(TimeSpan.FromSeconds(60));
         tick = 4;
         await sched.RaiseTickAsync(TickCadence.Tick10s);
