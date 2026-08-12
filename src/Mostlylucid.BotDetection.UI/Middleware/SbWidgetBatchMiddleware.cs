@@ -132,13 +132,23 @@ public sealed class SbWidgetBatchMiddleware
             await TryComposeAndStashAsync(context, misses.ToArray(), ct);
 
         var sb = new StringBuilder();
+        var dataShingles = 0;
         for (var i = 0; i < widgets.Length; i++)
         {
             var html = await RenderWidgetWithShingleAsync(context, widgets[i], fingerprints[i]);
             if (!string.IsNullOrEmpty(html))
+            {
                 sb.Append(html);
+                // Cached-poison guard (operator directive 2026-08-12): count only
+                // DATA-bearing renders — an all-empty pass must NOT satisfy the boot
+                // gate (PrewarmShinglesAsync returns this count > 0), or a prewarm
+                // against a cold pipeline would latch the gate with empty shingles.
+                if (!WidgetRenderHelpers.IsEmptyStateHtml(html))
+                    dataShingles++;
+            }
         }
 
+        context.Items["sb.batch.data-shingles"] = dataShingles;
         return sb.ToString();
     }
 
@@ -173,8 +183,13 @@ public sealed class SbWidgetBatchMiddleware
             var context = new DefaultHttpContext { RequestServices = services };
             context.Request.QueryString = QueryString.Create(query);
 
-            var html = await middleware.RenderBatchAsync(context, widgetIds, CancellationToken.None);
-            return html.Length > 0;
+            await middleware.RenderBatchAsync(context, widgetIds, CancellationToken.None);
+            // Cached-poison guard (operator directive 2026-08-12): the boot gate only
+            // opens when the prewarm produced DATA-bearing shingles — html.Length > 0
+            // was satisfied by an all-empty render (the poisoned prewarm), latching the
+            // gate with emptiness forever. The caller (L2PrewarmBootstrap) retries until
+            // this returns true, bounded by its boot budget.
+            return context.Items.TryGetValue("sb.batch.data-shingles", out var d) && d is int n && n > 0;
         }
         catch (Exception ex)
         {
@@ -462,12 +477,21 @@ public sealed class SbWidgetBatchMiddleware
         // Miss: render the widget, tag it OOB, and store the shingle under its fingerprint.
         // The version in the fingerprint means this shingle stays valid until this widget's
         // surface next changes -- no TTL churn, no whole-page recompute.
+        //
+        // CACHED-POISON GUARD (operator directive 2026-08-12): an EMPTY-STATE render
+        // (zero rows / "no data in this window") is NEVER stored as an authoritative
+        // shingle — a prewarm that ran against a cold/broken pipeline would cache
+        // emptiness forever and every later load would serve it. The render is still
+        // returned (the client shows the honest empty state), but it stays uncached:
+        // the next render retries against live data, and the surface-version bump in
+        // the fingerprint makes any previously-poisoned shingle a miss automatically.
         var q = WidgetRenderHelpers.ExtractWidgetParams(context, widgetId);
         var html = await RenderWidgetAsync(context, widgetId, q);
         if (!string.IsNullOrEmpty(html))
         {
             html = WidgetRenderHelpers.InjectOobAttribute(html);
-            _shingleCache.Set(fingerprint, html);
+            if (!WidgetRenderHelpers.IsEmptyStateHtml(html))
+                _shingleCache.Set(fingerprint, html);
         }
 
         return html ?? "";

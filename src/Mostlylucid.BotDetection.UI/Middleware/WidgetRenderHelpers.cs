@@ -578,4 +578,25 @@ public static class WidgetRenderHelpers
     // replaces the former fuzzy "no-geo + not-bot + low-prob" guess that misclassified.
     private static bool IsInternal(ProjectedVisitor v)
         => string.Equals(v.BotType, "Internal", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Cached-poison guard (operator directive 2026-08-12): true when a rendered
+    ///     widget's HTML is the EMPTY-STATE — zero rows, "no data in this window",
+    ///     "No endpoint analytics yet", etc. Such renders MUST never be cached as
+    ///     authoritative shingles (a prewarm that ran against a cold/broken pipeline
+    ///     would otherwise cache emptiness forever). The known empty-state markers
+    ///     are the views' own copy — the deliberate, honest empty states, not the
+    ///     warming spinners (which render as loading elements with no text).
+    /// </summary>
+    internal static bool IsEmptyStateHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return true;
+        return html.Contains("No endpoint analytics yet", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("No location data", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("No external traffic", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("No detection signals", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("no data in this window", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("No data yet", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("no data yet", StringComparison.OrdinalIgnoreCase);
+    }
 }

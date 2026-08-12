@@ -80,7 +80,15 @@ public sealed class SiteController : Controller
         DashboardPageResult? page = null;
         try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
         catch { /* content cache miss — VCs self-fetch */ }
-        if (page is not null) HttpContext.Items["sb.dashboard.pageresult"] = page;
+        // Cached-poison guard (operator directive 2026-08-12): never stash a Warming
+        // or incomplete bundle as authoritative — the render helpers treat a present
+        // stash as real data, so stashing an empty-summary bundle would paint "0 req"
+        // and (via the batch shingles) cache it. Same completeness shape the dashboard
+        // middleware uses (IsPageBundleCompleteEnoughToStash); a miss leaves the VCs
+        // on their self-fetch paths against live data.
+        if (page is { IsWarming: false }
+            && Middleware.StyloBotDashboardMiddleware.IsPageBundleCompleteEnoughToStash(page))
+            HttpContext.Items["sb.dashboard.pageresult"] = page;
 
         // Seed the endpoints first-paint reader so SbEndpointsList renders real rows
         // on first paint — same pattern TrafficController uses.
