@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [8.9.0] - 2026-08-12
+## [8.8.2] - 2026-08-12
 
-8.9 ships dashboard Site Analytics (Umami-style per-site metrics), period-selector
+8.8.2 ships dashboard Site Analytics (Umami-style per-site metrics), period-selector
 consolidation with Custom-range support, prewarm hardening, and a stash-poisoning fix
 that was latching empty widgets in prod.
 

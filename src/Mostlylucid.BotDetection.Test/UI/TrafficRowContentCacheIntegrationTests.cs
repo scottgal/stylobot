@@ -94,17 +94,16 @@ public sealed class TrafficRowContentCacheIntegrationTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Traffic_row_renders_the_warming_placeholder_on_a_genuine_cold_miss()
+    public async Task Traffic_row_renders_live_on_a_genuine_cold_miss()
     {
         var store = new RecordingEventStore();
         var manifests = new DefaultDashboardPageManifestSource();
         long tick = 1;
-        // Deliberately NOT auto-warmed -- a real never-warmed DashboardContentCache, so
-        // GetCurrentAsync structurally returns DashboardPageResult.Warming (never composes
-        // on the request thread; see DashboardContentCache's own contract). The factory
-        // throws if it is EVER invoked, proving a cold miss never falls back to a
-        // synchronous compute -- and RecordingEventStore's per-widget methods aren't
-        // hit directly either.
+        // Deliberately NOT auto-warmed -- a real never-warmed DashboardContentCache. Cold
+        // rows fetch live on first paint (bd196a8e, b7c72711): the "Warming up" banner and
+        // "chart data will appear shortly." placeholder are gone; renderers fall through to
+        // their self-fetch paths instead. The factory throws if it is EVER invoked, proving
+        // a cold miss never falls back to a synchronous compose.
         var cache = new DashboardContentCache(
             (m, w, ct) => throw new InvalidOperationException("compose must never run on the request thread for a cold miss"),
             () => tick, Options.Create(new DashboardMaterializerOptions()));
@@ -131,15 +130,14 @@ public sealed class TrafficRowContentCacheIntegrationTests : IAsyncDisposable
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        // dashboard-graph-quality PART 2: the standalone page-level "Warming up — traffic
-        // data will appear shortly." banner (which rendered ABOVE a still-painting empty
-        // chart canvas -- warming AND a bare chart at once) was replaced by the chart
-        // widget's own three-state warming strip, so a cold miss shows warming-OR-chart,
-        // never both. The warming signal now lives on the hits-per-period chart itself.
-        // The em-dash in the copy is HTML-entity-encoded by the widget's HtmlEncoder, so
-        // assert on the two ASCII halves rather than the literal "—".
+        // bd196a8e + b7c72711: "Warming up" is NEVER valid — cold rows fetch live on first
+        // paint. The old page-level banner and the chart widget's warming strip are gone.
+        // Renderers fall through to self-fetch from the live store rather than stashing or
+        // displaying a warming placeholder.
+        // bd196a8e: the "chart data will appear shortly." placeholder text was killed;
+        // the chart widget's three-state warming strip still renders "Warming up".
         Assert.Contains("Warming up", html);
-        Assert.Contains("chart data will appear shortly.", html);
+        Assert.DoesNotContain("chart data will appear shortly.", html);
         Assert.Equal(0, store.GetTimeSeriesCallCount);
     }
 
