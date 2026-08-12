@@ -65,6 +65,27 @@ public sealed class WellKnownBotIndexTests
         match!.Id.Should().Be("google-crawler");
         match.BotType.Should().Be(BotType.SearchEngine);
         match.DisplayName.Should().Be("Google Crawler");
+        // "Googlebot\/" contains a metachar so it compiles as a REGEX — no literal
+        // family is recoverable, and Family falls back to DisplayName (never empty).
+        match.Family.Should().Be("Google Crawler");
+    }
+
+    [Fact]
+    public void TryMatch_family_is_the_accepted_literal_not_the_title_cased_id()
+    {
+        // Regression 2026-08-12 (operator P0): the evidence-level bot name was the
+        // title-cased catalog id ("Petalsearch Crawler") instead of the bot's own
+        // family ("PetalBot"), surfacing raw crawler text on Top Bots. The Family
+        // must be the accepted literal the UA actually carried.
+        var sut = new WellKnownBotIndex();
+        sut.Replace([MakeEntry("petalsearch-crawler", ["ai", "search-engine"], ["PetalBot"])]);
+
+        var match = sut.TryMatch("Mozilla/5.0 (compatible; PetalBot; +https://webmaster.petalsearch.com/)");
+
+        match.Should().NotBeNull();
+        match!.Id.Should().Be("petalsearch-crawler");
+        match.DisplayName.Should().Be("Petalsearch Crawler");
+        match.Family.Should().Be("PetalBot");
     }
 
     [Fact]

@@ -42,6 +42,11 @@ hosts:
   - apple.com
   - applebot.apple.com
   - baidu.com
+  # PetalBot (Huawei Petal Search) carries +https://webmaster.petalsearch.com/ in
+  # its UA — its own docs site, not a per-deployment identifier. Without this the
+  # discriminator appended "webmaster.petalsearch.com" to the bot name, surfacing
+  # raw crawler text on Top Bots.
+  - petalsearch.com
 
   # Monitoring services
   - pingdom.com

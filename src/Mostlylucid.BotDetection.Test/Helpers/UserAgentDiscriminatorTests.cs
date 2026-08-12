@@ -44,6 +44,11 @@ public class UserAgentDiscriminatorTests
     [InlineData("meta-externalagent/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler/)")]
     [InlineData("Mozilla/5.0 (compatible; Google-Extended/1.0; +https://developers.google.com/search/docs/crawling-indexing/overview-google-crawlers)")]
     [InlineData("SomeAiBot/1.0 (+https://labs.openai.com/policies)")]
+    // PetalBot (Huawei Petal Search) — regression 2026-08-12: webmaster.petalsearch.com
+    // was appended to the bot name, surfacing "Petalsearch Crawler webmaster.petalsearch.com"
+    // on Top Bots. The subdomain suffix-match on petalsearch.com drops it.
+    [InlineData("Mozilla/5.0 (compatible; PetalBot; +https://webmaster.petalsearch.com/)")]
+    [InlineData("PetalBot/2.0 (+https://webmaster.petalsearch.com/; +http://www.aspiegel.com/en/)")]
     public void Returns_null_for_vendor_home_documentation_urls(string ua)
     {
         Assert.Null(UserAgentDiscriminator.ExtractDiscriminator(ua));

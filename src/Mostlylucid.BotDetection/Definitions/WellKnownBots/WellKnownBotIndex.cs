@@ -120,9 +120,16 @@ public sealed class WellKnownBotIndex
         WellKnownBotMatch? result = null;
         foreach (var e in entries)
         {
-            if (!MatchesAccepted(e, userAgent)) continue;
+            var matchedFamily = MatchesAcceptedFamily(e, userAgent);
+            if (matchedFamily is null) continue;
             if (MatchesForbidden(e, userAgent)) continue;
-            result = new WellKnownBotMatch(e.Id, e.BotType, e.DisplayName);
+            // Family = the accepted literal the UA actually carried (e.g. "PetalBot"
+            // for the petalsearch-crawler entry) — the bot's own name, NOT the
+            // title-cased catalog id ("Petalsearch Crawler"). DisplayName stays the
+            // human-facing catalog label for archetype/radar surfaces; evidence
+            // naming (ua.bot_name) must use the family so Top Bots shows the clean
+            // identity, never a raw description or a catalog-artifact label.
+            result = new WellKnownBotMatch(e.Id, e.BotType, e.DisplayName, matchedFamily);
             break;
         }
 
@@ -132,10 +139,17 @@ public sealed class WellKnownBotIndex
 
     // ── internals ────────────────────────────────────────────────────────────
 
-    private static bool MatchesAccepted(IndexEntry e, string ua)
+    /// <summary>
+    ///     Returns the accepted literal that matched (the bot's own family token, e.g.
+    ///     "PetalBot"), or null when nothing matched. Literal patterns return their
+    ///     exact text so evidence naming can use the bot's real name; regex-only
+    ///     matches have no recoverable literal and return <see cref="IndexEntry.DisplayName"/>
+    ///     so the family is never empty on a match.
+    /// </summary>
+    private static string? MatchesAcceptedFamily(IndexEntry e, string ua)
     {
         foreach (var lit in e.LiteralAccepted)
-            if (ua.Contains(lit, StringComparison.OrdinalIgnoreCase)) return true;
+            if (ua.Contains(lit, StringComparison.OrdinalIgnoreCase)) return lit;
         foreach (var re in e.RegexAccepted)
         {
             // Required-core pre-check: an unanchored IsMatch can only succeed if the
@@ -145,10 +159,10 @@ public sealed class WellKnownBotIndex
             // (pattern starts with a metachar) — then the regex always runs. Order and
             // match result are unchanged; only skipped regexes are ones that can't match.
             if (re.Core != null && !ua.Contains(re.Core, StringComparison.OrdinalIgnoreCase)) continue;
-            try { if (re.Re.IsMatch(ua)) return true; }
+            try { if (re.Re.IsMatch(ua)) return e.DisplayName; }
             catch (RegexMatchTimeoutException) { /* skip */ }
         }
-        return false;
+        return null;
     }
 
     private static bool MatchesForbidden(IndexEntry e, string ua)
@@ -337,4 +351,8 @@ public sealed class WellKnownBotIndex
 }
 
 /// <summary>Match result from <see cref="WellKnownBotIndex.TryMatch"/>.</summary>
-public sealed record WellKnownBotMatch(string Id, BotType BotType, string DisplayName);
+/// <param name="Family">The accepted literal the UA carried — the bot's own name
+///     (e.g. "PetalBot"). Used by evidence naming (ua.bot_name) so the dashboard
+///     shows the clean identity. Falls back to <paramref name="DisplayName"/> for
+///     regex-only matches.</param>
+public sealed record WellKnownBotMatch(string Id, BotType BotType, string DisplayName, string Family);

@@ -236,7 +236,11 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
         {
             var match = _wellKnownBots.TryMatch(userAgent);
             if (match is not null)
-                return (true, PatternMatchConfidence, match.BotType, match.DisplayName,
+                // Family, NOT DisplayName: the family is the accepted literal the UA
+                // carried (PetalBot), the DisplayName is the title-cased catalog id
+                // (Petalsearch Crawler). Writing the description here surfaced raw
+                // crawler names on Top Bots (operator P0, 2026-08-12).
+                return (true, PatternMatchConfidence, match.BotType, match.Family,
                     $"Well-known bot: {match.Id}");
         }
 
