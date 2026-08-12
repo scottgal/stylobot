@@ -104,6 +104,11 @@ public sealed class DashboardMaterializerOptions
         "dashboard.clusters",
         "dashboard.sessions",
         "dashboard.threats",
+        // The Site page (SiteController/SiteHealthVC) composes its own bundle under
+        // this manifest — without pinned coverage the site page's first load after a
+        // deploy cold-misses and the summary strip paints "0 req" until a later tick
+        // (the 2026-08-12 staging finding).
+        "dashboard.site",
     };
 
     /// <summary>
