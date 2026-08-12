@@ -214,10 +214,63 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             userAgentsRaw: userAgents);
     }
 
+    /// <summary>
+    ///     Whether a composed page result carries data for at least one slice the
+    ///     <paramref name="manifest"/> requests through the catalog or the Stage 2a row
+    ///     extras. The remote store degrades compose failures (gateway 401 / connection
+    ///     refused) to an ALL-NULL bundle — its failure sentinel; caching that as
+    ///     authoritative makes every reader paint "0 traffic" until the next warm (the
+    ///     2026-08-12 prod incident). A genuinely empty window still returns non-null
+    ///     EMPTY lists, so honest zeros pass. Manifests with no catalog kinds (pure row
+    ///     extras) always pass — their slices can legitimately be null on hosts lacking
+    ///     the backing source (e.g. sessions without an IDetectionArchive) and those
+    ///     widgets fall back on their own.
+    /// </summary>
+    public static bool HasAnyRequestedData(
+        DashboardPageResult page, DashboardPageManifest manifest, DashboardWidgetCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(catalog);
+
+        var hasCatalogKind = false;
+        foreach (var key in manifest.WidgetKeys)
+        {
+            if (catalog.NeedsFor(key) is { } kind)
+            {
+                hasCatalogKind = true;
+                if (BundleSlice(page, kind) is not null) return true;
+                continue;
+            }
+            if (RowSlice(page, key) is not null) return true;
+        }
+        return !hasCatalogKind;
+    }
+
+    private static object? BundleSlice(DashboardPageResult page, DatasetKind kind) => kind switch
+    {
+        DatasetKind.SummaryStats => page.Summary,
+        DatasetKind.TimeBuckets => page.TimeBuckets,
+        DatasetKind.BotAggregate => page.BotAggregate,
+        DatasetKind.GeoBreakdown => page.Geo,
+        DatasetKind.EndpointStats => page.Endpoints,
+        DatasetKind.DegradationHistory => page.Degradations,
+        _ => null
+    };
+
+    private static object? RowSlice(DashboardPageResult page, string key) => key switch
+    {
+        DashboardRowWidgetKeys.ClustersRaw => page.ClustersRaw,
+        DashboardRowWidgetKeys.TopBotsRaw => page.TopBotsRaw,
+        DashboardRowWidgetKeys.SessionsRaw => page.SessionsRaw,
+        DashboardRowWidgetKeys.ThreatsRaw => page.ThreatsRaw,
+        DashboardRowWidgetKeys.UserAgentsRaw => page.UserAgentsRaw,
+        _ => null
+    };
+
     private async Task<IReadOnlyDictionary<string, object?>?> ResolveExtensionsAsync(
         DashboardPageManifest manifest, DashboardPageWindow w, CancellationToken ct)
-    {
-        if (_extensions.Count == 0) return null;
+    {        if (_extensions.Count == 0) return null;
 
         var extKinds = manifest.WidgetKeys
             .Select(k => _catalog.ExtensionKindFor(k))
