@@ -66,6 +66,10 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
             "dashboard.traffic",
             new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health", DashboardRowWidgetKeys.UserAgentsRaw });
 
+        manifests["dashboard.site"] = new DashboardPageManifest(
+            "dashboard.site",
+            new[] { "summary", "endpoints", "site-health" });
+
         // Stage 2a: one manifest per row that isn't already covered by the Traffic
         // bundle above. Each declares exactly the ONE synthetic widget key
         // DefaultDashboardPageComposer checks for (DashboardRowWidgetKeys) -- these
