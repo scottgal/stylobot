@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>stylobot</id>
-    <version>8.8.2</version>
+    <version>8.9.1</version>
     <title>StyloBot - Self-hosted Bot Defense</title>
     <authors>Scott Galloway</authors>
     <owners>scottgal</owners>

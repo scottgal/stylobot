@@ -7,11 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [8.8.2] - 2026-08-12
+## [8.9.1] - 2026-08-12
 
-8.8.2 ships dashboard Site Analytics (Umami-style per-site metrics), period-selector
+8.9.1 patches the 8.9.0 release with CI fixes (8 test files that had drifted from
+their production code), a Chocolatey nuspec validation fix, and the missing `from`
+parameter on `TrafficController.Index` call sites.
+
+### Fixed
+
+- **CI: 8 tests updated for killed warming text and expanded prewarm.** The warming
+  placeholder text was removed from page-level banners (bd196a8e) and pinned prewarm
+  expanded from 1 page × 4 windows to 5 manifests × 4 windows (a490698a). Tests now
+  match the live code.
+- **CI: `from` parameter on TrafficController.Index.** 14 compile errors (CS7036 +
+  CS8323) since e90c0b89; test call sites now pass `from: null, to: null`.
+- **Chocolatey: nuspec description Markdown removed.** Markdown headers and code blocks
+  in the description were flagged as potentially invalid URLs by Chocolatey's package
+  validator. Replaced with plain text.
+
+## [8.9.0] - 2026-08-12
+
+8.9 ships dashboard Site Analytics (Umami-style per-site metrics), period-selector
 consolidation with Custom-range support, prewarm hardening, and a stash-poisoning fix
-that was latching empty widgets in prod.
+that was latching empty widgets in prod. 25 commits since 8.8.1.
 
 ### Added
 
@@ -26,8 +44,9 @@ that was latching empty widgets in prod.
   Selecting Custom reveals a date-range picker; live window swaps re-fetch without a
   page reload. Delegated listener pattern avoids stale DOM after HTMX/SignalR swaps.
 - **Pinned prewarm across every top-level page manifest.** On startup the materialiser
-  prewarms traffic/visitors/site/policies/configuration envelopes so no page renders
-  blank on first visit. Disk persistence backs the content cache.
+  prewarms traffic/topbots/clusters/sessions/threats envelopes so no page renders blank
+  on first visit. Disk persistence backs the content cache. Defaults to 20 pinned
+  envelopes (5 pages × 4 window tokens).
 
 ### Changed
 
@@ -49,15 +68,13 @@ that was latching empty widgets in prod.
 
 - **Stash-poisoning P0.** `TryComposeAndStashAsync` was stashing an all-null
   `DashboardDatasetBundle` on compose failure, poisoning the L1 shingle cache with
-  empty data. Fixed: renderers now fall to their self-fetch paths when the stash is
-  incomplete (matching `IsPageBundleCompleteEnoughToStash` from the SSR path).
+  empty data. Renderers now fall to their self-fetch paths when the stash is incomplete
+  (matching `IsPageBundleCompleteEnoughToStash` from the SSR path).
 - **Build: Common sibling project reference.** `"8.0.0-alpha2"` package reference
   replaced with a direct project reference, fixing cold restores.
 - **`all_incl_internal`/`internal` audience fallback** to detections scan on endpoints,
   so internal self-traffic is correctly excluded from audience-filtered queries.
 - **Signature detail 404** when signature falls outside the configured recency window.
-- **CI compile errors.** Added missing `from` parameter to 14 `TrafficController.Index`
-  test call sites after the parameter was introduced in `e90c0b89`.
 
 ## [8.7.0] - 2026-08-04
 
