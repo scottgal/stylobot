@@ -18,7 +18,10 @@ public class SbSummaryStatsViewComponent(
     // register it. Per [[feedback_remote_mode_optional_di]]. When null, the
     // session-derived enrichment fields fall back to the headline summary
     // values from the event store rather than 500-ing the whole tab.
-    SignatureAggregateCache? signatureCache = null)
+    SignatureAggregateCache? signatureCache = null,
+    // aggregateCache is optional too: the unwindowed broadcaster snapshot used
+    // as the first-load fallback when the windowed summary is still cold.
+    DashboardAggregateCache? aggregateCache = null)
     : ViewComponent
 {
     public async Task<IViewComponentResult> InvokeAsync(string? audience = null, string? range = null)
@@ -52,6 +55,15 @@ public class SbSummaryStatsViewComponent(
             .GetService<IDashboardDomainScope>()
             ?.GetSelectedDomains(HttpContext);
         var summary = pageResult?.Summary ?? await eventStore.GetSummaryAsync(startTime, endTime, audience, domains: scopedDomains);
+
+        // First-load resilience (operator audit 2026-08-12): the SWR-wrapped windowed
+        // summary can return the empty placeholder on a cold key — a silent "0 req"
+        // strip beside populated widgets (Top Bots 390). Fall back to the aggregate
+        // cache's unwindowed LIVE snapshot (the broadcaster's) rather than painting
+        // zeros; the windowed read warms in the background and the next paint is exact.
+        if (summary.TotalRequests == 0 && aggregateCache?.Current.Summary is { TotalRequests: > 0 } liveSummary)
+            summary = liveSummary;
+
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
