@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>stylobot</id>
-    <version>8.7.0</version>
+    <version>8.8.2</version>
     <title>StyloBot - Self-hosted Bot Defense</title>
     <authors>Scott Galloway</authors>
     <owners>scottgal</owners>
@@ -19,16 +19,14 @@
 
 67 detectors, sub-millisecond inference, 129-dimensional session vectors, intent classification, and reverse-proxy integration. One binary. No cloud dependency. Your traffic never leaves your perimeter.
 
-## Quick Start
-```
-stylobot 5080 http://localhost:3000
-stylobot 5080 http://localhost:3000 --policy block
-stylobot start 5080 http://localhost:3000 --tunnel
-stylobot dashboard hash-password
-stylobot man
-```
+Quick Start:
+  stylobot 5080 http://localhost:3000
+  stylobot 5080 http://localhost:3000 --policy block
+  stylobot start 5080 http://localhost:3000 --tunnel
+  stylobot dashboard hash-password
+  stylobot man
 
-## Features
+Features:
 - Sub-millisecond fast path detection (less than 1ms)
 - 67 priority-ordered detector atoms with YAML manifests
 - Dashboard view-authentication (config-credential + OIDC seam)
@@ -42,7 +40,8 @@ stylobot man
 - Background daemon mode (start/stop/status/logs)
 - Docker/K8s secrets support
 - Zero PII architecture
-    </description>
+
+Project site: https://github.com/scottgal/stylobot</description>
     <tags>bot-detection security waf reverse-proxy bot defense firewall proxy</tags>
   </metadata>
   <files>
