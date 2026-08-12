@@ -1,38 +1,101 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
+using Mostlylucid.BotDetection.UI.Dashboard.Composition;
+using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
+using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Controllers;
 
 /// <summary>
-///     Owns the Site IA group.
-///     <c>Index</c> renders the Site landing page (endpoints list + filter pills)
-///     at <c>/dashboard/site</c>; <c>EndpointDetail</c> redirects the old
-///     query-string URL to the real canonical endpoint detail page.
-///     The middleware passes both URLs through to MVC via the
-///     <c>site</c> / <c>site/...</c> case in <c>StyloBotDashboardMiddleware</c>.
+///     Owns the Site IA group. Composes a minimal page bundle (summary + endpoints)
+///     so self-fetching view components (<see cref="SbSummaryStatsViewComponent"/>,
+///     <see cref="SbSiteHealthViewComponent"/>, <see cref="SbEndpointsListViewComponent"/>)
+///     find a warm slice in <see cref="HttpContext.Items"/> instead of cold-fetching
+///     from the event store on every render. Mirrors TrafficController's
+///     compose-then-render pattern so VCs on both pages share the same warm-read path.
 /// </summary>
 [Route("dashboard/site")]
 public sealed class SiteController : Controller
 {
     private readonly IOptions<DashboardLayoutOptions> _layout;
+    private readonly IOptions<StyloBotDashboardOptions> _dashOpts;
+    private readonly IDashboardEventStore _eventStore;
+    private readonly IDashboardContentCache _contentCache;
+    private readonly IDashboardPageManifestSource _manifests;
 
-    public SiteController(IOptions<DashboardLayoutOptions> layout)
+    public SiteController(
+        IOptions<DashboardLayoutOptions> layout,
+        IOptions<StyloBotDashboardOptions> dashOpts,
+        IDashboardEventStore eventStore,
+        IDashboardContentCache contentCache,
+        IDashboardPageManifestSource manifests)
     {
         _layout = layout;
+        _dashOpts = dashOpts;
+        _eventStore = eventStore;
+        _contentCache = contentCache;
+        _manifests = manifests;
     }
 
     [HttpGet("")]
-    public IActionResult Index(
+    public async Task<IActionResult> Index(
         [FromQuery] string? path,
         [FromQuery] string? method,
         [FromQuery] string? threat,
         [FromQuery(Name = "bot_pressure")] string? botPressure,
-        [FromQuery(Name = "window")] string? window)
+        [FromQuery(Name = "window")] string? window,
+        CancellationToken ct)
     {
         var basePath = _layout.Value.V2Enabled
             ? "/dashboard"
             : "/dashboard";
+
+        var time = ParseWindowOrDefault(window);
+        var now = DateTime.UtcNow;
+        var start = now - time;
+        var dashOpts = _dashOpts.Value;
+        var domainsForQuery = ReadDomainFilter();
+
+        // Compose a minimal page bundle so VCs read warm data instead of cold-fetching.
+        // The Traffic page does the same via DashboardContentCache; the Site page uses a
+        // smaller manifest (only "summary" + "endpoints" — the two datasets it renders).
+        // Degradations comes from a different path (GetDegradationHistoryAsync), not the
+        // cached compose, so SbSiteHealth self-fetches regardless.
+        var manifest = _manifests.For("dashboard.site")
+                       ?? new DashboardPageManifest("dashboard.site",
+                           new[] { "summary", "site-health", "endpoints" });
+        var pageWindow = new DashboardPageWindow(
+            StartTime: start,
+            EndTime: now,
+            AudienceFilter: "all",
+            ProbMin: null,
+            Domains: domainsForQuery,
+            TopN: 500,
+            BucketMinutes: Math.Max(1, (int)time.TotalMinutes / 60));
+
+        DashboardPageResult? page = null;
+        try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
+        catch { /* content cache miss — VCs self-fetch */ }
+        if (page is not null) HttpContext.Items["sb.dashboard.pageresult"] = page;
+
+        // Seed the endpoints first-paint reader so SbEndpointsList renders real rows
+        // on first paint — same pattern TrafficController uses.
+        var endpointsData = (page.Endpoints ?? new List<DashboardEndpointStats>()).ToList();
+        if (endpointsData.Count == 0)
+        {
+            try
+            {
+                endpointsData = await _eventStore.GetEndpointStatsAsync(
+                    count: 500, startTime: start, endTime: now, domains: domainsForQuery);
+            }
+            catch { /* degrade to whatever the composed slice had */ }
+        }
+        DashboardEndpointsFirstPaintContext.Set(HttpContext,
+            new SsrEndpointsFirstPaintReader(endpointsData));
 
         var model = new SitePageModel(
             Path: NullIfEmpty(path),
@@ -40,10 +103,6 @@ public sealed class SiteController : Controller
             Threat: NullIfEmpty(threat),
             BotPressure: NullIfEmpty(botPressure),
             BasePath: basePath,
-            // Period selector (?window=) forwarded into SbEndpointsList so the component
-            // takes the same parameter-driven branch the Traffic page's control takes —
-            // the middleware-seeded first-paint reader (warm L2 bundle) instead of the
-            // SWR cold path that rendered "Warming up" on first paint (2026-08-11 P0).
             Window: NullIfEmpty(window));
 
         return View("/Views/StyloBot/Dashboard/Site/Index.cshtml", model);
@@ -51,10 +110,7 @@ public sealed class SiteController : Controller
 
     /// <summary>
     ///     Redirect the old query-string endpoint URL to the real canonical
-    ///     detail page at /dashboard/endpoint/{method}/{path}. The old page
-    ///     rendered a filtered endpoints list, not actual detail — it was
-    ///     useless. Method defaults to GET (the endpoints list doesn't carry
-    ///     method info). Operator directive 2026-08-11.
+    ///     detail page at /dashboard/endpoint/{method}/{path}.
     /// </summary>
     [HttpGet("endpoint")]
     public IActionResult EndpointDetail(
@@ -66,16 +122,43 @@ public sealed class SiteController : Controller
         return Redirect($"/dashboard/endpoint/{resolvedMethod}/{Uri.EscapeDataString(path)}");
     }
 
+    private IReadOnlyList<string>? ReadDomainFilter()
+    {
+        var values = Request.Query["domain"]
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return values.Length > 0 ? values : null;
+    }
+
+    private static TimeSpan ParseWindowOrDefault(string? window) => window switch
+    {
+        "6h"  => TimeSpan.FromHours(6),
+        "12h" => TimeSpan.FromHours(12),
+        "24h" => TimeSpan.FromHours(24),
+        "7d"  => TimeSpan.FromDays(7),
+        "30d" => TimeSpan.FromDays(30),
+        _     => TimeSpan.FromHours(24),
+    };
+
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
+
+    /// <summary>Bounded first-paint reader for the endpoints widget.</summary>
+    private sealed class SsrEndpointsFirstPaintReader : IDashboardEndpointsFirstPaintReader
+    {
+        private readonly List<DashboardEndpointStats> _data;
+        public SsrEndpointsFirstPaintReader(List<DashboardEndpointStats> data) => _data = data;
+        public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
+            int count, DateTime? startTime, DateTime? endTime, string? audienceFilter,
+            IReadOnlyList<string>? domains, CancellationToken cancellationToken = default)
+            => Task.FromResult(_data);
+    }
 }
 
 /// <summary>
-///     URL-bound filter set surfaced on the Site landing page. The page view
-///     forwards these into the SbEndpointsList view component so the
-///     first-paint endpoint list matches what an HTMX swap of
-///     <c>/dashboard/partials/endpoints</c> with the same filter set would
-///     produce.
+///     URL-bound filter set surfaced on the Site landing page.
 /// </summary>
 public sealed record SitePageModel(
     string? Path,
@@ -83,7 +166,4 @@ public sealed record SitePageModel(
     string? Threat,
     string? BotPressure,
     string BasePath,
-    // Active ?window= token (e.g. "6h"/"24h"/"7d"), or null for the dashboard default —
-    // forwarded as SbEndpointsList's range so the list reads through the same
-    // parameter-driven feed as the Traffic page (first-paint reader / windowed store).
     string? Window = null);
