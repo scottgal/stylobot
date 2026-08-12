@@ -26,19 +26,22 @@ public sealed class SiteController : Controller
     private readonly IDashboardEventStore _eventStore;
     private readonly IDashboardContentCache _contentCache;
     private readonly IDashboardPageManifestSource _manifests;
+    private readonly IOptions<DashboardMaterializerOptions> _materializerOpts;
 
     public SiteController(
         IOptions<DashboardLayoutOptions> layout,
         IOptions<StyloBotDashboardOptions> dashOpts,
         IDashboardEventStore eventStore,
         IDashboardContentCache contentCache,
-        IDashboardPageManifestSource manifests)
+        IDashboardPageManifestSource manifests,
+        IOptions<DashboardMaterializerOptions>? materializerOpts = null)
     {
         _layout = layout;
         _dashOpts = dashOpts;
         _eventStore = eventStore;
         _contentCache = contentCache;
         _manifests = manifests;
+        _materializerOpts = materializerOpts ?? Microsoft.Extensions.Options.Options.Create(new DashboardMaterializerOptions());
     }
 
     [HttpGet("")]
@@ -77,6 +80,27 @@ public sealed class SiteController : Controller
         DashboardPageResult? page = null;
         try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
         catch { /* content cache miss — VCs self-fetch */ }
+
+        // First-paint bounded wait (operator directive 2026-08-12: pages NEVER load with
+        // empty data). A first load racing the materializer (fresh pod, post-deploy) sees a
+        // Warming envelope for the PINNED default view — hold the paint and re-read until
+        // the stash lands, bounded by FirstPaintStashWaitMs. The read never composes (the
+        // materializer warms on its own schedule); this only waits for its output. Custom
+        // filters (non-pinned tokens, domain selections) never wait — they keep the
+        // sanctioned spinner + SignalR fill path.
+        if (page is { IsWarming: true }
+            && domainsForQuery is null
+            && _materializerOpts.Value.PrewarmWindows.Contains(windowToken)
+            && _materializerOpts.Value.FirstPaintStashWaitMs > 0)
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(_materializerOpts.Value.FirstPaintStashWaitMs);
+            while (page is { IsWarming: true } && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(Math.Max(10, _materializerOpts.Value.FirstPaintStashPollMs), ct);
+                try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
+                catch { break; }
+            }
+        }
         // Cached-poison guard (operator directive 2026-08-12): never stash a Warming
         // or incomplete bundle as authoritative — the render helpers treat a present
         // stash as real data, so stashing an empty-summary bundle would paint "0 req"

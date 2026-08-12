@@ -137,6 +137,54 @@ public sealed class SiteControllerSummaryStashTests
     }
 
     [Fact]
+    public async Task Index_waits_for_the_first_paint_stash_on_a_pinned_window()
+    {
+        // The first-load 0 race (operator directive 2026-08-12): a first load after a
+        // deploy races the materializer — the envelope reads Warming, and without the
+        // wait the page falls through to the self-fetch and paints zeros. The controller
+        // must hold the paint and re-read until the stash lands.
+        var page = CompleteSitePage();
+        var cacheMock = new Mock<IDashboardContentCache>();
+        cacheMock
+            .SetupSequence(c => c.GetCurrentAsync(
+                It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DashboardPageResult.Warming)
+            .ReturnsAsync(page);
+        var controller = NewController(cacheMock);
+
+        var result = await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
+
+        Assert.IsType<ViewResult>(result);
+        // The first read was Warming; the wait re-read until the stash landed.
+        cacheMock.Verify(c => c.GetCurrentAsync(
+            It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),
+            Times.AtLeast(2));
+        Assert.Same(page, controller.HttpContext.Items["sb.dashboard.pageresult"]);
+    }
+
+    [Fact]
+    public async Task Index_does_not_wait_for_a_non_pinned_window()
+    {
+        // Custom-ish filters (12h is not in the pinned prewarm set) keep the sanctioned
+        // spinner + SignalR fill path — the controller must fall through immediately,
+        // never holding the paint for an envelope the prewarm doesn't cover.
+        var cacheMock = new Mock<IDashboardContentCache>();
+        cacheMock
+            .Setup(c => c.GetCurrentAsync(
+                It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DashboardPageResult.Warming);
+        var controller = NewController(cacheMock);
+
+        var result = await controller.Index(null, null, null, null, "12h", null, CancellationToken.None);
+
+        Assert.IsType<ViewResult>(result);
+        cacheMock.Verify(c => c.GetCurrentAsync(
+            It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        Assert.False(controller.HttpContext.Items.ContainsKey("sb.dashboard.pageresult"));
+    }
+
+    [Fact]
     public async Task Index_does_not_stash_an_incomplete_bundle()
     {
         // Summary present but the endpoints slice came back empty — the poisoning guard

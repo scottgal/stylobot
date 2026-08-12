@@ -64,6 +64,25 @@ public class SbSummaryStatsViewComponent(
         if (summary.TotalRequests == 0 && aggregateCache?.Current.Summary is { TotalRequests: > 0 } liveSummary)
             summary = liveSummary;
 
+        // Never paint zeros for a cold placeholder (operator directive 2026-08-12): when
+        // the self-fetch WAS the SWR store's cold placeholder (the warming signal is
+        // stamped on this request), render the honest spinner — the SignalR beacon fills
+        // when the materializer produces data — instead of a false "0 req" beside real
+        // widgets. Only the no-stash path reaches this; a stashed Warming pageResult was
+        // already handled by the spinner branch above.
+        if (pageResult is null
+            && summary.TotalRequests == 0
+            && DashboardWarmingSignal.IsWarming(HttpContext,
+                "summary", scopedDomains is { Count: 1 } ? scopedDomains[0] : null))
+        {
+            return View(new SummaryStatsModel
+            {
+                Summary = summary,
+                BasePath = options.Value.BasePath.TrimEnd('/'),
+                IsWarming = true,
+            });
+        }
+
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 

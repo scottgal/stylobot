@@ -270,4 +270,18 @@ public sealed class DashboardMaterializerOptions
     ///     the same serial pinned-tier warm.
     /// </summary>
     public int BootPrewarmTimeoutMs { get; set; } = 30_000;
+
+    /// <summary>
+    ///     First-paint stash wait (operator directive 2026-08-12: pages NEVER load with empty
+    ///     data). When a PINNED default view's envelope is still warming — a first load racing
+    ///     the materializer's boot pass or next tick — the page controller holds the paint and
+    ///     re-reads the content cache until the stash lands, bounded by this timeout. The read
+    ///     itself never composes; the materializer warms on its own schedule. &lt;= 0 disables
+    ///     the wait (immediate fall-through to the self-fetch paths). Custom filters (non-pinned
+    ///     tokens, domain selections) never wait — they keep the sanctioned spin + SignalR fill.
+    /// </summary>
+    public int FirstPaintStashWaitMs { get; set; } = 2_000;
+
+    /// <summary>Poll interval for the first-paint stash wait.</summary>
+    public int FirstPaintStashPollMs { get; set; } = 100;
 }
