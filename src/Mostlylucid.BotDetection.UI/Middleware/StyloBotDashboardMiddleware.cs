@@ -267,6 +267,13 @@ public class StyloBotDashboardMiddleware
         // so a browser can never reinterpret an export or API payload as HTML.
         context.Response.Headers["X-Content-Type-Options"] = "nosniff";
 
+        // The dashboard is LIVE data, never cacheable: a CDN/edge cache in front
+        // (Cloudflare) can otherwise serve stale HTML — the 2026-08-12 finding where
+        // the period-selector "fix not working" was actually a cached pre-fix page.
+        // no-store applies to the full-page HTML, partial swaps, and data responses
+        // alike; the SignalR hub + static assets pass through untouched.
+        context.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+
         if (_options.RequireAuthentication)
         {
             // Identity API endpoints pass through to endpoint routing (MapIdentityApi).
