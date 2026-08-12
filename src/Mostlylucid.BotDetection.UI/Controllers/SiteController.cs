@@ -48,6 +48,7 @@ public sealed class SiteController : Controller
         [FromQuery] string? threat,
         [FromQuery(Name = "bot_pressure")] string? botPressure,
         [FromQuery(Name = "window")] string? window,
+        [FromQuery] int? partial,
         CancellationToken ct)
     {
         var basePath = _layout.Value.V2Enabled
@@ -109,6 +110,15 @@ public sealed class SiteController : Controller
             BasePath: basePath,
             Window: NullIfEmpty(window));
 
+        // Period-selector swap path (rebuild 2026-08-12): the site page's content region
+        // refetches this endpoint after a scope-bar period click. The swap URL carries NO
+        // window (DashboardScopeBaselineMiddleware applies the cookie's) and the existing
+        // path/method/threat/bot_pressure filters so the swapped body preserves them.
+        // Mirrors TrafficController's ?partial=1 / HX-Request branches.
+        if (partial == 1)
+            return PartialView("/Views/StyloBot/Dashboard/Site/_Body.cshtml", model);
+        if (Request.Headers.ContainsKey("HX-Request"))
+            return PartialView("/Views/StyloBot/Dashboard/Site/_Body.cshtml", model);
         return View("/Views/StyloBot/Dashboard/Site/Index.cshtml", model);
     }
 

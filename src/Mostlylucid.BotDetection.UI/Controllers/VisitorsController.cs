@@ -50,6 +50,7 @@ public sealed class VisitorsController : Controller
         [FromQuery] string? threat,
         [FromQuery] string? fingerprint,
         [FromQuery(Name = "internal")] bool @internal,
+        [FromQuery(Name = "window")] string? window,
         CancellationToken ct)
     {
         // The view consults Layout.BasePath for HTMX urls inside the partial via
@@ -59,9 +60,14 @@ public sealed class VisitorsController : Controller
             ? "/dashboard"
             : "/dashboard";
 
-        // Fetch authoritative segment counts from the store (single source for summary + tabs)
+        // Period-selector chain (rebuild 2026-08-12): the visitors page MUST honour the
+        // scope bar's window — the baseline middleware applies the cookie as ?window=
+        // when the swap URL carries none. Only the pinned tokens resolve; anything else
+        // falls back to 24h (the same normalisation SiteController uses).
         var now = DateTime.UtcNow;
-        var start = now.AddHours(-24);
+        var windowToken = NormalizeWindowToken(window);
+        var pageWindow = DashboardRoutingHelpers.BuildPinnedWindow(windowToken, now);
+        var start = pageWindow.StartTime!.Value;
 
         // Visitors and Traffic must consume the same composed page bundle. In
         // remote mode the bundle is the live gateway read-through; asking the
@@ -73,15 +79,7 @@ public sealed class VisitorsController : Controller
             var manifest = _manifests.For("dashboard.traffic");
             if (manifest is not null)
             {
-                page = await _contentCache.GetCurrentAsync(
-                    manifest,
-                    // Structural lock (operator directive 2026-08-12): the traffic
-                    // manifest's default 24h window MUST use the same single derivation
-                    // as the materializer's pinned prewarm. The old inline BucketMinutes=60
-                    // keyed a different envelope than the prewarm's 20-minute buckets —
-                    // a permanent cold miss, the site-page summary-0 defect class.
-                    DashboardRoutingHelpers.BuildPinnedWindow("24h", now),
-                    ct);
+                page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
                 HttpContext.Items["sb.dashboard.pageresult"] = page;
             }
         }
@@ -138,10 +136,22 @@ public sealed class VisitorsController : Controller
             Internal: @internal,
             BasePath: basePath,
             Counters: counters,
-            Countries: countriesData ?? new List<DashboardCountryStats>());
+            Countries: countriesData ?? new List<DashboardCountryStats>(),
+            Window: windowToken);
 
         return View("/Views/StyloBot/Dashboard/Visitors/Index.cshtml", model);
     }
+
+    /// <summary>
+    ///     Period-selector tokens the visitors page resolves (the scope bar's pinned set);
+    ///     anything else falls back to the 24h default so the read always keys a pinned
+    ///     prewarm envelope.
+    /// </summary>
+    private static string NormalizeWindowToken(string? window) => window switch
+    {
+        "6h" or "12h" or "24h" or "7d" or "30d" => window,
+        _ => "24h",
+    };
 
     private static string? NullIfEmpty(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;

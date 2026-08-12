@@ -80,7 +80,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(page);
         var controller = NewController(cacheMock);
 
-        var result = await controller.Index(null, null, null, null, "24h", CancellationToken.None);
+        var result = await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
 
         Assert.IsType<ViewResult>(result);
         Assert.NotNull(capturedManifest);
@@ -113,9 +113,27 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(DashboardPageResult.Warming);
         var controller = NewController(cacheMock);
 
-        await controller.Index(null, null, null, null, "24h", CancellationToken.None);
+        await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
 
         Assert.False(controller.HttpContext.Items.ContainsKey("sb.dashboard.pageresult"));
+    }
+
+    [Fact]
+    public async Task Index_partial_returns_the_swap_fragment()
+    {
+        // Period-selector rebuild (2026-08-12): ?partial=1 is the scope-bar swap endpoint —
+        // the #sb-site-body region refetches it after a period click and swaps outerHTML.
+        var cacheMock = new Mock<IDashboardContentCache>();
+        cacheMock
+            .Setup(c => c.GetCurrentAsync(
+                It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CompleteSitePage());
+        var controller = NewController(cacheMock);
+
+        var result = await controller.Index(null, null, null, null, "7d", 1, CancellationToken.None);
+
+        var partial = Assert.IsType<PartialViewResult>(result);
+        Assert.Equal("/Views/StyloBot/Dashboard/Site/_Body.cshtml", partial.ViewName);
     }
 
     [Fact]
@@ -144,7 +162,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(page);
         var controller = NewController(cacheMock);
 
-        await controller.Index(null, null, null, null, "24h", CancellationToken.None);
+        await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
 
         Assert.False(controller.HttpContext.Items.ContainsKey("sb.dashboard.pageresult"));
     }

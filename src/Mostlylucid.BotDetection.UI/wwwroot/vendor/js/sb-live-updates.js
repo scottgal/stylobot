@@ -532,4 +532,21 @@
     // changed. REFRESH_MS is kept as a configuration knob for back-compat but
     // is intentionally not consumed.
     void REFRESH_MS;
+
+    // Period-selector clear-on-click (operator directive 2026-08-12): the moment
+    // the scope bar fires sb:summary-update, every content region dims — the old
+    // period's numbers are never shown as if they were the new period's — and the
+    // class is removed when the region's own swap settles (htmx:afterSettle carries
+    // the swapped element). CSS lives in sb-live-updates.css (.sb-period-swapping).
+    document.body.addEventListener('sb:summary-update', function () {
+        document.querySelectorAll('[id^="sb-"][hx-swap="outerHTML"]').forEach(function (region) {
+            region.classList.add('sb-period-swapping');
+        });
+    });
+    document.body.addEventListener('htmx:afterSettle', function (ev) {
+        var elt = ev.detail && ev.detail.elt;
+        if (elt && elt.classList && elt.classList.contains('sb-period-swapping')) {
+            elt.classList.remove('sb-period-swapping');
+        }
+    });
 })();

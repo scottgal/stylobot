@@ -44,3 +44,13 @@
     opacity: 0.85;
 }
 #sb-live-toggle[data-state="live"]:hover { opacity: 1; }
+
+/* Period-selector clear-on-click (operator directive 2026-08-12): the content
+   regions dim the moment the scope bar fires sb:summary-update — the old
+   period's numbers are never shown as if they were the new period's — and
+   restore once the swapped response settles. Class toggled by sb-live-updates.js. */
+.sb-period-swapping {
+    opacity: 0.35;
+    transition: opacity 120ms ease;
+    pointer-events: none;
+}
