@@ -1259,7 +1259,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                             WHEN bot_probability >= @botFloor AND bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) as bots,
                    CASE WHEN SUM(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN hit_count
                                       WHEN bot_type IS NOT 'Internal' THEN 1 ELSE 0 END) = 0
-                        THEN 1 ELSE 0 END as is_internal
+                        THEN 1 ELSE 0 END as is_internal,
+                   SUM(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN ms_sum
+                            WHEN bot_type IS NOT 'Internal' THEN COALESCE(processing_time_ms, 0) ELSE 0 END) /
+                     NULLIF(SUM(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN hit_count
+                                     WHEN bot_type IS NOT 'Internal' AND processing_time_ms IS NOT NULL THEN 1 ELSE 0 END), 0) AS avg_ms,
+                   MAX(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN ms_max
+                            WHEN bot_type IS NOT 'Internal' THEN processing_time_ms ELSE NULL END) AS max_ms,
+                   SUM(CASE WHEN fused = 1 AND bot_type IS NOT 'Internal' THEN bytes_sum
+                            WHEN bot_type IS NOT 'Internal' THEN COALESCE(response_bytes, 0) ELSE 0 END) AS bytes_out
             FROM detections
             {where}
             GROUP BY domain
@@ -1279,7 +1287,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 Domain: reader.GetString(0),
                 Requests: reader.IsDBNull(1) ? 0L : reader.GetInt64(1),
                 Bots: reader.IsDBNull(2) ? 0L : reader.GetInt64(2),
-                IsInternal: !reader.IsDBNull(3) && reader.GetInt64(3) == 1));
+                IsInternal: !reader.IsDBNull(3) && reader.GetInt64(3) == 1,
+                AvgProcessingTimeMs: reader.IsDBNull(4) ? null : (double?)reader.GetDouble(4),
+                MaxProcessingTimeMs: reader.IsDBNull(5) ? null : (double?)reader.GetDouble(5),
+                BytesOut: reader.IsDBNull(6) ? 0L : reader.GetInt64(6)));
         }
         return results;
     }
