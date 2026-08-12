@@ -117,7 +117,9 @@ public sealed class DashboardRowExtraContentCacheIntegrationTests : IAsyncDispos
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Warming up", html);
+        // bd196a8e + b7c72711: "Warming up" page-level banner is gone. Cold rows on
+        // list-only pages (Clusters, without chart widgets) fetch live with no warming strip.
+        Assert.DoesNotContain("Warming up", html);
     }
 
     public async ValueTask DisposeAsync()

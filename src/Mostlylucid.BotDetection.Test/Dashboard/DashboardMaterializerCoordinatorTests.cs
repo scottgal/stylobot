@@ -94,9 +94,9 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody has ever viewed the page
 
-        // §7 Tier 1: pinned coverage is now the FOSS UI's full window set (6h/24h/7d/30d),
-        // not a single default window -- one prewarmed compose per configured token.
-        Assert.Equal(4, composes);
+        // §7 Tier 1 + a490698a: pinned prewarm now covers all five top-level page manifests
+        // (traffic/topbots/clusters/sessions/threats) × 4 PrewarmWindows = 20 composes.
+        Assert.Equal(20, composes);
     }
 
     [Fact]
@@ -114,10 +114,13 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s);
 
-        // Distinct bucket sizes prove 4 DIFFERENT envelopes were warmed (not the same window
-        // composed 4 times) -- matching HitsPerPeriodChartletBuilder.BucketSizeForWindow per token.
+        // a490698a: all five page manifests × 4 window tokens = 20 composes. Each manifest
+        // gets the same bucket sizes, so the sorted list has 5 of each bucket-minute value.
         var bucketMinutes = composedWindows.Select(w => w.BucketMinutes).OrderBy(m => m).ToArray();
-        Assert.Equal(new[] { 5, 20, 120, 480 }, bucketMinutes);
+        Assert.Equal(20, bucketMinutes.Length);
+        var expected = new[] { 5, 20, 120, 480 };
+        foreach (var m in expected)
+            Assert.Equal(5, bucketMinutes.Count(bm => bm == m));
     }
 
     [Fact]
@@ -162,7 +165,7 @@ public sealed class DashboardMaterializerCoordinatorTests
             Assert.False(result.IsWarming, $"Expected prewarmed {token} Traffic envelope to be a cache hit.");
         }
 
-        Assert.Equal(4, composes); // only the four pinned background warms; reads never compose.
+        Assert.Equal(20, composes); // all five page manifests × 4 windows warm; reads never compose.
         await coord.StopAsync(default);
     }
 

@@ -128,9 +128,9 @@ public sealed class DashboardPriorityRewarmIntegrationTests : IAsyncDisposable
         var response = await client.GetAsync("/dashboard/clusters?window=6h");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var html = await response.Content.ReadAsStringAsync();
-        // The request itself never composed synchronously (structural rule) -- it rendered
-        // the Warming placeholder for every row-extra manifest.
-        Assert.Contains("Warming up", html);
+        // bd196a8e + b7c72711: "Warming up" page-level banner is gone. Cold rows on
+        // list-only pages (Clusters, without chart widgets) fetch live with no warming strip.
+        Assert.DoesNotContain("Warming up", html);
 
         // The priority re-warm is fire-and-forget -- give the background Task.Run a moment
         // to complete, then assert it actually reached the composer for at least one of the
