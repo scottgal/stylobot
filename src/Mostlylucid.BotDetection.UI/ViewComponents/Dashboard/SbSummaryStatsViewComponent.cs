@@ -68,7 +68,18 @@ public class SbSummaryStatsViewComponent(
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
         if (signatureCache is null)
+        {
+            // Remote-host fallback: SignatureAggregateCache is optional. Use headline
+            // summary values for what the summary carries; session-derived fields
+            // (active-now, bounce rate, avg duration) genuinely need the cache and
+            // read as "—" (0 displayed as dash by the view) on cacheless hosts.
+            model.UniqueVisitors = summary.UniqueSignatures;
+            model.BotSessions = summary.BotFingerprints;
+            model.HumanSessions = summary.HumanFingerprints;
+            // ActiveSessions, BounceRate, AvgSessionDurationSecs stay 0 — no cache = no
+            // real-time per-visitor data. The view treats 0 as "—" for these fields.
             return View(model);
+        }
 
         // Fetch all cached visitors for summary totals. The cache's MaxEntries cap
         // (200 by default) bounds the snapshot; passing a larger pageSize just
