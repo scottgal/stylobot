@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.9.0] - 2026-08-12
+
+8.9 ships dashboard Site Analytics (Umami-style per-site metrics), period-selector
+consolidation with Custom-range support, prewarm hardening, and a stash-poisoning fix
+that was latching empty widgets in prod.
+
+### Added
+
+- **Site Analytics page** (`/dashboard/site`). Umami/Cloudflare-style per-site dashboard
+  with ticker, domain slot, and assembled analytics widgets. Each site row links to a
+  full per-site detail with endpoints list, period-filtered timeseries, and the
+  `SbEndpointsList` component (method/path/status filters, avg+p95, status-band,
+  bot-pressure, per-column sort). FOSS forwards the range to `SbEndpointsList` so the
+  same feed drives both Traffic and Site surfaces.
+- **Custom-range period selector.** The period pill row is consolidated to ONE selector
+  with inline pills (6h/24h/7d/30d) plus a Custom toggle backed by `sb-range-pills.js`.
+  Selecting Custom reveals a date-range picker; live window swaps re-fetch without a
+  page reload. Delegated listener pattern avoids stale DOM after HTMX/SignalR swaps.
+- **Pinned prewarm across every top-level page manifest.** On startup the materialiser
+  prewarms traffic/visitors/site/policies/configuration envelopes so no page renders
+  blank on first visit. Disk persistence backs the content cache.
+
+### Changed
+
+- **Killed "Warming up" text and freshness stamp.** Cold rows now fetch live on first
+  paint rather than rendering a spinner. A compose-failure bundle is never stashed in
+  the batch shingle path — the per-widget renderers fall through to their self-fetch
+  paths instead of treating an empty stash as authoritative data.
+- **`Cache-Control: no-store` on all dashboard responses.** Prevents CDN/browser
+  caching of dashboard HTML, partials, and data endpoints so the live feed never serves
+  stale content.
+- **Summary strip falls back to the live aggregate** on a cold windowed read rather
+  than returning zero.
+- **Endpoints filter header consolidated to one row.** Method/path/status filters now
+  share a single title row; old split two-row layout removed.
+- **Visitor rows drill to signature detail via real `<a href>`** instead of an inert
+  `data-href` attribute, restoring keyboard navigation and right-click/open-in-tab.
+
+### Fixed
+
+- **Stash-poisoning P0.** `TryComposeAndStashAsync` was stashing an all-null
+  `DashboardDatasetBundle` on compose failure, poisoning the L1 shingle cache with
+  empty data. Fixed: renderers now fall to their self-fetch paths when the stash is
+  incomplete (matching `IsPageBundleCompleteEnoughToStash` from the SSR path).
+- **Build: Common sibling project reference.** `"8.0.0-alpha2"` package reference
+  replaced with a direct project reference, fixing cold restores.
+- **`all_incl_internal`/`internal` audience fallback** to detections scan on endpoints,
+  so internal self-traffic is correctly excluded from audience-filtered queries.
+- **Signature detail 404** when signature falls outside the configured recency window.
+- **CI compile errors.** Added missing `from` parameter to 14 `TrafficController.Index`
+  test call sites after the parameter was introduced in `e90c0b89`.
+
 ## [8.7.0] - 2026-08-04
 
 8.7 ships FOSS dashboard view-authentication, self-contained HTML shell, content-cache hardening
