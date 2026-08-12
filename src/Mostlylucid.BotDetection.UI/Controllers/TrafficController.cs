@@ -140,14 +140,22 @@ public sealed class TrafficController : Controller
         // stashed in HttpContext.Items so the VCs read their slice without a
         // self-fetch (HttpContext.Items key "sb.dashboard.pageresult").
         var manifest = _manifests.For("dashboard.traffic")!;
-        var pageWindow = new DashboardPageWindow(
-            StartTime: startTime,
-            EndTime: endTime,
-            AudienceFilter: "all",
-            ProbMin: null,
-            Domains: domainsForQuery,
-            TopN: 500,
-            BucketMinutes: (int)bucketSize.TotalMinutes);
+        // Structural lock (operator directive 2026-08-12): the window MUST come from
+        // DashboardRoutingHelpers.BuildPinnedWindow — the single derivation shared with
+        // the materializer's pinned prewarm. Any inline derivation here can drift from
+        // the prewarm's envelope key (the site-page summary-0 defect class). The custom
+        // range is the one deliberate exception: it is never prewarmed (its envelope is
+        // demand-warmed after the first read), so it builds its own explicit pair.
+        var pageWindow = string.Equals(filters.Window, "custom", StringComparison.OrdinalIgnoreCase)
+            ? new DashboardPageWindow(
+                StartTime: startTime,
+                EndTime: endTime,
+                AudienceFilter: "all",
+                ProbMin: null,
+                Domains: domainsForQuery,
+                TopN: 500,
+                BucketMinutes: (int)bucketSize.TotalMinutes)
+            : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, endTime, domainsForQuery);
         var page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
         HttpContext.Items["sb.dashboard.pageresult"] = page;
 
@@ -191,14 +199,18 @@ public sealed class TrafficController : Controller
         {
             var priorManifest = new DashboardPageManifest(
                 "dashboard.traffic.prior", new[] { "summary", "top-bots" });
-            var priorWindow = new DashboardPageWindow(
-                StartTime: startTime.AddMinutes(-windowMinutes),
-                EndTime: startTime,
-                AudienceFilter: "all",
-                ProbMin: null,
-                Domains: domainsForQuery,
-                TopN: 500,
-                BucketMinutes: (int)bucketSize.TotalMinutes);
+            // Same single derivation, anchored at the prior window's end (== this
+            // window's start) — the prior envelope is demand-warmed, not pinned.
+            var priorWindow = string.Equals(filters.Window, "custom", StringComparison.OrdinalIgnoreCase)
+                ? new DashboardPageWindow(
+                    StartTime: startTime.AddMinutes(-windowMinutes),
+                    EndTime: startTime,
+                    AudienceFilter: "all",
+                    ProbMin: null,
+                    Domains: domainsForQuery,
+                    TopN: 500,
+                    BucketMinutes: (int)bucketSize.TotalMinutes)
+                : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, startTime, domainsForQuery);
             var priorPage = await _contentCache.GetCurrentAsync(priorManifest, priorWindow, ct);
             priorBots = priorPage.BotAggregate ?? new List<DashboardTopBotEntry>();
             priorSummary = priorPage.Summary;
@@ -486,18 +498,12 @@ public sealed class TrafficController : Controller
     /// <summary>
     ///     Map <see cref="DashboardLayoutOptions.DefaultTimeWindowMinutes"/>
     ///     onto the canonical period-selector token so URLs and SQL queries
-    ///     speak the same language as the pill widget on _Body.cshtml.
+    ///     speak the same language as the pill widget on _Body.cshtml. Delegates to
+    ///     <see cref="DashboardRoutingHelpers.WindowTokenForMinutes"/> — the SINGLE
+    ///     minutes→token mapping shared with the boot-time cache-key contract.
     /// </summary>
-    private static string FormatDefaultWindow(int minutes) => minutes switch
-    {
-        15            => "15m",
-        60            => "1h",
-        360           => "6h",
-        720           => "12h",
-        1440          => "24h",
-        7 * 24 * 60   => "7d",
-        _             => "6h",
-    };
+    private static string FormatDefaultWindow(int minutes) =>
+        DashboardRoutingHelpers.WindowTokenForMinutes(minutes);
 
     /// <summary>
     ///     Project the event-store country stats into the view's

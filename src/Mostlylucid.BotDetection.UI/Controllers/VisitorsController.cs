@@ -75,14 +75,12 @@ public sealed class VisitorsController : Controller
             {
                 page = await _contentCache.GetCurrentAsync(
                     manifest,
-                    new DashboardPageWindow(
-                        StartTime: start,
-                        EndTime: now,
-                        AudienceFilter: "all",
-                        ProbMin: null,
-                        Domains: null,
-                        TopN: 500,
-                        BucketMinutes: 60),
+                    // Structural lock (operator directive 2026-08-12): the traffic
+                    // manifest's default 24h window MUST use the same single derivation
+                    // as the materializer's pinned prewarm. The old inline BucketMinutes=60
+                    // keyed a different envelope than the prewarm's 20-minute buckets —
+                    // a permanent cold miss, the site-page summary-0 defect class.
+                    DashboardRoutingHelpers.BuildPinnedWindow("24h", now),
                     ct);
                 HttpContext.Items["sb.dashboard.pageresult"] = page;
             }

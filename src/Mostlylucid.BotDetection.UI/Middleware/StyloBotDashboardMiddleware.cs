@@ -8365,16 +8365,12 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             }
         }
 
-        var minutes = UI.Dashboard.DashboardRoutingHelpers.WindowTokenToMinutes(token, fallbackMinutes: configuredMinutes);
-
-        return new DashboardPageWindow(
-            StartTime: end.AddMinutes(-minutes),
-            EndTime: end,
-            AudienceFilter: "all",
-            ProbMin: null,
-            Domains: effectiveDomains,
-            TopN: 500,
-            BucketMinutes: (int)Dashboard.HitsPerPeriodChartletBuilder.BucketSizeForWindow(token).TotalMinutes);
+        // Structural lock (operator directive 2026-08-12): the visitors shell must read
+        // the SAME envelope the materializer's pinned prewarm warms — the single
+        // BuildPinnedWindow derivation, never an inline window. (Unknown/garbage tokens
+        // fall back to the 24h shape inside the builder; the custom range above is the
+        // one deliberate non-pinned exception.)
+        return UI.Dashboard.DashboardRoutingHelpers.BuildPinnedWindow(token, end, effectiveDomains);
     }
 
     private async Task<List<DashboardCountryStats>> GetCountriesDataAsync()

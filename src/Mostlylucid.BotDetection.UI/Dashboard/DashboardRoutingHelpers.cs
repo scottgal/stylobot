@@ -66,6 +66,26 @@ public static class DashboardRoutingHelpers
     };
 
     /// <summary>
+    ///     The canonical minutes → window-token mapping — the inverse of
+    ///     <see cref="WindowTokenToMinutes"/> for the tokens the dashboard UI offers. Used by
+    ///     the traffic page's default-window resolution (TrafficController) and by the
+    ///     boot-time cache-key contract (DashboardCacheKeyContract), so a layout default that
+    ///     isn't in the pinned prewarm set fails loudly at boot instead of silently serving
+    ///     cold misses forever.
+    /// </summary>
+    public static string WindowTokenForMinutes(int minutes) => minutes switch
+    {
+        15            => "15m",
+        60            => "1h",
+        360           => "6h",
+        720           => "12h",
+        1440          => "24h",
+        7 * 24 * 60   => "7d",
+        30 * 24 * 60  => "30d",
+        _             => "6h"
+    };
+
+    /// <summary>
     ///     The Tier 1 pinned-prewarm window for a window token — the SINGLE derivation for
     ///     "what a default view of a page means", shared between the materializer's pinned
     ///     prewarm and page controllers that read the composed envelope (SiteController).

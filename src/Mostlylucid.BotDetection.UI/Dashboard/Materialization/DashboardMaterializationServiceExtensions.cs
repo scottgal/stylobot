@@ -42,19 +42,12 @@ internal static class DashboardMaterializationServiceExtensions
             return new DashboardContentCache(
                 compose: async (manifest, window, ct) =>
                 {
+                    // The never-cache-empty guard lives INSIDE DefaultDashboardPageComposer
+                    // (GuardCompose): a compose-failure bundle comes back as the Warming
+                    // sentinel, never as cacheable zero-data (operator directive 2026-08-12).
                     using var scope = scopeFactory.CreateScope();
                     var composer = scope.ServiceProvider.GetRequiredService<IDashboardPageComposer>();
-                    var catalog = scope.ServiceProvider.GetRequiredService<DashboardWidgetCatalog>();
-                    var page = await composer.ComposeAsync(manifest, window, ct);
-                    // Cached-poison guard (2026-08-12 prod incident): the remote store
-                    // degrades compose failures (gateway 401 / connection refused) to an
-                    // ALL-NULL bundle. Storing that as authoritative made pages paint
-                    // "0 traffic" until the next warm. Return the Warming sentinel instead
-                    // — every reader already handles it honestly (spinner, never a false
-                    // zero) — and the next tick's warm retries with fresh data.
-                    if (!DefaultDashboardPageComposer.HasAnyRequestedData(page, manifest, catalog))
-                        return DashboardPageResult.Warming;
-                    return page;
+                    return await composer.ComposeAsync(manifest, window, ct);
                 },
                 currentTick: () => cursor.CurrentTick,
                 options: options);

@@ -111,14 +111,23 @@ public sealed class DashboardComposePoisonGuardTests
     [Fact]
     public async Task ContentCache_does_not_store_the_failure_sentinel()
     {
-        // The full DI-delegate behavior: a compose that returns the all-null failure
-        // sentinel must land as Warming in the cache — never as an authoritative
-        // zero-data page — and a real compose must land as data.
+        // The full chain: real DefaultDashboardPageComposer + real catalog + a store whose
+        // ComposeBatchAsync degrades to the all-null failure sentinel (the remote store's
+        // failure shape). The composed page must land as Warming in the content cache —
+        // never as an authoritative zero-data page — and a recovered store must heal the
+        // same envelope on the next warm.
+        var store = new Mock<IDashboardEventStore>();
+        store.Setup(s => s.ComposeBatchAsync(
+                It.IsAny<DashboardBatchRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DashboardDatasetBundle(null, null, null, null, null));
+
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<Microsoft.Extensions.Configuration.IConfiguration>(
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         services.AddSingleton<IDashboardChangeCursor>(new DashboardChangeCursor());
-        services.AddScoped<IDashboardPageComposer>(_ => new FakeComposer());
+        services.AddSingleton<IDashboardEventStore>(store.Object);
+        services.AddScoped<IDashboardPageComposer, DefaultDashboardPageComposer>();
         services.AddSingleton(DashboardWidgetCatalog.BuildFromLoadedAssemblies());
         services.AddDashboardMaterialization(runTickMaterializer: false);
         await using var provider = services.BuildServiceProvider();
@@ -127,25 +136,29 @@ public sealed class DashboardComposePoisonGuardTests
         var manifest = ManifestSource.For("dashboard.traffic")!;
         var window = DashboardRoutingHelpers.BuildPinnedWindow("24h", DateTime.UtcNow);
 
-        // Tick 1: the compose fails with the all-null sentinel -> Warming, not zeros.
+        // Tick 1: the store fails with the all-null sentinel -> Warming, not zeros.
         await cache.WarmAsync(manifest, window, tick: 1, CancellationToken.None);
         var poisonedRead = await cache.GetCurrentAsync(manifest, window, CancellationToken.None);
         Assert.True(poisonedRead.IsWarming);
 
-        // Tick 2: the compose succeeds -> the SAME envelope now serves real data.
-        FakeComposer.Succeed = true;
+        // Tick 2: the store recovers -> the SAME envelope now serves real data.
+        store.Setup(s => s.ComposeBatchAsync(
+                It.IsAny<DashboardBatchRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DashboardDatasetBundle(
+                Summary: AnySummary(),
+                TimeBuckets:
+                [
+                    new DashboardTimeSeriesPoint
+                    {
+                        Timestamp = DateTime.UtcNow, BotCount = 0, HumanCount = 1, TotalCount = 1
+                    }
+                ],
+                BotAggregate: [new DashboardTopBotEntry { PrimarySignature = "sig", HitCount = 1 }],
+                Geo: [new DashboardCountryStats { CountryCode = "GB", TotalCount = 1 }],
+                Endpoints: [new DashboardEndpointStats { Method = "GET", Path = "/", TotalCount = 1 }]));
         await cache.WarmAsync(manifest, window, tick: 2, CancellationToken.None);
         var healedRead = await cache.GetCurrentAsync(manifest, window, CancellationToken.None);
         Assert.False(healedRead.IsWarming);
         Assert.NotNull(healedRead.Summary);
-    }
-
-    private sealed class FakeComposer : IDashboardPageComposer
-    {
-        public static bool Succeed;
-
-        public Task<DashboardPageResult> ComposeAsync(
-            DashboardPageManifest manifest, DashboardPageWindow w, CancellationToken ct)
-            => Task.FromResult(Succeed ? RealTrafficPage() : NullBundle());
     }
 }

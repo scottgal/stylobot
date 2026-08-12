@@ -45,7 +45,6 @@ public sealed class SbWidgetBatchMiddleware
     // Default time window used when no window param is supplied on the update request.
     // Matches the TrafficController default (6h) so batch-updated widgets use the same
     // data window as the page they live on.
-    private const int DefaultBatchWindowMinutes = 6 * 60;
 
     public SbWidgetBatchMiddleware(
         RequestDelegate next,
@@ -404,9 +403,7 @@ public sealed class SbWidgetBatchMiddleware
                 .Select(k => q[k].FirstOrDefault())
                 .FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))
             ?? "6h";
-        var windowMinutes = ParseWindowToken(windowToken);
         var now = DateTime.UtcNow;
-        var startTime = now.AddMinutes(-windowMinutes);
 
         var domains = q["domain"]
             .Where(v => !string.IsNullOrWhiteSpace(v))
@@ -424,43 +421,12 @@ public sealed class SbWidgetBatchMiddleware
             scopedDomains is { Count: > 0 } ? scopedDomains
             : domains.Length > 0 ? domains : null;
 
-        // Use the same bucket width the TrafficController uses for a comparable window.
-        var bucketSize = HitsPerPeriodChartletBuilder.BucketSizeForWindow(windowToken);
-
-        // Compose the shared page bundle ALL-AUDIENCE, matching TrafficController /
-        // VisitorsController (both hard-code "all") and the tick materializer's pinned
-        // prewarm (DashboardMaterializerCoordinator uses "all"). This is load-bearing for
-        // the Top Bots header: its All/Bots/Humans/Internal chips and client-side audience
-        // switch need the FULL distribution, and GetTopBotsAsync maps a null audience to
-        // BOTS-ONLY (legacy back-compat) -- so composing null here produced a bots-only
-        // BotAggregate whose header read Humans=0/Internal=0, making a scoped all-audience
-        // self-fetch out-count it (scoped > unscoped). It also keyed the compose to a null
-        // audience while DashboardContentEnvelope normalizes null->"all", poisoning the shared
-        // "all" cache entry with bots-only rows. A targeted audience chip ("bots"/"humans"/
-        // "all_incl_internal") never reads this composed bundle anyway -- every render helper
-        // routes those through the store directly (see Render*Async above) -- so hard-coding
-        // "all" here only ever widens the composed set, never hides a requested slice.
-        return new DashboardPageWindow(
-            StartTime: startTime,
-            EndTime: now,
-            AudienceFilter: "all",
-            ProbMin: null,
-            Domains: domainsFilter,
-            TopN: 500,
-            BucketMinutes: (int)bucketSize.TotalMinutes);
+        // Structural lock (operator directive 2026-08-12): the batch compose must read the
+        // SAME envelope the materializer's pinned prewarm warms — the single
+        // BuildPinnedWindow derivation, never an inline window. (Audience stays "all":
+        // load-bearing for the Top Bots header chips — see below.)
+        return DashboardRoutingHelpers.BuildPinnedWindow(windowToken, now, domainsFilter);
     }
-
-    private static int ParseWindowToken(string token) => token switch
-    {
-        "15m"         => 15,
-        "60m" or "1h" => 60,
-        "6h"          => 6 * 60,
-        "12h"         => 12 * 60,
-        "24h" or "1d" => 24 * 60,
-        "7d"          => 7 * 24 * 60,
-        "30d"         => 30 * 24 * 60,
-        _             => DefaultBatchWindowMinutes,
-    };
 
     // -------------------------------------------------------------------------
     // Cache + render

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Hubs;
+using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.Common.Scheduling;
 
@@ -43,6 +44,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly IDashboardPageManifestSource _manifests;
     private readonly IScheduleCoordinator? _schedule;
     private readonly IOptions<DashboardMaterializerOptions> _optionsAccessor;
+    private readonly IOptions<DashboardLayoutOptions>? _layout;
 
     // Startup-snapshot only (FOSS hard rule: no runtime options-reload -- hot-reload is
     // commercial-only). Enabled/MaxTickDurationMs/etc. are fixed at process start.
@@ -92,7 +94,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         IScheduleCoordinator? schedule = null,
         ILogger<DashboardMaterializerCoordinator>? logger = null,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IOptions<DashboardLayoutOptions>? layout = null)
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(cursor);
@@ -106,6 +109,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _logger = logger;
         _hubContext = hubContext;
         _time = timeProvider ?? TimeProvider.System;
+        _layout = layout;
         _adaptive = new DashboardMaterializerAdaptiveController(options);
 
         // Boot-time materializer pass, fired HERE (not StartAsync) so its completion is
@@ -173,6 +177,25 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         catch (Exception ex)
         {
             _logger?.LogWarning(ex, "DashboardMaterializerCoordinator: failed to subscribe to Tick10s.");
+        }
+
+        // Boot-time cache-key contract (operator directive 2026-08-12): before any request
+        // is served, assert that every top-level page's default read window resolves — through
+        // the single BuildPinnedWindow derivation — to an envelope the pinned prewarm covers.
+        // A violation means a read path drifted from the prewarm's envelope keys (the
+        // permanent-cold-miss defect class). Fail loud at boot; never serve silent zeros.
+        try
+        {
+            DashboardCacheKeyContract.VerifyPrewarmCoverage(
+                _options,
+                _manifests,
+                defaultWindowMinutes: _layout?.Value?.DefaultTimeWindowMinutes ?? 1440,
+                now: _time.GetUtcNow().UtcDateTime);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogCritical(ex, "Dashboard cache-key contract verification failed at boot.");
+            throw;
         }
 
         // Boot-time materializer pass (see DashboardMaterializerOptions.BootPrewarmEnabled):

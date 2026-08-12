@@ -132,7 +132,7 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.SessionsRaw)
             || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.ThreatsRaw)
             || manifest.WidgetKeys.Contains(DashboardRowWidgetKeys.UserAgentsRaw);
-        if (!hasKey) return new DashboardPageResult(bundle, extensionData);
+        if (!hasKey) return GuardCompose(new DashboardPageResult(bundle, extensionData), manifest);
 
         IReadOnlyList<ClusterViewModel>? clusters = null;
         ClusterDiagnosticsViewModel? clusterDiagnostics = null;
@@ -205,13 +205,34 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
             catch (Exception ex) { _logger?.LogWarning(ex, "Dashboard row extra 'useragents-raw' failed to compose."); }
         }
 
-        return new DashboardPageResult(
+        return GuardCompose(new DashboardPageResult(
             bundle, extensionData,
             clustersRaw: clusters, clusterDiagnosticsRaw: clusterDiagnostics,
             topBotsRaw: topBots,
             sessionsRaw: sessions, sessionsRawTotalCount: sessionsTotalCount,
             threatsRaw: threats,
-            userAgentsRaw: userAgents);
+            userAgentsRaw: userAgents), manifest);
+    }
+
+    /// <summary>
+    ///     Never-cache-empty at the compose SOURCE (operator directive 2026-08-12): the
+    ///     remote store degrades compose failures (gateway 401 / connection refused) to an
+    ///     ALL-NULL bundle — its failure sentinel. Caching that as authoritative makes
+    ///     every reader paint "0 traffic" until the next warm (the prod incident). When the
+    ///     composed page carries none of the manifest's requested data, return the Warming
+    ///     sentinel instead — readers render it honestly (spinner, never a false zero) and
+    ///     the next tick's warm retries. Logged at Warning: on prod the coordinator's Debug
+    ///     lines are filtered, so this must be visible. A genuinely empty window still
+    ///     returns non-null EMPTY lists and passes (honest zeros still cache).
+    /// </summary>
+    private DashboardPageResult GuardCompose(DashboardPageResult page, DashboardPageManifest manifest)
+    {
+        if (HasAnyRequestedData(page, manifest, _catalog)) return page;
+
+        _logger?.LogWarning(
+            "Dashboard compose produced no requested data for {Page}; returning the Warming sentinel (compose-failure bundles are never cached as authoritative).",
+            manifest.PageKey);
+        return DashboardPageResult.Warming;
     }
 
     /// <summary>
