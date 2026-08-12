@@ -253,37 +253,23 @@ public static class WidgetRenderHelpers
     }
 
     /// <summary>
-    ///     Identity key for collapse. Combines name + verification state + major UA
-    ///     version family so a verified Googlebot, an unverified Googlebot, and a
-    ///     Googlebot/2.0 vs Googlebot/2.1 never end up in the same row -- spoof-
-    ///     protection per the user's "compare version numbers + rDNS in background"
-    ///     rule. The operator-set CustomBotName is the highest-priority identity
-    ///     signal and wins regardless of UA shape.
+    ///     Identity key for collapse. Combines name + verification state ONLY --
+    ///     grouping is by bot identity, NEVER by the raw UA string (operator rule
+    ///     2026-08-12: "NO repeat names, ever"; the same bot with different UAs must
+    ///     collapse to ONE row with a clean name). A verified Googlebot and an
+    ///     unverified Googlebot stay separate (verification is identity state, not
+    ///     UA), and the operator-set CustomBotName is the highest-priority identity
+    ///     signal and wins regardless of UA shape. The UA-major-version component
+    ///     was REMOVED: it only ever fired on rows carrying a representative UA
+    ///     (e.g. absorbed aggregate rows after the 2026-08-12 signal fix), and
+    ///     split one bot (PetalBot/2.0 vs PetalBot/3.0) into duplicate rows.
     /// </summary>
     private static string BuildIdentityKey(DashboardTopBotEntry b)
     {
         if (b.CustomBotName is { Length: > 0 } custom) return $"custom|{custom}";
         var name = b.BotName ?? string.Empty;
         var verified = b.IsVerifiedBot ? "v" : "u";
-        var version = ExtractMajorBotVersion(name, b.UserAgent) ?? "-";
-        return $"{name}|{verified}|{version}";
-    }
-
-    // Bot patterns embed their version in the UA as "{Name}/{X.Y}" (Googlebot/2.1,
-    // bingbot/2.0, GPTBot/1.0). Pulling MAJOR only ("2", "1") is wide enough to
-    // collapse routine version churn but narrow enough that a malformed spoofer
-    // with "Googlebot/0.1" doesn't slide into the real row.
-    private static readonly Regex BotVersionRegex = new(@"/(\d+)\b", RegexOptions.Compiled);
-
-    private static string? ExtractMajorBotVersion(string? botName, string? userAgent)
-    {
-        if (string.IsNullOrWhiteSpace(botName) || string.IsNullOrWhiteSpace(userAgent))
-            return null;
-        var nameStart = userAgent.IndexOf(botName, StringComparison.OrdinalIgnoreCase);
-        if (nameStart < 0) return null;
-        var slice = userAgent.AsSpan(nameStart + botName.Length);
-        var match = BotVersionRegex.Match(slice.ToString());
-        return match.Success ? match.Groups[1].Value : null;
+        return $"{name}|{verified}";
     }
 
     /// <summary>

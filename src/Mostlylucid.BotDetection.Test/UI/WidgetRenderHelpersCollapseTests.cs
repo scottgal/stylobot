@@ -10,8 +10,10 @@ namespace Mostlylucid.BotDetection.Test.UI;
 ///     centroid-by-identity grouping. ONE row per bot identity regardless of
 ///     whether earlier broadcasts persisted mixed casings ("Googlebot" /
 ///     "googlebot"), and rows are kept separate when they should be
-///     (Spoofed-Googlebot vs Googlebot, Googlebot/2.0 vs Googlebot/2.1,
-///     verified Googlebot vs unverified Googlebot).
+///     (Spoofed-Googlebot vs Googlebot, verified Googlebot vs unverified
+///     Googlebot). Grouping is by bot identity ONLY -- NEVER by the raw UA
+///     string (operator rule 2026-08-12: "NO repeat names, ever"); the same
+///     bot with different UA versions collapses to one row.
 /// </summary>
 public class WidgetRenderHelpersCollapseTests
 {
@@ -20,6 +22,7 @@ public class WidgetRenderHelpersCollapseTests
         string? botName,
         bool isVerified = false,
         string? userAgent = null,
+        string? botType = null,
         int hitCount = 1,
         double botProbability = 0.95,
         DateTime? lastSeen = null) => new()
@@ -28,6 +31,7 @@ public class WidgetRenderHelpersCollapseTests
         BotName = botName,
         IsVerifiedBot = isVerified,
         UserAgent = userAgent,
+        BotType = botType,
         HitCount = hitCount,
         BotProbability = botProbability,
         LastSeen = lastSeen ?? DateTime.UtcNow,
@@ -70,37 +74,26 @@ public class WidgetRenderHelpersCollapseTests
     }
 
     [Fact]
-    public void Different_major_ua_versions_stay_separate()
+    public void Different_ua_versions_of_the_same_bot_collapse_to_one()
     {
-        // A v1 crawler and a v2 crawler are different deployments and must
-        // not fold into one row. Minor versions WITHIN a major (2.0 vs 2.1)
-        // intentionally collapse -- they're the same crawler with rolling
-        // sub-version churn, splitting them would over-fragment the centroid.
+        // Operator rule 2026-08-12: "NO repeat names, ever" -- the same bot with
+        // different UAs must collapse to ONE row with a clean name; grouping is
+        // by bot identity, NEVER by the raw UA string. Previously the identity
+        // key included the UA-extracted major version, which split PetalBot/2.0
+        // vs PetalBot/3.0 into duplicate rows once rows carried a representative
+        // UA (absorption aggregate rows after the 2026-08-12 signal fix). Both
+        // major and minor version churn now fold into the single identity row.
         var rows = new[]
         {
-            Row("sig-v2", "Examplebot", userAgent: "Mozilla/5.0 (compatible; Examplebot/2.1)"),
-            Row("sig-v1", "Examplebot", userAgent: "Mozilla/5.0 (compatible; Examplebot/1.0)"),
-        };
-
-        var result = WidgetRenderHelpers.CollapseGroupableIdentities(rows);
-
-        Assert.Equal(2, result.Count);
-    }
-
-    [Fact]
-    public void Minor_ua_versions_within_a_major_collapse()
-    {
-        // Document the intended sub-major folding: Googlebot/2.0 and 2.1 are
-        // the same crawler with rolling minor churn. One row.
-        var rows = new[]
-        {
+            Row("sig-v2", "Examplebot", botType: "SearchEngine", userAgent: "Mozilla/5.0 (compatible; Examplebot/2.1)"),
+            Row("sig-v1", "Examplebot", botType: "SearchEngine", userAgent: "Mozilla/5.0 (compatible; Examplebot/1.0)"),
             Row("sig-2-1", "Googlebot", userAgent: "Mozilla/5.0 (compatible; Googlebot/2.1)"),
             Row("sig-2-0", "Googlebot", userAgent: "Mozilla/5.0 (compatible; Googlebot/2.0)"),
         };
 
         var result = WidgetRenderHelpers.CollapseGroupableIdentities(rows);
 
-        Assert.Single(result);
+        Assert.Equal(2, result.Count); // one Examplebot row + one Googlebot row
     }
 
     [Fact]
