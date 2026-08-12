@@ -75,6 +75,22 @@ public class SbSummaryStatsViewComponent(
         // returns everything in one page.
         const int maxProjectedVisitors = 1_000;
         var (allVisitors, totalCount, _, _) = signatureCache.GetFiltered("all", "lastSeen", "desc", 1, maxProjectedVisitors);
+
+        // FUNDAMENTAL FIX (operator directive 2026-08-12): the site page's summary
+        // ALWAYS painted zero visitor stats — the remote dashboard host's
+        // SignatureAggregateCache is empty until the gateway beacon warms it, and an
+        // EMPTY (non-null) cache took the enrichment path below, producing permanent
+        // zeros where the traffic page showed real numbers. When the cache holds no
+        // visitors, fall back to the headline summary values (real unique
+        // signatures / bot / human fingerprints from the store) instead of zeros.
+        if (allVisitors.Count == 0 && signatureCache.Count == 0)
+        {
+            model.UniqueVisitors = summary.UniqueSignatures;
+            model.BotSessions = summary.BotFingerprints;
+            model.HumanSessions = summary.HumanFingerprints;
+            return View(model);
+        }
+
         var humanVisitors = allVisitors.Where(v => !v.IsBot).ToList();
         var botVisitors = allVisitors.Where(v => v.IsBot).ToList();
 
