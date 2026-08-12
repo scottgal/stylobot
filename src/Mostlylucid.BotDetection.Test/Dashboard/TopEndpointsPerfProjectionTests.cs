@@ -50,7 +50,7 @@ public sealed class TopEndpointsPerfProjectionTests
         var ctrl = NewController(store);
 
         var result = await ctrl.Index(
-            country: null, botType: null, window: "60m", threat: null, partial: null, ct: default);
+            country: null, botType: null, window: "60m", from: null, to: null, threat: null, partial: null, ct: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<TrafficPageModel>(view.Model);
@@ -89,7 +89,7 @@ public sealed class TopEndpointsPerfProjectionTests
         var ctrl = NewController(store);
 
         var result = await ctrl.Index(
-            country: null, botType: null, window: "60m", threat: null, partial: null, ct: default);
+            country: null, botType: null, window: "60m", from: null, to: null, threat: null, partial: null, ct: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<TrafficPageModel>(view.Model);
@@ -121,7 +121,7 @@ public sealed class TopEndpointsPerfProjectionTests
         var ctrl = NewController(store);
 
         var result = await ctrl.Index(
-            country: null, botType: null, window: "60m", threat: null, partial: null, ct: default);
+            country: null, botType: null, window: "60m", from: null, to: null, threat: null, partial: null, ct: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<TrafficPageModel>(view.Model);

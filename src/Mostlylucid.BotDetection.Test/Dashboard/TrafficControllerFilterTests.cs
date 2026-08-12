@@ -26,7 +26,7 @@ public sealed class TrafficControllerFilterTests
         http.Request.Headers["HX-Request"] = "true";
 
         var result = await ctrl.Index(
-            country: null, botType: "Scraper", window: "60m", threat: null, partial: null, ct: default);
+            country: null, botType: "Scraper", window: "60m", from: null, to: null, threat: null, partial: null, ct: default);
 
         var partial = Assert.IsType<PartialViewResult>(result);
         Assert.EndsWith("_TrafficPanels.cshtml", partial.ViewName);
@@ -40,7 +40,7 @@ public sealed class TrafficControllerFilterTests
         var ctrl = NewController(out _);
 
         var result = await ctrl.Index(
-            country: null, botType: null, window: "60m", threat: null, partial: null, ct: default);
+            country: null, botType: null, window: "60m", from: null, to: null, threat: null, partial: null, ct: default);
 
         var view = Assert.IsType<ViewResult>(result);
         Assert.EndsWith("Index.cshtml", view.ViewName);
@@ -53,7 +53,7 @@ public sealed class TrafficControllerFilterTests
         http.Request.Headers["HX-Request"] = "true";
 
         var result = await ctrl.Index(
-            country: null, botType: null, window: "60m", threat: null, partial: 1, ct: default);
+            country: null, botType: null, window: "60m", from: null, to: null, threat: null, partial: 1, ct: default);
 
         var partial = Assert.IsType<PartialViewResult>(result);
         Assert.EndsWith("_Body.cshtml", partial.ViewName);
@@ -74,7 +74,7 @@ public sealed class TrafficControllerFilterTests
         var ctrl = NewController(out _, store);
 
         var result = await ctrl.Index(
-            country: null, botType: "Scraper", window: "60m", threat: null, partial: null, ct: default);
+            country: null, botType: "Scraper", window: "60m", from: null, to: null, threat: null, partial: null, ct: default);
 
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<TrafficPageModel>(view.Model);
@@ -102,7 +102,7 @@ public sealed class TrafficControllerFilterTests
         var ctrl = NewController(out _, store);
 
         var result = await ctrl.Index(
-            country: null, botType: null, window: "60m", threat: null, partial: null, ct: default);
+            country: null, botType: null, window: "60m", from: null, to: null, threat: null, partial: null, ct: default);
 
         var model = Assert.IsType<TrafficPageModel>(Assert.IsType<ViewResult>(result).Model);
         Assert.DoesNotContain(model.BotTypes, b => string.Equals(b.BotType, "Internal", StringComparison.OrdinalIgnoreCase));
