@@ -255,4 +255,60 @@ public sealed class TrafficControllerComposeTests
         Assert.Contains(store.BatchRequests,
             r => r.Datasets.Select(d => d.Kind).OrderBy(k => k).SequenceEqual(priorKinds));
     }
+
+    [Fact]
+    public async Task Index_waits_for_the_first_paint_stash_on_a_pinned_window()
+    {
+        // The cold first-load 0 on the counters strip (operator directive 2026-08-12:
+        // pages NEVER load with empty data): a Warming envelope for the PINNED default
+        // view must hold the paint until the stash lands, never render "VISITORS 0"
+        // beside real widgets. Mirrors SiteControllerSummaryStashTests' wait test.
+        var page = new DashboardPageResult(new DashboardDatasetBundle(
+            Summary: new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 10,
+                BotRequests = 8,
+                HumanRequests = 2,
+                UncertainRequests = 0,
+                UniqueSignatures = 6,
+                RiskBandCounts = new(),
+                TopBotTypes = new(),
+                TopActions = new()
+            },
+            TimeBuckets:
+            [
+                new DashboardTimeSeriesPoint
+                {
+                    Timestamp = DateTime.UtcNow, BotCount = 8, HumanCount = 2, TotalCount = 10
+                }
+            ],
+            BotAggregate: [new DashboardTopBotEntry { PrimarySignature = "sig", HitCount = 1 }],
+            Geo: [new DashboardCountryStats { CountryCode = "GB", TotalCount = 1 }],
+            Endpoints: [new DashboardEndpointStats { Method = "GET", Path = "/", TotalCount = 1 }]));
+
+        var cache = new Mock<IDashboardContentCache>();
+        cache.SetupSequence(c => c.GetCurrentAsync(
+                It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DashboardPageResult.Warming)
+            .ReturnsAsync(page);
+
+        var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
+            new RecordingEventStore(),
+            cache.Object,
+            new DefaultDashboardPageManifestSource(),
+            DefaultLayoutOptions(),
+            DefaultThreatsOptions())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = await controller.Index(null, null, null, null, null, null, null, CancellationToken.None);
+
+        Assert.IsType<ViewResult>(result);
+        cache.Verify(c => c.GetCurrentAsync(
+            It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),
+            Times.AtLeast(2));
+        Assert.Same(page, controller.HttpContext.Items["sb.dashboard.pageresult"]);
+    }
 }

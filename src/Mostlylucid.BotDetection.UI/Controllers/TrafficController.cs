@@ -37,6 +37,7 @@ public sealed class TrafficController : Controller
     private readonly IOptions<DashboardLayoutOptions> _layout;
     private readonly IOptions<ThreatsOptions> _threatsOpts;
     private readonly SignatureAggregateCache? _cache;
+    private readonly IOptions<DashboardMaterializerOptions> _materializerOpts;
 
     public TrafficController(
         IDashboardEventStore eventStore,
@@ -44,7 +45,8 @@ public sealed class TrafficController : Controller
         IDashboardPageManifestSource manifests,
         IOptions<DashboardLayoutOptions> layout,
         IOptions<ThreatsOptions> threatsOpts,
-        SignatureAggregateCache? cache = null)
+        SignatureAggregateCache? cache = null,
+        IOptions<DashboardMaterializerOptions>? materializerOpts = null)
     {
         // IDashboardEventStore is the canonical, share-with-the-rest-of-the-dashboard
         // change-detection mechanism (feedback_centralised_change_detection). The
@@ -58,6 +60,7 @@ public sealed class TrafficController : Controller
         _layout = layout;
         _threatsOpts = threatsOpts;
         _cache = cache;
+        _materializerOpts = materializerOpts ?? Microsoft.Extensions.Options.Options.Create(new DashboardMaterializerOptions());
     }
 
     [HttpGet("")]
@@ -157,6 +160,27 @@ public sealed class TrafficController : Controller
                 BucketMinutes: (int)bucketSize.TotalMinutes)
             : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, endTime, domainsForQuery);
         var page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
+
+        // First-paint bounded wait (operator directive 2026-08-12: pages NEVER load with
+        // empty data — the traffic counters strip has no warming branch, so a cold stash
+        // painted "VISITORS 0" beside real widgets until the next load). Same shape as
+        // SiteController's wait: PINNED default views only (no custom range, no domain
+        // filter), bounded by FirstPaintStashWaitMs; the read never composes.
+        if (page is { IsWarming: true }
+            && domainsForQuery is null
+            && !string.Equals(filters.Window, "custom", StringComparison.OrdinalIgnoreCase)
+            && _materializerOpts.Value.PrewarmWindows.Contains(filters.Window)
+            && _materializerOpts.Value.FirstPaintStashWaitMs > 0)
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(_materializerOpts.Value.FirstPaintStashWaitMs);
+            while (page is { IsWarming: true } && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(Math.Max(10, _materializerOpts.Value.FirstPaintStashPollMs), ct);
+                try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
+                catch { break; }
+            }
+        }
+
         HttpContext.Items["sb.dashboard.pageresult"] = page;
 
         var topBots = page.BotAggregate ?? new List<DashboardTopBotEntry>();
