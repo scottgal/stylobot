@@ -439,6 +439,15 @@ public sealed class PostDetectionActionGate
     /// </summary>
     private string? ResolveBotTypeActionPolicy(AggregatedEvidence evidence, ApiKeyContext? apiKeyContext)
     {
+        // Per-key action-policy override (ApiKeyConfig.ActionPolicyName — e.g.
+        // "logonly" for a monitoring/debug key): the KEY defines its own
+        // enforcement posture. Keys without an override keep the standard
+        // enforcement — no blanket exemption. The field was documented and
+        // plumbed into ApiKeyContext but never consulted here; wired per
+        // operator directive 2026-08-14.
+        if (apiKeyContext is not null && !string.IsNullOrEmpty(apiKeyContext.ActionPolicyName))
+            return apiKeyContext.ActionPolicyName;
+
         if (evidence.PrimaryBotType is null || evidence.PrimaryBotType == BotType.Unknown)
             return null;
 

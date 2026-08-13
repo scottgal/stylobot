@@ -228,4 +228,53 @@ public sealed class PostDetectionActionGateFingerprintScoreTests
             HttpContext context, AggregatedEvidence evidence, CancellationToken cancellationToken = default)
             => Task.FromResult(ActionResult.Allowed());
     }
+
+    [Fact]
+    public async Task KeyWithActionPolicyNameOverride_ResolvesItsOwnPolicy_NotTheTypeDefault()
+    {
+        // Per-key action-policy override (ApiKeyConfig.ActionPolicyName): the KEY
+        // defines its own enforcement posture (e.g. "logonly" for a monitoring/debug
+        // key). Operator directive 2026-08-14 — keys can say logonly; no blanket
+        // exemption.
+        var store = new FakeFingerprintStore(_ => (FingerprintId, 0.95));
+        var gate = Gate(store);
+        var registry = new RecordingRegistry();
+        var context = Context();
+        context.Items["BotDetection.ApiKeyContext"] = new ApiKeyContext
+        {
+            KeyName = "debug-key",
+            DisabledDetectors = Array.Empty<string>(),
+            WeightOverrides = new Dictionary<string, double>(),
+            ActionPolicyName = "logonly"
+        };
+
+        var (outcome, evidence) = await gate.EvaluateAsync(
+            context, Evidence(perRequestBotProbability: 0.95), registry);
+
+        Assert.Equal("logonly", evidence.TriggeredActionPolicyName);
+        Assert.Contains("logonly", registry.Requested);
+    }
+
+    [Fact]
+    public async Task KeyWithoutActionPolicyNameOverride_KeepsStandardEnforcement()
+    {
+        // A key WITHOUT an override must NOT exempt its holder — standard
+        // enforcement applies (no blanket key exemption).
+        var store = new FakeFingerprintStore(_ => (FingerprintId, 0.95));
+        var gate = Gate(store);
+        var registry = new RecordingRegistry();
+        var context = Context();
+        context.Items["BotDetection.ApiKeyContext"] = new ApiKeyContext
+        {
+            KeyName = "plain-key",
+            DisabledDetectors = Array.Empty<string>(),
+            WeightOverrides = new Dictionary<string, double>()
+        };
+
+        var (outcome, evidence) = await gate.EvaluateAsync(
+            context, Evidence(perRequestBotProbability: 0.95), registry);
+
+        Assert.Equal("throttle-tools", evidence.TriggeredActionPolicyName);
+        Assert.Contains("throttle-tools", registry.Requested);
+    }
 }
