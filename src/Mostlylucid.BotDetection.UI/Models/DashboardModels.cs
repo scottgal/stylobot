@@ -232,6 +232,18 @@ public sealed record DashboardSummary
     public int HumanFingerprints { get; init; }
     public int HighRiskFingerprints { get; init; }
 
+    // Session-derived stats, computed from the persisted detection rows at the gateway
+    // (per-fingerprint over the window — the same pipeline as the counts). Null when the
+    // backing store doesn't compute them; consumers fall back to the signature-cache
+    // enrichment path. ActiveSessions is window-independent (last-5-minutes, all data).
+    public int? ActiveSessions { get; init; }
+    public double? BounceRate { get; init; }
+    public double? BotBounceRate { get; init; }
+    public double? HumanBounceRate { get; init; }
+    public double? AvgSessionDurationSecs { get; init; }
+    public double? BotAvgSessionDurationSecs { get; init; }
+    public double? HumanAvgSessionDurationSecs { get; init; }
+
     // Traffic volume and latency aggregates — computed from the detections sub-query
     // and therefore subject to the same audience filter (when set).
     public long BytesOut { get; init; }

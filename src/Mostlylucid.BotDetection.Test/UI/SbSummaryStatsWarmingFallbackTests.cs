@@ -61,6 +61,65 @@ public sealed class SbSummaryStatsWarmingFallbackTests
     }
 
     [Fact]
+    public async Task Cold_signature_cache_populates_session_tiles_from_the_summary()
+    {
+        // The session-derived tiles (active-now, bounce, avg session) must fall back to
+        // the gateway-computed session stats carried on the summary — a cacheless/cold
+        // host never paints zero tiles beside real numbers (2026-08-13 defect).
+        var store = new Mock<IDashboardEventStore>();
+        store.Setup(s => s.GetSummaryAsync(
+                It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()))
+            .ReturnsAsync(new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 98813,
+                BotRequests = 60000,
+                HumanRequests = 38813,
+                UncertainRequests = 0,
+                UniqueSignatures = 158,
+                BotFingerprints = 118,
+                HumanFingerprints = 40,
+                RiskBandCounts = new(),
+                TopBotTypes = new(),
+                TopActions = new(),
+                ActiveSessions = 3,
+                BounceRate = 12.5,
+                BotBounceRate = 20.0,
+                HumanBounceRate = 5.0,
+                AvgSessionDurationSecs = 42.0,
+                BotAvgSessionDurationSecs = 30.0,
+                HumanAvgSessionDurationSecs = 51.0
+            });
+        var httpContext = new DefaultHttpContext();
+        // A cold-but-present empty cache exercises the 901e5a69 empty-cache branch.
+        var emptyCache = new SignatureAggregateCache(new StyloBotDashboardOptions());
+        var vc = new SbSummaryStatsViewComponent(
+            store.Object,
+            Options.Create(new StyloBotDashboardOptions { BasePath = "/dashboard" }),
+            signatureCache: emptyCache,
+            aggregateCache: null)
+        {
+            ViewComponentContext = new ViewComponentContext
+            {
+                ViewContext = new ViewContext { HttpContext = httpContext }
+            }
+        };
+
+        var result = await vc.InvokeAsync(audience: null, range: "24h");
+
+        var view = Assert.IsType<ViewViewComponentResult>(result);
+        var model = Assert.IsType<SummaryStatsModel>(view.ViewData!.Model);
+        Assert.False(model.IsWarming);
+        Assert.Equal(158, model.UniqueVisitors);
+        Assert.Equal(3, model.ActiveSessions);
+        Assert.Equal(12.5, model.BounceRate);
+        Assert.Equal(20.0, model.BotBounceRate);
+        Assert.Equal(5.0, model.HumanBounceRate);
+        Assert.Equal(42.0, model.AvgSessionDurationSecs);
+        Assert.Equal(51.0, model.HumanAvgSessionDurationSecs);
+    }
+
+    [Fact]
     public async Task Cold_placeholder_read_renders_the_spinner_not_zeros()
     {
         var httpContext = new DefaultHttpContext();

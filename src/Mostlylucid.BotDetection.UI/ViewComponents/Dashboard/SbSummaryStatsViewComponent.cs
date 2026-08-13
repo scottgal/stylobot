@@ -89,14 +89,15 @@ public class SbSummaryStatsViewComponent(
         if (signatureCache is null)
         {
             // Remote-host fallback: SignatureAggregateCache is optional. Use headline
-            // summary values for what the summary carries; session-derived fields
-            // (active-now, bounce rate, avg duration) genuinely need the cache and
-            // read as "—" (0 displayed as dash by the view) on cacheless hosts.
+            // summary values for what the summary carries; the session-derived fields
+            // now come from the gateway-computed session stats on the summary itself
+            // (computed from the persisted rows — the SAME pipeline as the counts, the
+            // 2026-08-13 session-tiles-zero fix). Fields the store didn't compute stay
+            // 0 and read as "—" in the view.
             model.UniqueVisitors = summary.UniqueSignatures;
             model.BotSessions = summary.BotFingerprints;
             model.HumanSessions = summary.HumanFingerprints;
-            // ActiveSessions, BounceRate, AvgSessionDurationSecs stay 0 — no cache = no
-            // real-time per-visitor data. The view treats 0 as "—" for these fields.
+            ApplySessionStatFallbacks(model, summary);
             return View(model);
         }
 
@@ -118,6 +119,7 @@ public class SbSummaryStatsViewComponent(
             model.UniqueVisitors = summary.UniqueSignatures;
             model.BotSessions = summary.BotFingerprints;
             model.HumanSessions = summary.HumanFingerprints;
+            ApplySessionStatFallbacks(model, summary);
             return View(model);
         }
 
@@ -149,5 +151,23 @@ public class SbSummaryStatsViewComponent(
         model.BotAvgSessionDurationSecs = AvgDuration(botVisitors);
 
         return View(model);
+    }
+
+    /// <summary>
+    ///     Session-derived tiles (active-now, bounce, avg session) from the summary's
+    ///     gateway-computed session stats — used when the signature cache is absent or
+    ///     cold, so a cacheless host never paints zero tiles beside real numbers (the
+    ///     2026-08-13 session-tiles-zero defect). Values the store didn't compute stay
+    ///     0 and read as "—" in the view.
+    /// </summary>
+    private static void ApplySessionStatFallbacks(SummaryStatsModel model, DashboardSummary summary)
+    {
+        model.ActiveSessions = summary.ActiveSessions ?? 0;
+        model.BounceRate = summary.BounceRate ?? 0;
+        model.BotBounceRate = summary.BotBounceRate ?? 0;
+        model.HumanBounceRate = summary.HumanBounceRate ?? 0;
+        model.AvgSessionDurationSecs = summary.AvgSessionDurationSecs ?? 0;
+        model.BotAvgSessionDurationSecs = summary.BotAvgSessionDurationSecs ?? 0;
+        model.HumanAvgSessionDurationSecs = summary.HumanAvgSessionDurationSecs ?? 0;
     }
 }
