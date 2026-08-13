@@ -123,7 +123,10 @@ public sealed class DashboardMaterializerOptions
     ///     helpers a real request's window uses, so a pinned envelope's key always matches
     ///     what a real request looks up.
     /// </summary>
-    public IReadOnlyList<string> PrewarmWindows { get; set; } = new[] { "6h", "24h", "7d", "30d" };
+    // 12h included (operator directive 2026-08-14): the period-selector's standard
+    // windows are 6h/12h/24h/7d/30d — the deliberate 12h exclusion predates the
+    // selector and left every 12h switch cold-missing (chart spins at first paint).
+    public IReadOnlyList<string> PrewarmWindows { get; set; } = new[] { "6h", "12h", "24h", "7d", "30d" };
 
     /// <summary>
     ///     Disk persistence for the rendered-content caches (operator directive

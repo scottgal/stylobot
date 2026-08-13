@@ -169,16 +169,19 @@ public sealed class SiteControllerSummaryStashTests
     }
 
     [Fact]
-    public async Task Index_does_not_wait_for_a_non_pinned_window()
+    public async Task Index_waits_for_the_first_paint_stash_on_the_pinned_12h_window()
     {
-        // Custom-ish filters (12h is not in the pinned prewarm set) keep the sanctioned
-        // spinner + SignalR fill path — the controller must fall through immediately,
-        // never holding the paint for an envelope the prewarm doesn't cover.
+        // 12h joined the pinned prewarm set on 2026-08-14 (operator directive: every
+        // standard window's chart must be prerendered — the old 12h exclusion left every
+        // 12h switch cold-missing). The site controller now holds the paint for 12h like
+        // any other pinned window.
+        var page = CompleteSitePage();
         var cacheMock = new Mock<IDashboardContentCache>();
         cacheMock
-            .Setup(c => c.GetCurrentAsync(
+            .SetupSequence(c => c.GetCurrentAsync(
                 It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(DashboardPageResult.Warming);
+            .ReturnsAsync(DashboardPageResult.Warming)
+            .ReturnsAsync(page);
         var controller = NewController(cacheMock);
 
         var result = await controller.Index(null, null, null, null, "12h", null, CancellationToken.None);
@@ -186,8 +189,8 @@ public sealed class SiteControllerSummaryStashTests
         Assert.IsType<ViewResult>(result);
         cacheMock.Verify(c => c.GetCurrentAsync(
             It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),
-            Times.Once);
-        Assert.False(controller.HttpContext.Items.ContainsKey("sb.dashboard.pageresult"));
+            Times.AtLeast(2));
+        Assert.Same(page, controller.HttpContext.Items["sb.dashboard.pageresult"]);
     }
 
     [Fact]

@@ -49,12 +49,14 @@ public sealed class DashboardCacheKeyContractTests
     [Fact]
     public void Layout_default_token_not_in_prewarm_fails_loud()
     {
-        // A layout default of 12h resolves the traffic page's default read to the "12h"
-        // token — not in the pinned PrewarmWindows — so the page would cold-miss forever.
-        // The contract must fail at boot instead of shipping that.
+        // A layout default that no prewarm window covers (12h was the original case; it
+        // joined the pinned set on 2026-08-14 per the operator's period-switch directive,
+        // so the unpinned "15m" token stands in) resolves the traffic page's default read
+        // to a token with no prewarmed envelope — the page would cold-miss forever. The
+        // contract must fail at boot instead of shipping that.
         var ex = Assert.Throws<InvalidOperationException>(() =>
             DashboardCacheKeyContract.VerifyPrewarmCoverage(
-                new DashboardMaterializerOptions(), ManifestSource, defaultWindowMinutes: 720, FixedNow));
+                new DashboardMaterializerOptions(), ManifestSource, defaultWindowMinutes: 15, FixedNow));
 
         Assert.Contains("TrafficController default", ex.Message);
     }

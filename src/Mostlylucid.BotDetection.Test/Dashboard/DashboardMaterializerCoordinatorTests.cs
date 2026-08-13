@@ -94,9 +94,10 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s); // nobody has ever viewed the page
 
-        // §7 Tier 1 + a490698a + 3a345664: pinned prewarm now covers all six top-level page
-        // manifests (traffic/topbots/clusters/sessions/threats/site) × 4 PrewarmWindows = 24 composes.
-        Assert.Equal(24, composes);
+        // §7 Tier 1 + a490698a + 3a345664 + 2026-08-14 (12h): pinned prewarm covers all
+        // six top-level page manifests (traffic/topbots/clusters/sessions/threats/site)
+        // × 5 PrewarmWindows (6h/12h/24h/7d/30d) = 30 composes.
+        Assert.Equal(30, composes);
     }
 
     [Fact]
@@ -114,11 +115,12 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StartAsync(default);
         await sched.RaiseTickAsync(TickCadence.Tick10s);
 
-        // a490698a + 3a345664: all six page manifests × 4 window tokens = 24 composes. Each
-        // manifest gets the same bucket sizes, so the sorted list has 6 of each bucket-minute value.
+        // a490698a + 3a345664 + 2026-08-14 (12h): all six page manifests × 5 window tokens
+        // (6h/12h/24h/7d/30d) = 30 composes. Each manifest gets the same bucket sizes, so
+        // the sorted list has 6 of each bucket-minute value.
         var bucketMinutes = composedWindows.Select(w => w.BucketMinutes).OrderBy(m => m).ToArray();
-        Assert.Equal(24, bucketMinutes.Length);
-        var expected = new[] { 5, 20, 120, 480 };
+        Assert.Equal(30, bucketMinutes.Length);
+        var expected = new[] { 5, 10, 20, 120, 480 };
         foreach (var m in expected)
             Assert.Equal(6, bucketMinutes.Count(bm => bm == m));
     }
@@ -165,7 +167,7 @@ public sealed class DashboardMaterializerCoordinatorTests
             Assert.False(result.IsWarming, $"Expected prewarmed {token} Traffic envelope to be a cache hit.");
         }
 
-        Assert.Equal(24, composes); // all six page manifests × 4 windows warm; reads never compose.
+        Assert.Equal(30, composes); // all six page manifests × 5 windows (incl. 12h) warm; reads never compose.
         await coord.StopAsync(default);
     }
 
