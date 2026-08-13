@@ -477,4 +477,37 @@ public sealed class DashboardMaterializerCoordinatorTests
 
         await coord.StopAsync(default);
     }
+
+    [Fact]
+    public async Task Failed_warm_does_not_suppress_the_next_tick_retry()
+    {
+        // D1 (P0 2026-08-13, cold-first-load stuck widgets): a poison-guard Warming result
+        // must NOT stamp _lastWarmedAt. With the stamp, IsDueForWarm suppressed the retry
+        // for the full refresh interval (60s) — the page sat on stale/Warming data with no
+        // beacon. Un-stamped, the envelope stays due and the next tick retries.
+        var composes = 0;
+        long tick = 1;
+        var cache = new DashboardContentCache((_, _, _) =>
+        {
+            composes++;
+            return Task.FromResult<DashboardPageResult>(DashboardPageResult.Warming);
+        }, () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
+
+        await cache.GetAsync(Traffic, Window(), tick, default); // make the envelope live (no compose)
+        await coord.StartAsync(default);
+
+        tick = 2;
+        await sched.RaiseTickAsync(TickCadence.Tick10s); // tick 2: warm attempt fails -> Warming
+        Assert.Equal(1, composes);
+
+        tick = 3;
+        await sched.RaiseTickAsync(TickCadence.Tick10s); // tick 3: MUST retry, not suppressed
+        Assert.Equal(2, composes);
+
+        await coord.StopAsync(default);
+    }
 }

@@ -82,7 +82,13 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         // snapshot. RecordWarm is now only called on an actual hit.
         if (_atom.TryGet(key, out var existing))
         {
-            RecordWarm(key.Envelope, tick);
+            // P0 (2026-08-13, cold-first-load stuck widgets): a Warming atom (a failed
+            // compose's poison-guard result) must NOT advance the latest-warm pointer —
+            // stamping it made IsDueForWarm suppress the materializer's retry for the
+            // full refresh interval and made GetCurrentAsync resolve the Warming tick
+            // instead of the previous REAL snapshot.
+            if (!existing!.IsWarming)
+                RecordWarm(key.Envelope, tick);
             return Task.FromResult(existing!);
         }
 
@@ -102,14 +108,24 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         return GetAsync(manifest, window, readTick, ct);
     }
 
-    public Task<DashboardPageResult> WarmAsync(
+    public async Task<DashboardPageResult> WarmAsync(
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
     {
         // Materializer warm: compose (env, tick) and record it as the latest warm — but do
         // NOT touch liveness (the materializer's own warm must not keep an envelope alive).
         var key = new DashboardContentKey(manifest, window, tick);
-        RecordWarm(key.Envelope, tick);
-        return _atom.GetOrComputeAsync(key, ct);
+        var result = await _atom.GetOrComputeAsync(key, ct);
+        // P0 (2026-08-13, cold-first-load stuck widgets): stamp the envelope warmed ONLY on
+        // a real warm. Previously the tick was recorded BEFORE the compose ran, so a failed
+        // compose (poison-guard Warming result) advanced the latest-warm pointer — reads
+        // then resolved the Warming tick instead of the previous real snapshot, and
+        // IsDueForWarm saw a fresh stamp and suppressed the materializer's retry for the
+        // full refresh interval (~60s): shells with no beacon for up to a minute. Failures
+        // stay un-stamped, so the next tick retries and reads keep resolving the last REAL
+        // snapshot (stale-but-real beats Warming).
+        if (!result.IsWarming)
+            RecordWarm(key.Envelope, tick);
+        return result;
     }
 
     public bool TryGet(

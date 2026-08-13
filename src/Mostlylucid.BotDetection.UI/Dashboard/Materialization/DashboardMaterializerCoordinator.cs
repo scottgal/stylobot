@@ -271,17 +271,24 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // Stage 2b: record the real warm timestamp AFTER a successful compute (never on
             // a skip) so DashboardRefreshCadence's due-time check always measures from the
             // last GENUINE warm, whether it came from the tick loop or a MarkDirtyAsync force.
-            _lastWarmedAt[envelope] = _time.GetUtcNow();
-            // Health latch: this compose PATH is proven to work. Read by the request path
-            // (dashboard-graph-quality PART 4 infinite-warming guard) so it only paints the
-            // instant "warming" state for a cold-miss once the materializer has demonstrably
-            // warmed SOMETHING -- on a degraded host whose compose always throws, this stays
-            // false and the request path keeps its synchronous store fallback (honest data),
-            // never a spinner that would warm forever with nothing to warm it.
-            _hasWarmedSuccessfully = true;
-            // Freshness stamp for the "Updated X ago" indicator: the last time ANY
-            // envelope was actually re-warmed (a real compute, never a skip).
-            _lastWarmedAtUtc = _time.GetUtcNow();
+            // D1 (P0 2026-08-13): a poison-guard Warming result is NOT a successful compute —
+            // stamping it made IsDueForWarm suppress the retry for the full refresh interval
+            // (60s of stale data with no beacon). Failures stay un-stamped so the next tick
+            // retries.
+            if (!result.IsWarming)
+            {
+                _lastWarmedAt[envelope] = _time.GetUtcNow();
+                // Health latch: this compose PATH is proven to work. Read by the request path
+                // (dashboard-graph-quality PART 4 infinite-warming guard) so it only paints the
+                // instant "warming" state for a cold-miss once the materializer has demonstrably
+                // warmed SOMETHING -- on a degraded host whose compose always throws, this stays
+                // false and the request path keeps its synchronous store fallback (honest data),
+                // never a spinner that would warm forever with nothing to warm it.
+                _hasWarmedSuccessfully = true;
+                // Freshness stamp for the "Updated X ago" indicator: the last time ANY
+                // envelope was actually re-warmed (a real compute, never a skip).
+                _lastWarmedAtUtc = _time.GetUtcNow();
+            }
             return result;
         }
         finally

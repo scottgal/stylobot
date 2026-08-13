@@ -118,6 +118,20 @@ public class SbLiveUpdatesTagHelper : TagHelper
         var nonce = _httpContextAccessor.HttpContext?.Items["CspNonce"]?.ToString();
         var nonceAttr = !string.IsNullOrEmpty(nonce) ? $" nonce=\"{nonce}\"" : "";
 
+        // Per-request emission guard (P0 2026-08-13): the dashboard shell and the page
+        // view both emit <sb-live-updates /> (e.g. Traffic/Index.cshtml + the dashboard
+        // shell Index.cshtml), so an unguarded page emitted TWO live-updates scripts, two
+        // policy-stack scripts, two toggle buttons and two stylesheet links. Every script
+        // instance opened its OWN SignalR hub connection (4 connections observed per page
+        // load) and the duplicated id="sb-live-toggle" broke the pause toggle. The first
+        // invocation wins; later invocations render nothing. Params are page-uniform (hub
+        // URL + base path come from the same options), so the first instance's config
+        // applies. No HttpContext (tag-helper unit tests) skips the guard.
+        if (_httpContextAccessor.HttpContext?.Items["sb.liveupdates.emitted"] is true)
+            return;
+        if (_httpContextAccessor.HttpContext is not null)
+            _httpContextAccessor.HttpContext.Items["sb.liveupdates.emitted"] = true;
+
         output.TagName = null;
 
         // Vendored stylesheet -- contains the [data-sb-widget] containment + view-

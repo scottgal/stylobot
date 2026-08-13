@@ -236,4 +236,44 @@ public sealed class DashboardContentCacheTests
         await cache.GetCurrentAsync(Traffic, Window(), default); // resolves to warm tick 5 -> HIT
         Assert.Equal(1, composes);
     }
+
+    [Fact]
+    public async Task Failed_warm_does_not_advance_the_latest_warm_pointer()
+    {
+        // D1 (P0 2026-08-13, cold-first-load stuck widgets): a failed compose (poison-guard
+        // Warming result) must NOT stamp the envelope warmed. The pointer stays at the last
+        // REAL snapshot, so reads serve stale-but-real data instead of the Warming
+        // placeholder, and the coordinator's IsDueForWarm keeps the envelope due so the
+        // next tick retries.
+        var composes = 0;
+        await using var cache = NewCache((_, _, _) =>
+        {
+            composes++;
+            return Task.FromResult(composes == 1
+                ? new DashboardPageResult(new DashboardDatasetBundle(
+                    Summary: new DashboardSummary
+                    {
+                        Timestamp = DateTime.UtcNow,
+                        TotalRequests = 1,
+                        BotRequests = 0,
+                        HumanRequests = 1,
+                        UncertainRequests = 0,
+                        RiskBandCounts = new Dictionary<string, int>(),
+                        TopBotTypes = new Dictionary<string, int>(),
+                        TopActions = new Dictionary<string, int>(),
+                        UniqueSignatures = 1
+                    }, null, null, null, null))
+                : DashboardPageResult.Warming);
+        }, currentTick: 5);
+
+        await cache.WarmAsync(Traffic, Window(), tick: 5, default); // real warm
+        var real = await cache.GetCurrentAsync(Traffic, Window(), default);
+        Assert.False(real.IsWarming);
+        Assert.NotNull(real.Summary);
+
+        await cache.WarmAsync(Traffic, Window(), tick: 6, default); // failed -> Warming
+        var afterFailure = await cache.GetCurrentAsync(Traffic, Window(), default);
+        Assert.False(afterFailure.IsWarming); // stale-but-real, NOT the Warming placeholder
+        Assert.NotNull(afterFailure.Summary);
+    }
 }
