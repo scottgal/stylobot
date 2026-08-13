@@ -330,9 +330,12 @@
                        (position:relative on <tr> doesn't work reliably for absolute
                        children across browsers). The Method cell independently wraps
                        its text in a regular <a> so right-click / cmd-click work. *@
-                    <tr class="endpoint-row hover:bg-base-200/50 transition-colors cursor-pointer"
-                        data-endpoint-key="@(endpoint.Method)|@(endpoint.Path)"
-                        onclick="window.location.href='@EndpointHref(endpoint.Method, endpoint.Path)'">
+                    @* CSP: the dashboard's script-src forbids nonced-less inline handlers —
+                       the row-level onclick was silently dead (the operator's "endpoints do
+                       not link" P0, 2026-08-13). Real anchors on the Method + Path cells are
+                       the click target; the row keeps the hover treatment only. *@
+                    <tr class="endpoint-row hover:bg-base-200/50 transition-colors"
+                        data-endpoint-key="@(endpoint.Method)|@(endpoint.Path)">
                         <td class="py-1 text-[10px] font-bold" style="color: @methodColor;">
                             <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
                                class="text-inherit no-underline"
@@ -364,7 +367,9 @@
                                           title="Served by your upstream application">upstream</span>
                                 }
                             }
-                            <span class="font-mono">@endpoint.Path</span>
+                            <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
+                               class="text-inherit no-underline hover:underline"
+                               aria-label="@endpoint.Method @endpoint.Path detail"><span class="font-mono">@endpoint.Path</span></a>
                         </td>
                         <td class="py-1 text-center">
                             @{

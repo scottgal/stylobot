@@ -67,7 +67,6 @@
                                 hx-get="@($"/api/v1/commercial/fingerprints/{Uri.EscapeDataString(Model.FingerprintId)}/given-name/edit")"
                                 hx-target="closest .fp-name"
                                 hx-swap="outerHTML"
-                                onclick="event.preventDefault();event.stopPropagation();"
                                 aria-label="Edit name"
                                 data-testid="given-name-edit">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" class="w-3 h-3">
