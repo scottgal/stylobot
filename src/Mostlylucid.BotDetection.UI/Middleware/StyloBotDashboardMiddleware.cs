@@ -5359,7 +5359,39 @@ public class StyloBotDashboardMiddleware
         var page = int.TryParse(pageStr, out var p) ? Math.Max(1, p) : 1;
         var pageSize = int.TryParse(pageSizeStr, out var ps) ? Math.Clamp(ps, 1, 100) : 20;
 
-        var threats = await _eventStore.GetThreatsAsync(pageSize * 10);
+        // ONE source (operator directive 2026-08-13: no parallel update paths): the
+        // threats refresh reads the SAME tick-composed envelope the SSR shell serves —
+        // the per-request store fetch was a second cadence that could disagree.
+        IReadOnlyList<ThreatEntry> threats;
+        var threatsManifest = _manifests.For("dashboard.threats");
+        if (threatsManifest is not null)
+        {
+            var pageResult = await _contentCache.GetCurrentAsync(
+                threatsManifest, BuildVisitorsPageWindow(context), context.RequestAborted);
+            if (pageResult is { IsWarming: false, ThreatsRaw: not null })
+            {
+                threats = pageResult.ThreatsRaw;
+            }
+            else
+            {
+                var warmingModel = new ThreatsListModel
+                {
+                    Threats = [], TotalCount = 0, ActiveHoneypotSessions = 0,
+                    Page = page, PageSize = pageSize, BasePath = _options.BasePath.TrimEnd('/'),
+                    IsWarming = true
+                };
+                context.Response.ContentType = "text/html";
+                var warmingHtml = await _razorViewRenderer.RenderViewToStringAsync(
+                    "/Views/Shared/Components/SbThreatsList/Default.cshtml", warmingModel, context);
+                await context.Response.WriteAsync(warmingHtml);
+                return;
+            }
+        }
+        else
+        {
+            threats = await _eventStore.GetThreatsAsync(pageSize * 10);
+        }
+
         var totalCount = threats.Count;
         var pagedThreats = threats.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
@@ -5598,16 +5630,26 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html[startIdx..(endIdx + 5)]);
     }
 
-    private async Task<ThreatsListModel> BuildThreatsModelAsync()
+    private async Task<ThreatsListModel> BuildThreatsModelAsync(HttpContext context)
     {
+        // ONE source (operator directive 2026-08-13: no parallel update paths): the
+        // threats refresh reads the SAME tick-composed envelope the SSR shell serves —
+        // the broadcaster snapshot and the per-request store fetch were two extra
+        // cadences that could disagree with the rows. Cold -> honest warming.
+        var manifest = _manifests.For("dashboard.threats");
+        if (manifest is not null)
+        {
+            var pageResult = await _contentCache.GetCurrentAsync(
+                manifest, BuildVisitorsPageWindow(context), context.RequestAborted);
+            if (pageResult is { IsWarming: false, ThreatsRaw: not null })
+                return BuildThreatsModelFromRaw(pageResult.ThreatsRaw);
+            return new ThreatsListModel { BasePath = _options.BasePath.TrimEnd('/'), IsWarming = true };
+        }
+
         List<ThreatEntry> threats;
-        // Serve the broadcaster-precomputed threats; fall through only when cold.
-        var cachedThreats = _aggregateCache.Current.Threats;
         try
         {
-            threats = cachedThreats.Count > 0
-                ? cachedThreats
-                : (await Dashboard.Composition.DashboardRowRawFetchers.FetchThreatsRawAsync(_eventStore, 20)).ToList();
+            threats = (await Dashboard.Composition.DashboardRowRawFetchers.FetchThreatsRawAsync(_eventStore, 20)).ToList();
         }
         catch { threats = []; }
 
@@ -8565,10 +8607,23 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     {
         var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
 
-        // Fetch extracted to DashboardRowRawFetchers (Stage 2a) so the tick materializer
-        // can warm the identical dataset out-of-request; this direct/HTMX-endpoint path is
-        // unchanged in behavior -- it still fetches fresh (fetchCount driven by page/pageSize,
-        // as before) on every call.
+        // ONE source (operator directive 2026-08-13: no parallel update paths): the
+        // default view (page 1) reads the SAME tick-composed envelope the SSR shell
+        // serves; deeper pages are a genuine custom read and keep the store fetch.
+        if (page == 1)
+        {
+            var manifest = _manifests.For("dashboard.sessions");
+            if (manifest is not null)
+            {
+                var pageResult = await _contentCache.GetCurrentAsync(
+                    manifest, BuildVisitorsPageWindow(context), context.RequestAborted);
+                if (pageResult is { IsWarming: false, SessionsRaw: not null })
+                    return BuildSessionsModelFromRaw(
+                        pageResult.SessionsRaw, pageResult.SessionsRawTotalCount ?? 0, page, pageSize, filter);
+                return BuildSessionsModelFromRaw([], 0, page, pageSize, filter, isWarming: true);
+            }
+        }
+
         var (entries, totalCount) = await Dashboard.Composition.DashboardRowRawFetchers.FetchSessionsRawAsync(
             sessionStore, _eventStore, _signatureCache, _options.DetectionRetention, page, pageSize, filter);
 
@@ -8609,7 +8664,18 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // page window as the SSR'd shell render (BuildVisitorsPageWindow), not a hardcoded
         // sentinel -- membership itself stays current-state either way (see
         // FetchClustersRawAsync's doc comment).
+        // ONE source (operator directive 2026-08-13: no parallel update paths): the
+        // clusters refresh reads the SAME tick-composed envelope the SSR shell serves.
         var window = BuildVisitorsPageWindow(context);
+        var manifest = _manifests.For("dashboard.clusters");
+        if (manifest is not null)
+        {
+            var pageResult = await _contentCache.GetCurrentAsync(manifest, window, context.RequestAborted);
+            if (pageResult is { IsWarming: false, ClustersRaw: not null })
+                return BuildClustersModelFromRaw(pageResult.ClustersRaw, pageResult.ClusterDiagnosticsRaw);
+            return BuildClustersModelFromRaw([], null, isWarming: true);
+        }
+
         var (clusters, diagnostics) = await Dashboard.Composition.DashboardRowRawFetchers.FetchClustersRawAsync(
             clusterService, _eventStore, window.StartTime, window.EndTime,
             _signatureCache.MaxEntries, context.RequestAborted);
