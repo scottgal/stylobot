@@ -45,6 +45,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly IScheduleCoordinator? _schedule;
     private readonly IOptions<DashboardMaterializerOptions> _optionsAccessor;
     private readonly IOptions<DashboardLayoutOptions>? _layout;
+    private readonly DashboardDiagnostics? _diagnostics;
 
     // Startup-snapshot only (FOSS hard rule: no runtime options-reload -- hot-reload is
     // commercial-only). Enabled/MaxTickDurationMs/etc. are fixed at process start.
@@ -95,7 +96,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         ILogger<DashboardMaterializerCoordinator>? logger = null,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null,
         TimeProvider? timeProvider = null,
-        IOptions<DashboardLayoutOptions>? layout = null)
+        IOptions<DashboardLayoutOptions>? layout = null,
+        DashboardDiagnostics? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(cursor);
@@ -110,6 +112,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _hubContext = hubContext;
         _time = timeProvider ?? TimeProvider.System;
         _layout = layout;
+        _diagnostics = diagnostics;
         _adaptive = new DashboardMaterializerAdaptiveController(options);
 
         // Boot-time materializer pass, fired HERE (not StartAsync) so its completion is
@@ -329,6 +332,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         // code path (StartAsync always subscribes when a schedule exists; this is the gate).
         if (!_options.Enabled) return;
 
+        _diagnostics?.RecordTick(DateTimeOffset.UtcNow);
         var tick = _cursor.CurrentTick;
         var tickCostMs = 0.0;
 

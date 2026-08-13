@@ -232,6 +232,7 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         _logger?.LogWarning(
             "Dashboard compose produced no requested data for {Page}; returning the Warming sentinel (compose-failure bundles are never cached as authoritative).",
             manifest.PageKey);
+        RecordPoisonRefusalHook?.Invoke();
         return DashboardPageResult.Warming;
     }
 
@@ -247,6 +248,10 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
     ///     the backing source (e.g. sessions without an IDetectionArchive) and those
     ///     widgets fall back on their own.
     /// </summary>
+    /// <summary>Poison-refusal counter hook — assigned by DI once the diagnostics
+    ///     singleton exists; no-op when absent (tests construct composers bare).</summary>
+    internal static Action? RecordPoisonRefusalHook;
+
     public static bool HasAnyRequestedData(
         DashboardPageResult page, DashboardPageManifest manifest, DashboardWidgetCatalog catalog)
     {

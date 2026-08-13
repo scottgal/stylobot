@@ -60,6 +60,10 @@ internal static class DashboardMaterializationServiceExtensions
         // SAME singleton rather than letting the container construct a second, independent
         // instance with its own tick subscription/state.
         services.TryAddSingleton<DashboardMaterializerCoordinator>();
+        services.TryAddSingleton<DashboardDiagnostics>();
+        // Wire the poison-refusal counter into the composer's static hook (assigned
+        // once at registration — the diagnostics singleton records every refusal).
+        services.TryAddSingleton<IPostConfigureDashboardDiagnostics, DashboardDiagnosticsHook>();
         // Single-UI-gateway stopgap (StyloBotDashboardOptions.IsUiGateway): a non-UI pod
         // keeps the cache + coordinator singleton REGISTERED (TrafficController/
         // VisitorsController require IDashboardContentCache -- a full skip would 500 them)
