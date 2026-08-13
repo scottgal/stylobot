@@ -149,10 +149,13 @@ public static class WidgetRenderHelpers
     ///     Mirrors the overlay <c>Mostlylucid.BotDetection.Api.Endpoints.ReadEndpoints.HandleTopBots</c>
     ///     already applies to the standalone REST JSON endpoint; every dashboard render path (SSR
     ///     ViewComponent, MVC page composer, SignalR/batch live-update) needs the SAME overlay applied
-    ///     here or a deployment whose <c>IDashboardEventStore</c> is DB-backed (not the REST endpoint)
-    ///     shows a permanently flat sparkline despite live traffic. <paramref name="signatureCache"/> is
-    ///     optional -- absent on a genuine remote-mode viewer host with no local cache to overlay from,
-    ///     in which case rows pass through unchanged (the established remote-mode-optional-DI pattern).
+    ///     here. The PRIMARY sparkline source is the store: the gateway's Postgres backend
+    ///     now projects each fingerprint's per-minute trend from the persisted rows (the
+    ///     2026-08-13 sparkline fix — never in-memory-only). This overlay only fills the
+    ///     remaining gaps (stores that don't project, or the last live minute before raw
+    ///     rows land). <paramref name="signatureCache"/> is optional -- absent on a genuine
+    ///     remote-mode viewer host with no local cache to overlay from, in which case rows
+    ///     pass through unchanged (the established remote-mode-optional-DI pattern).
     /// </summary>
     public static IReadOnlyList<DashboardTopBotEntry> OverlayLiveHitTrend(
         IReadOnlyList<DashboardTopBotEntry> bots,
