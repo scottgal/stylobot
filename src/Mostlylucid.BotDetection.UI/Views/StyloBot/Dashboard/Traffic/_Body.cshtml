@@ -145,7 +145,7 @@
                    depends="summary"
                    warming-when="@Model.IsWarming"
                    warming-text=""
-                   empty-when="@(!Model.IsWarming && Model.Timeseries.Buckets.Count == 0)"
+                   empty-when="@(!Model.IsWarming && Model.Timeseries.Bot.Sum() + Model.Timeseries.Human.Sum() + Model.Timeseries.Suspicious.Sum() == 0)"
                    empty-text="No data in this window">
             <vc:sb-chartlet model="hitsChart" />
         </sb-widget>
