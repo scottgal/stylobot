@@ -83,7 +83,7 @@
         <sb-widget width="third" height="tall" heading="Traffic by country">
             @if (Model.Countries.Count == 0 && Model.IsWarming)
             {
-                <div class="flex items-center justify-center py-10"><span class="loading loading-spinner loading-sm text-base-content/40"></span></div>
+                <div class="h-full min-h-[96px] flex items-center justify-center"><span class="loading loading-spinner loading-sm text-base-content/40"></span></div>
             }
             else if (Model.Countries.Count == 0)
             {
@@ -109,7 +109,7 @@
         <sb-widget width="third" height="tall" heading="By source">
             @if (sources.Count == 0 && Model.IsWarming)
             {
-                <div class="flex items-center justify-center py-10"><span class="loading loading-spinner loading-sm text-base-content/40"></span></div>
+                <div class="h-full min-h-[96px] flex items-center justify-center"><span class="loading loading-spinner loading-sm text-base-content/40"></span></div>
             }
             else if (sources.Count == 0)
             {

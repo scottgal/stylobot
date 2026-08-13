@@ -10,7 +10,7 @@
     </div>
     @if (Model.IsWarming)
     {
-        <div class="flex items-center justify-center py-4"><span class="loading loading-spinner loading-xs text-base-content/40"></span></div>
+        <div class="h-full min-h-[64px] flex items-center justify-center"><span class="loading loading-spinner loading-xs text-base-content/40"></span></div>
     }
     else if (Model.Diagnostics != null)
     {
