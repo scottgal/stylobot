@@ -40,7 +40,8 @@
                    proportion renders as a typed {b:bot,human} ligature. *@
                 <div class="datatype text-xs mt-1" role="img"
                      aria-label="@((int)Math.Round(botFraction * 100))% bot / @((int)Math.Round((1 - botFraction) * 100))% human"
-                     title="@botPct% bot">
+                     title="@botPct% bot"
+                     style="width: 40px; height: 10px; overflow: hidden; white-space: nowrap;">
                     {b:@((int)Math.Round(botFraction * 100)),@((int)Math.Round((1 - botFraction) * 100))}
                 </div>
             </div>
@@ -50,7 +51,7 @@
             <div class="p-2 bg-base-200/50 rounded flex flex-col items-center justify-center">
                 <span class="datatype @gaugeColor" role="img" aria-label="Bot traffic @botPct%"
                       title="Bot traffic @botPct%"
-                      style="font-size: 22px; line-height: 1;">{p:@((int)Math.Round(botFraction * 100))}</span>
+                      style="font-size: 22px; line-height: 1; display: inline-block; width: 22px; height: 22px; overflow: hidden; white-space: nowrap; text-align: center;">{p:@((int)Math.Round(botFraction * 100))}</span>
                 <div class="text-[9px] text-base-content/40 mt-0.5 leading-none">@botPct% bot traffic</div>
                 <div class="text-[9px] text-base-content/50">@s.TotalRequests.ToString("N0") req</div>
             </div>

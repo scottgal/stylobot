@@ -8156,21 +8156,28 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // hot path on the gateway, never the source of truth. The cache remains live
         // on gateway hosts; it just isn't this widget's read source.
         //
-        // Fetch extracted to DashboardRowRawFetchers (Stage 2a) so the tick materializer
-        // (DefaultDashboardPageComposer) can warm the identical dataset out-of-request;
-        // this HTMX-endpoint path (real page/sort/filter values from the query string) is
-        // unchanged -- it still fetches fresh on every call, exactly as before.
-        //
-        // Dashboard-wide domain scope (DI seam): thread the operator's selected domains into
-        // the self-fetch so a domain-scoped render subsets the store read. Without it this
-        // partial read all-domain rows and its header counters exceeded the scoped view --
-        // the same "scoped > unscoped" impossibility fixed on the VC + batch paths.
-        var scopedDomains = context?.RequestServices?
-            .GetService<UI.Dashboard.IDashboardDomainScope>()
-            ?.GetSelectedDomains(context);
-        var raw = await Dashboard.Composition.DashboardRowRawFetchers.FetchTopBotsRawAsync(
-            _eventStore, _signatureCache.MaxEntries, domains: scopedDomains);
-        return BuildTopBotsModelFromRaw(raw, page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
+        // ONE source (operator directive 2026-08-13: no parallel update paths — the
+        // counts-vs-rows disagreement on the Top Bots page was the composed SSR bundle
+        // versus a separate per-request store fetch). The HTMX refresh reads the SAME
+        // tick-composed envelope the SSR shell serves: counts and rows derive from the
+        // one slice, so they can never disagree. Cold → the honest warming placeholder,
+        // never an empty swap beside a populated header.
+        var manifest = _manifests.For("dashboard.topbots");
+        if (manifest is not null && context is not null)
+        {
+            var window = BuildVisitorsPageWindow(context);
+            var pageResult = await _contentCache.GetCurrentAsync(manifest, window, context.RequestAborted);
+            if (pageResult is { IsWarming: false, TopBotsRaw: not null })
+                return BuildTopBotsModelFromRaw(pageResult.TopBotsRaw, page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
+            return new TopBotsListModel
+            {
+                Bots = [], Page = 1, PageSize = pageSize, TotalCount = 0,
+                SortField = sortBy, SortDir = sortDir, BasePath = _options.BasePath.TrimEnd('/'),
+                Filter = filter, WidgetId = widgetId, IsWarming = true
+            };
+        }
+
+        return BuildTopBotsModelFromRaw(new List<DashboardTopBotEntry>(), page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
     }
 
     /// <summary>

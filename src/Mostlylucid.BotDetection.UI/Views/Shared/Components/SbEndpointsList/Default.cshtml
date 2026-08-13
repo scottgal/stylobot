@@ -374,7 +374,8 @@
                                 var pressurePct = (int)Math.Round(endpoint.BotRate * 100);
                             }
                             <span class="datatype text-xs" role="img"
-                                  aria-label="@pressurePct% bot pressure" title="@pressurePct% bot pressure">{b:@pressurePct}</span>
+                                  aria-label="@pressurePct% bot pressure" title="@pressurePct% bot pressure"
+                                  style="display: inline-block; width: 28px; overflow: hidden; white-space: nowrap; vertical-align: middle;">{b:@pressurePct}</span>
                         </td>
                         <td class="py-1 text-center @(compact ? "" : "hidden md:table-cell")">
                             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIcon)
