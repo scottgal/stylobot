@@ -113,10 +113,16 @@ public class SbEndpointsListViewComponent(
                 ? await firstPaintReader.GetEndpointStatsAsync(
                     500, startTime, endTime, audience, scopedDomains, HttpContext?.RequestAborted ?? default)
                 : await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience, scopedDomains);
-            // Only check the warming signal when we hit the real store — the first-paint
-            // reader already has pre-fetched data from the SSR pass. A genuinely empty
-            // result from the reader means there ARE no endpoints, not that they're warming.
-            if (!usedFirstPaint && data.Count == 0)
+            // ALWAYS check the warming signal on an empty result (the 2026-08-13
+            // windowed-partial P0): the old guard only checked on the store path, on the
+            // theory that "a present reader means real data". On a cold windowed partial
+            // swap the reader can be absent OR seeded from a cold compose — an empty
+            // reader result then suppressed the warming check and rendered the bare
+            // "No endpoint analytics yet" (absence of knowledge encoded as knowledge of
+            // absence — the exact bug class the shellWarming seeding fix already called
+            // out). A stamped warming signal now always renders the spinner; a genuinely
+            // empty compose (no stamp) still renders the honest empty state.
+            if (data.Count == 0)
             {
                 var windowedDomainTag = scopedDomains is { Count: 1 } ? scopedDomains[0] : null;
                 isWarming = DashboardWarmingSignal.IsWarming(HttpContext, "endpoints", windowedDomainTag);
