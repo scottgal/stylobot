@@ -134,15 +134,16 @@ public sealed class SiteController : Controller
             BasePath: basePath,
             Window: NullIfEmpty(window));
 
-        // Period-selector swap path (rebuild 2026-08-12): the site page's content region
-        // refetches this endpoint after a scope-bar period click. The swap URL carries NO
-        // window (DashboardScopeBaselineMiddleware applies the cookie's) and the existing
-        // path/method/threat/bot_pressure filters so the swapped body preserves them.
-        // Mirrors TrafficController's ?partial=1 / HX-Request branches.
+        // Period-selector swap path (rebuild 2026-08-12, retargeted 2026-08-13): the
+        // site page's content region refetches this endpoint after a scope-bar period
+        // click. The FOSS Site/Index.cshtml IS the swappable region (content-only
+        // section with #sb-site-body) — the swap renders the same view; the retired
+        // commercial _Body overlay was shadowed by the FOSS view anyway. The swap URL
+        // carries NO window (DashboardScopeBaselineMiddleware applies the cookie's).
         if (partial == 1)
-            return PartialView("/Views/StyloBot/Dashboard/Site/_Body.cshtml", model);
+            return PartialView("/Views/StyloBot/Dashboard/Site/Index.cshtml", model);
         if (Request.Headers.ContainsKey("HX-Request"))
-            return PartialView("/Views/StyloBot/Dashboard/Site/_Body.cshtml", model);
+            return PartialView("/Views/StyloBot/Dashboard/Site/Index.cshtml", model);
         return View("/Views/StyloBot/Dashboard/Site/Index.cshtml", model);
     }
 

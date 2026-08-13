@@ -139,7 +139,7 @@ public sealed class SiteControllerSummaryStashTests
         var result = await controller.Index(null, null, null, null, "7d", 1, CancellationToken.None);
 
         var partial = Assert.IsType<PartialViewResult>(result);
-        Assert.Equal("/Views/StyloBot/Dashboard/Site/_Body.cshtml", partial.ViewName);
+        Assert.Equal("/Views/StyloBot/Dashboard/Site/Index.cshtml", partial.ViewName);
     }
 
     [Fact]

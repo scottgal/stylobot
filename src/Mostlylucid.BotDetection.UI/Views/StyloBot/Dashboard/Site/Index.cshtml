@@ -66,7 +66,20 @@
     5. Endpoint filters + active chips
     6. Endpoints table with all columns
 *@
-<section class="space-y-1.5">
+@{
+    // Period-selector swap region (rebuild 2026-08-13): the site page's content is
+    // the swappable region — the scope bar's sb:summary-update refetches this view
+    // via ?partial=1 and swaps outerHTML. The refresh URL preserves the active
+    // path/method/threat/bot_pressure filters but NEVER bakes the window (an
+    // explicit ?window= beats the cookie baseline — the "click does nothing" class).
+    var refreshUrl = LinkWithout(null) + (LinkWithout(null).Contains("?") ? "&" : "?") + "partial=1";
+}
+<section class="space-y-1.5"
+         id="sb-site-body"
+         hx-get="@refreshUrl"
+         hx-trigger="sb:signature-update from:body, sb:summary-update from:body"
+         hx-target="this"
+         hx-swap="outerHTML">
 
     @* ── Header ── *@
     <h2 class="text-lg font-semibold">Site Analytics</h2>
