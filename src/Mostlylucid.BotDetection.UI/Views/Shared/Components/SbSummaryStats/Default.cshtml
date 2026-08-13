@@ -36,6 +36,13 @@
                     <span class="text-base-content/40 mx-0.5">/</span>
                     <span class="text-success">@Model.HumanSessions.ToString("N0") human</span>
                 </div>
+                @* Datatype two-bar split (operator directive 2026-08-13): the bot/human
+                   proportion renders as a typed {b:bot,human} ligature. *@
+                <div class="datatype text-xs mt-1" role="img"
+                     aria-label="@((int)Math.Round(botFraction * 100))% bot / @((int)Math.Round((1 - botFraction) * 100))% human"
+                     title="@botPct% bot">
+                    {b:@((int)Math.Round(botFraction * 100)),@((int)Math.Round((1 - botFraction) * 100))}
+                </div>
             </div>
             @* Gauge tile: replaces the plain "Requests" tile. Datatype micro-chart
                (operator directive 2026-08-13) — the bot fraction renders as a typed

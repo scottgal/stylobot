@@ -367,7 +367,14 @@
                             <span class="font-mono">@endpoint.Path</span>
                         </td>
                         <td class="py-1 text-center">
-                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", pressureBar)
+                            @{
+                                // Datatype inline bar (operator directive 2026-08-13):
+                                // bot pressure renders as a typed {b:N} ligature — pure
+                                // text baked at SSR time, no SVG/JS.
+                                var pressurePct = (int)Math.Round(endpoint.BotRate * 100);
+                            }
+                            <span class="datatype text-xs" role="img"
+                                  aria-label="@pressurePct% bot pressure" title="@pressurePct% bot pressure">{b:@pressurePct}</span>
                         </td>
                         <td class="py-1 text-center @(compact ? "" : "hidden md:table-cell")">
                             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIcon)
