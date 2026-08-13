@@ -38,7 +38,15 @@ public sealed class DashboardPageBundleStashGateTests
         IReadOnlyList<DashboardTopBotEntry>? botAggregate,
         IReadOnlyList<DashboardCountryStats>? geo,
         IReadOnlyList<DashboardEndpointStats>? endpoints) =>
-        new(new DashboardDatasetBundle(summary, null, botAggregate, geo, endpoints));
+        new(new DashboardDatasetBundle(summary, PopulatedTimeBuckets(), botAggregate, geo, endpoints));
+
+    private static List<DashboardTimeSeriesPoint> PopulatedTimeBuckets() =>
+    [
+        new DashboardTimeSeriesPoint
+        {
+            Timestamp = DateTime.UtcNow, BotCount = 1, HumanCount = 0, TotalCount = 1
+        }
+    ];
 
     private static DashboardSummary AnySummary() => new()
     {
@@ -106,10 +114,12 @@ public sealed class DashboardPageBundleStashGateTests
     // ---- Site manifest (2026-08-12): completeness is per-manifest, not a fixed traffic shape.
 
     [Fact]
-    public void SiteManifest_SummaryAndEndpointsPopulated_IsCompleteEnoughToStash()
+    public void SiteManifest_SummaryTimeBucketsAndEndpointsPopulated_IsCompleteEnoughToStash()
     {
         // BotAggregate/Geo are null because the site manifest never composes them —
         // requiring them (the old fixed shape) made the site stash permanently unreachable.
+        // The site manifest DOES compose time-chart (the hits chart reads the stash —
+        // the 2026-08-13 blank-graph defect), so TimeBuckets must be present too.
         var result = NewResult(AnySummary(), botAggregate: null, geo: null, PopulatedEndpoints());
 
         Assert.True(StyloBotDashboardMiddleware.IsPageBundleCompleteEnoughToStash(result, SiteManifest()));
@@ -127,6 +137,22 @@ public sealed class DashboardPageBundleStashGateTests
     public void SiteManifest_EmptyEndpoints_IsNotCompleteEnoughToStash()
     {
         var result = NewResult(AnySummary(), botAggregate: null, geo: null, endpoints: []);
+
+        Assert.False(StyloBotDashboardMiddleware.IsPageBundleCompleteEnoughToStash(result, SiteManifest()));
+    }
+
+    [Fact]
+    public void SiteManifest_NullTimeBuckets_IsNotCompleteEnoughToStash()
+    {
+        // The site chart must never bake an empty series from a stashed bundle:
+        // a compose whose time-chart slice failed (null) is rejected, so the page
+        // falls back to the bounded wait / spinner instead of a false flat graph.
+        var result = new DashboardPageResult(new DashboardDatasetBundle(
+            Summary: AnySummary(),
+            TimeBuckets: null,
+            BotAggregate: null,
+            Geo: null,
+            Endpoints: PopulatedEndpoints()));
 
         Assert.False(StyloBotDashboardMiddleware.IsPageBundleCompleteEnoughToStash(result, SiteManifest()));
     }

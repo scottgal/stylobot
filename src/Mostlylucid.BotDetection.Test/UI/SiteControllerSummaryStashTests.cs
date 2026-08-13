@@ -57,7 +57,13 @@ public sealed class SiteControllerSummaryStashTests
                 TopBotTypes = new(),
                 TopActions = new()
             },
-            TimeBuckets: null,
+            TimeBuckets:
+            [
+                new DashboardTimeSeriesPoint
+                {
+                    Timestamp = DateTime.UtcNow, BotCount = 1, HumanCount = 2, TotalCount = 3
+                }
+            ],
             BotAggregate: null, // the site manifest never composes these two
             Geo: null,
             Endpoints:

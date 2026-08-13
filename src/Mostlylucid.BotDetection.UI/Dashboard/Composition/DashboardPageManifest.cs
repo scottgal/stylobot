@@ -68,7 +68,11 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
 
         manifests["dashboard.site"] = new DashboardPageManifest(
             "dashboard.site",
-            new[] { "summary", "endpoints", "site-health" });
+            // time-chart included so the prewarmed bundle carries TimeBuckets: the site
+            // page's hits chart (SiteHealthViewComponent's analytics series) must read the
+            // stash, not cold-fetch — the 2026-08-13 blank-graph defect baked an empty
+            // series ("M0 0") on first load because the manifest never composed it.
+            new[] { "summary", "time-chart", "endpoints", "site-health" });
 
         // Stage 2a: one manifest per row that isn't already covered by the Traffic
         // bundle above. Each declares exactly the ONE synthetic widget key

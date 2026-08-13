@@ -8299,6 +8299,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         DashboardPageResult candidatePage, DashboardPageManifest manifest)
     {
         if (manifest.WidgetKeys.Contains("summary") && candidatePage.Summary is null) return false;
+        if (manifest.WidgetKeys.Contains("time-chart") && candidatePage.TimeBuckets is null) return false;
         if (manifest.WidgetKeys.Contains("top-bots") && candidatePage.BotAggregate is not { Count: > 0 }) return false;
         if (manifest.WidgetKeys.Contains("countries") && candidatePage.Geo is not { Count: > 0 }) return false;
         if (manifest.WidgetKeys.Contains("endpoints") && candidatePage.Endpoints is not { Count: > 0 }) return false;
