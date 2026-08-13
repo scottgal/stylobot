@@ -24,6 +24,11 @@
     var ydRiskClass = yd is { RiskBand: "VeryHigh" or "High" } ? "text-error"
         : yd is { RiskBand: "Medium" or "Elevated" } ? "text-warning" : "text-success";
     var ydProbPct = yd is not null ? (yd.BotProbability * 100).ToString("F1") : "";
+    // Cold-stash counters never paint zeros (operator 2026-08-13: "pages NEVER
+    // load with empty data") — a warming page renders dashes instead; the
+    // materializer/beacon fills them on the next swap. Same ViewData convention
+    // the traffic-panel cards use.
+    var warming = ViewData["IsWarming"] as bool? == true;
 }
 @*
     Compact visitors bar. Replaces the old full-height VISITORS card — the split
@@ -36,20 +41,20 @@
     <div class="card-body p-2.5 flex-row flex-wrap items-center gap-x-6 gap-y-2">
         <span class="flex items-baseline gap-1.5">
             <span class="text-[10px] uppercase tracking-wide text-base-content/50">Visitors</span>
-            <span class="text-lg font-bold leading-none">@c.TotalFingerprints.ToString("N0")</span>
-            <span class="text-[10px] text-base-content/40">· @c.Total.ToString("N0") req</span>
+            <span class="text-lg font-bold leading-none">@(warming ? "—" : c.TotalFingerprints.ToString("N0"))</span>
+            <span class="text-[10px] text-base-content/40">· @(warming ? "—" : c.Total.ToString("N0")) req</span>
         </span>
 
         <span class="flex items-baseline gap-1.5" title="@c.Humans.ToString("N0") human requests">
             <span class="text-[10px] uppercase tracking-wide text-success">Human</span>
-            <span class="text-lg font-bold text-success leading-none">@c.HumanFingerprints.ToString("N0")</span>
-            <span class="text-[10px] text-base-content/40">@humanShare.ToString("P0") · @DeltaText(c.HumansDelta, c.HumansDeltaPct)</span>
+            <span class="text-lg font-bold text-success leading-none">@(warming ? "—" : c.HumanFingerprints.ToString("N0"))</span>
+            <span class="text-[10px] text-base-content/40">@(warming ? "—" : humanShare.ToString("P0") + " · " + DeltaText(c.HumansDelta, c.HumansDeltaPct))</span>
         </span>
 
         <span class="flex items-baseline gap-1.5" title="@c.Bots.ToString("N0") bot requests">
             <span class="text-[10px] uppercase tracking-wide text-error">Bot</span>
-            <span class="text-lg font-bold text-error leading-none">@c.BotFingerprints.ToString("N0")</span>
-            <span class="text-[10px] text-base-content/40">@c.BotShare.ToString("P0") · @DeltaText(c.BotsDelta, c.BotsDeltaPct)</span>
+            <span class="text-lg font-bold text-error leading-none">@(warming ? "—" : c.BotFingerprints.ToString("N0"))</span>
+            <span class="text-[10px] text-base-content/40">@(warming ? "—" : c.BotShare.ToString("P0") + " · " + DeltaText(c.BotsDelta, c.BotsDeltaPct))</span>
         </span>
 
         @* Inline bot-pressure bar, takes the remaining width. *@
