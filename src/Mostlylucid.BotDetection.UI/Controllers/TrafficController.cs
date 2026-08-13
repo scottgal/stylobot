@@ -179,6 +179,12 @@ public sealed class TrafficController : Controller
                 try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
                 catch { break; }
             }
+        // Terminal state (operator directive 2026-08-13): the bounded wait gave up —
+        // the data feed stayed unavailable (gateway compose flap). Stamp the degraded
+        // marker so the widget renders the explicit "data feed unavailable" state
+        // instead of an infinite spinner; the next tick/beacon retries.
+        if (page is { IsWarming: true })
+            DashboardWarmingSignal.MarkDegraded(HttpContext);
         }
 
         HttpContext.Items["sb.dashboard.pageresult"] = page;

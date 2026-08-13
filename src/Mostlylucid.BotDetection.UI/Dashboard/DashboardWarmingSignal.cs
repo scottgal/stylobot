@@ -42,4 +42,18 @@ public static class DashboardWarmingSignal
         }
         tags.Add(tag);
     }
+
+    /// <summary>Request-scoped degraded marker: the bounded first-paint wait gave up
+    /// because the data feed stayed unavailable (the gateway compose flap). Spinner
+    /// renders must then show the explicit degraded state, never an infinite spinner
+    /// (operator directive 2026-08-13).</summary>
+    public const string DegradedKey = "sb.dashboard.degraded";
+
+    public static void MarkDegraded(HttpContext? context)
+    {
+        if (context is not null) context.Items[DegradedKey] = true;
+    }
+
+    public static bool IsDegraded(HttpContext? context) =>
+        context?.Items.TryGetValue(DegradedKey, out var v) == true && v is true;
 }

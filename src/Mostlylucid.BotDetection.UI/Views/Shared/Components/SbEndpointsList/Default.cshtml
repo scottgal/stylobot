@@ -232,7 +232,7 @@
     }
     @if (Model.IsWarming)
     {
-        <div class="flex items-center justify-center py-4"><span class="loading loading-spinner loading-xs text-base-content/40"></span></div>
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_WarmingState.cshtml")
     }
     else if (Model.Endpoints.Count == 0)
     {

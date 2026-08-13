@@ -29,6 +29,10 @@
     // materializer/beacon fills them on the next swap. Same ViewData convention
     // the traffic-panel cards use.
     var warming = ViewData["IsWarming"] as bool? == true;
+    // Terminal state (operator directive 2026-08-13): when the bounded first-paint
+    // wait gave up (the degraded marker — data feed unavailable), the strip renders
+    // the explicit message instead of dashes or zeros. Checked via the request.
+    var degraded = Mostlylucid.BotDetection.UI.Dashboard.DashboardWarmingSignal.IsDegraded(Context);
 }
 @*
     Compact visitors bar. Replaces the old full-height VISITORS card — the split
@@ -38,6 +42,14 @@
     NOT the dashboard summary strip, which drifted from these by a few requests.
 *@
 <div class="card bg-base-100 border border-base-300 sb-traffic-summary">
+    @if (degraded)
+    {
+        <div class="card-body p-2.5 text-xs text-base-content/50">
+            Data feed unavailable — retrying on next tick
+        </div>
+    }
+    else
+    {
     <div class="card-body p-2.5 flex-row flex-wrap items-center gap-x-6 gap-y-2">
         <span class="flex items-baseline gap-1.5">
             <span class="text-[10px] uppercase tracking-wide text-base-content/50">Visitors</span>
@@ -92,4 +104,5 @@
             }
         }
     </div>
+    }
 </div>

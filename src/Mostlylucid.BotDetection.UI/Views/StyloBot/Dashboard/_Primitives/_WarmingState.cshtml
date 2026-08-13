@@ -1,0 +1,15 @@
+@using Mostlylucid.BotDetection.UI.Dashboard
+@* Terminal-state rule (operator directive 2026-08-13): a cold widget renders the
+   spinner ONLY while the feed might still land; once the bounded first-paint wait
+   has given up (the degraded marker — the gateway compose flap), it renders the
+   explicit "data feed unavailable" state. Never an infinite spinner. *@
+@if (DashboardWarmingSignal.IsDegraded(Context))
+{
+    <div class="flex items-center justify-center py-4 text-xs text-base-content/50">
+        Data feed unavailable — retrying on next tick
+    </div>
+}
+else
+{
+    <div class="flex items-center justify-center py-4"><span class="loading loading-spinner loading-xs text-base-content/40"></span></div>
+}
