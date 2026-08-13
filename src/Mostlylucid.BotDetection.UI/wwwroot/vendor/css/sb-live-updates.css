@@ -54,3 +54,16 @@
     transition: opacity 120ms ease;
     pointer-events: none;
 }
+
+/* Datatype micro-chart font (operator directive 2026-08-13): sparklines and
+   proportion displays render as typed ligatures ({l:...}, {p:62}, {b:70,30}) —
+   pure text baked at SSR time, no JS/SVG/images. SIL OFL — see
+   wwwroot/vendor/fonts/OFL.txt. Variable axes wdth/wght for density. */
+@font-face {
+    font-family: 'Datatype';
+    src: url('../fonts/Datatype.wdth.wght.woff2') format('woff2');
+    font-weight: 100 900;
+    font-stretch: 75% 125%;
+    font-display: swap;
+}
+.datatype { font-family: 'Datatype'; font-variation-settings: 'wdth' 100, 'wght' 500; }
