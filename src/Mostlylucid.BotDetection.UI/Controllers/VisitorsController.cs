@@ -29,17 +29,20 @@ public sealed class VisitorsController : Controller
     private readonly IDashboardContentCache _contentCache;
     private readonly IDashboardPageManifestSource _manifests;
     private readonly IOptions<DashboardLayoutOptions> _layout;
+    private readonly IOptions<DashboardMaterializerOptions> _materializerOpts;
 
     public VisitorsController(
         IDashboardEventStore eventStore,
         IDashboardContentCache contentCache,
         IDashboardPageManifestSource manifests,
-        IOptions<DashboardLayoutOptions> layout)
+        IOptions<DashboardLayoutOptions> layout,
+        IOptions<DashboardMaterializerOptions>? materializerOpts = null)
     {
         _eventStore = eventStore;
         _contentCache = contentCache;
         _manifests = manifests;
         _layout = layout;
+        _materializerOpts = materializerOpts ?? Microsoft.Extensions.Options.Options.Create(new DashboardMaterializerOptions());
     }
 
     [HttpGet("")]
@@ -80,6 +83,25 @@ public sealed class VisitorsController : Controller
             if (manifest is not null)
             {
                 page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
+
+                // First-paint bounded wait (operator directive 2026-08-12: pages NEVER
+                // load with empty data — the visitors page's counters strip has no
+                // warming branch, so a cold stash painted zeros beside real widgets).
+                // Same shape as SiteController/TrafficController: PINNED default views
+                // only, bounded by FirstPaintStashWaitMs; the read never composes.
+                if (page is { IsWarming: true }
+                    && _materializerOpts.Value.PrewarmWindows.Contains(windowToken)
+                    && _materializerOpts.Value.FirstPaintStashWaitMs > 0)
+                {
+                    var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(_materializerOpts.Value.FirstPaintStashWaitMs);
+                    while (page is { IsWarming: true } && DateTime.UtcNow < deadline)
+                    {
+                        await Task.Delay(Math.Max(10, _materializerOpts.Value.FirstPaintStashPollMs), ct);
+                        try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
+                        catch { break; }
+                    }
+                }
+
                 HttpContext.Items["sb.dashboard.pageresult"] = page;
             }
         }

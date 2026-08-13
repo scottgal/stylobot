@@ -5,6 +5,7 @@ using Mostlylucid.BotDetection.UI.Controllers;
 using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
+using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Dashboard.Layout;
 using Mostlylucid.BotDetection.UI.Services;
 using Xunit;
@@ -75,5 +76,38 @@ public sealed class VisitorsControllerWindowTests
 
         Assert.NotNull(captured);
         Assert.Equal(20, captured.BucketMinutes);
+    }
+
+    [Fact]
+    public async Task Index_waits_for_the_first_paint_stash_on_a_pinned_window()
+    {
+        // The cold first-load 0 on the visitors counters strip (operator directive
+        // 2026-08-12: pages NEVER load with empty data): a Warming envelope for the
+        // PINNED default view holds the paint until the stash lands.
+        var cache = new Mock<IDashboardContentCache>();
+        cache.SetupSequence(c => c.GetCurrentAsync(
+                It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DashboardPageResult.Warming)
+            .ReturnsAsync(DashboardPageResult.Warming)
+            .ReturnsAsync(new DashboardPageResult(new DashboardDatasetBundle(
+                Summary: null, TimeBuckets: null,
+                BotAggregate: [new DashboardTopBotEntry { PrimarySignature = "sig", HitCount = 1 }],
+                Geo: [], Endpoints: [])));
+
+        var controller = new VisitorsController(
+            new Mock<IDashboardEventStore>().Object,
+            cache.Object,
+            new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardLayoutOptions { V2Enabled = true, DefaultTimeWindowMinutes = 1440 }))
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        await controller.Index(null, null, null, null, null, false, "24h", CancellationToken.None);
+
+        cache.Verify(c => c.GetCurrentAsync(
+            It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),
+            Times.AtLeast(3));
+        Assert.False(((DashboardPageResult)controller.HttpContext.Items["sb.dashboard.pageresult"]!).IsWarming);
     }
 }
