@@ -279,4 +279,89 @@ public sealed class PolicyActionHandlerTests
         Assert.Equal((int)HttpStatusCode.TooManyRequests, second.Response.StatusCode);
         Assert.Equal("1", second.Response.Headers["Retry-After"].ToString());
     }
+
+    [Fact]
+    public async Task RedirectActionHandler_writes_302_with_location_and_policy_header()
+    {
+        var handler = new RedirectActionHandler();
+        var rule = NewRule(new PolicyAction.Redirect("https://challenge.example.com/verify"));
+        var ctx = NewHttpContext();
+
+        var result = await handler.HandleAsync(ctx, rule, rule.Action, CancellationToken.None);
+
+        Assert.Equal(PolicyDispatchResult.Handled, result);
+        Assert.Equal((int)HttpStatusCode.Found, ctx.Response.StatusCode);
+        Assert.Equal("https://challenge.example.com/verify", ctx.Response.Headers.Location.ToString());
+        Assert.Contains(rule.Id.ToString(),
+            ctx.Response.Headers[BlockActionHandler.PolicyHeader].ToString());
+    }
+
+    [Fact]
+    public async Task RedirectActionHandler_honors_a_rule_supplied_status_301()
+    {
+        var handler = new RedirectActionHandler();
+        var rule = NewRule(new PolicyAction.Redirect("https://example.com/moved") { Status = 301 });
+        var ctx = NewHttpContext();
+
+        var result = await handler.HandleAsync(ctx, rule, rule.Action, CancellationToken.None);
+
+        Assert.Equal(PolicyDispatchResult.Handled, result);
+        Assert.Equal((int)HttpStatusCode.MovedPermanently, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RedirectActionHandler_refuses_invalid_target_and_falls_through()
+    {
+        var handler = new RedirectActionHandler();
+        var rule = NewRule(new PolicyAction.Redirect("javascript:alert(1)"));
+        var ctx = NewHttpContext();
+
+        var result = await handler.HandleAsync(ctx, rule, rule.Action, CancellationToken.None);
+
+        Assert.Equal(PolicyDispatchResult.FallThrough, result);
+        Assert.Equal(200, ctx.Response.StatusCode);   // unmutated
+        Assert.True(string.IsNullOrEmpty(ctx.Response.Headers.Location.ToString()));
+    }
+
+    [Fact]
+    public async Task RedirectActionHandler_refuses_out_of_range_status_and_falls_through()
+    {
+        var handler = new RedirectActionHandler();
+        var rule = NewRule(new PolicyAction.Redirect("https://example.com/x") { Status = 200 });
+        var ctx = NewHttpContext();
+
+        var result = await handler.HandleAsync(ctx, rule, rule.Action, CancellationToken.None);
+
+        Assert.Equal(PolicyDispatchResult.FallThrough, result);
+        Assert.Equal(200, ctx.Response.StatusCode);   // unmutated
+    }
+
+    [Fact]
+    public async Task RouteSwapActionHandler_stashes_target_and_falls_through()
+    {
+        var handler = new RouteSwapActionHandler();
+        var rule = NewRule(new PolicyAction.RouteSwap("http://sandbox.internal:8080"));
+        var ctx = NewHttpContext();
+
+        var result = await handler.HandleAsync(ctx, rule, rule.Action, CancellationToken.None);
+
+        Assert.Equal(PolicyDispatchResult.FallThrough, result);
+        // AbsoluteUri canonicalises to a clean destination prefix (trailing slash).
+        Assert.Equal("http://sandbox.internal:8080/",
+            ctx.Items[RouteSwapActionHandler.RouteSwapTargetItemKey].ToString());
+        Assert.Equal(200, ctx.Response.StatusCode);   // unmutated
+    }
+
+    [Fact]
+    public async Task RouteSwapActionHandler_refuses_non_http_target_and_falls_through()
+    {
+        var handler = new RouteSwapActionHandler();
+        var rule = NewRule(new PolicyAction.RouteSwap("ftp://not-a-proxy-target"));
+        var ctx = NewHttpContext();
+
+        var result = await handler.HandleAsync(ctx, rule, rule.Action, CancellationToken.None);
+
+        Assert.Equal(PolicyDispatchResult.FallThrough, result);
+        Assert.False(ctx.Items.ContainsKey(RouteSwapActionHandler.RouteSwapTargetItemKey));
+    }
 }

@@ -137,6 +137,8 @@ public static class PolicyDispatchServiceExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, ChallengeActionHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, RateLimitActionHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, ThrottleActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, RedirectActionHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IPolicyActionHandler, RouteSwapActionHandler>());
 
         return services;
     }

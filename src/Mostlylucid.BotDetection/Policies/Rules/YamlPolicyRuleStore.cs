@@ -612,6 +612,13 @@ public sealed class YamlPolicyRuleStore : IPolicyRuleStore, IDisposable
             "throttle" => new PolicyAction.Throttle(
                 action.RequestsPerSecond ?? throw new InvalidDataException("throttle action requires 'rps'"),
                 action.Reason),
+            "redirect" => new PolicyAction.Redirect(
+                action.Target ?? throw new InvalidDataException("redirect action requires 'target'"))
+            {
+                Status = action.Status
+            },
+            "route_swap" or "routeswap" => new PolicyAction.RouteSwap(
+                action.Target ?? throw new InvalidDataException("route_swap action requires 'target'")),
             _ => throw new InvalidDataException($"unknown action kind '{action.Kind}'")
         };
     }

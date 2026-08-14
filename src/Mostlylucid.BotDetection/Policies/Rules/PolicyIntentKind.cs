@@ -9,4 +9,6 @@ public enum PolicyIntentKind
     Tag,
     Observe,
     Lockdown,
+    Redirect,
+    RouteSwap,
 }

@@ -98,4 +98,46 @@ public abstract record PolicyAction
 
         public override PolicyIntentKind Intent => PolicyIntentKind.Block;
     }
+
+    /// <summary>
+    ///     Redirect the request to <paramref name="Target"/> (default 302). The
+    ///     response is written by the handler directly to the client -- the
+    ///     request never reaches the proxy. This is the "send bot class X /
+    ///     geo Y / UA family Z to a challenge/deflection host" action the
+    ///     legacy <see cref="Challenge"/> envelope (403 + <c>X-Bot-Challenge</c>)
+    ///     cannot express as a flow.
+    /// </summary>
+    public sealed record Redirect(string Target) : PolicyAction
+    {
+        /// <summary>
+        ///     Redirect status. Null (the default) keeps 302 Found; operators
+        ///     may set 301/307/308 for permanent or method-preserving moves.
+        ///     Enforced sane (<c>300 &lt;= Status &lt; 400</c>) by
+        ///     <see cref="RedirectActionHandler"/> at dispatch time -- an
+        ///     out-of-range value falls through rather than producing a
+        ///     malformed response.
+        /// </summary>
+        public int? Status { get; init; }
+
+        public override PolicyIntentKind Intent => PolicyIntentKind.Redirect;
+    }
+
+    /// <summary>
+    ///     Continue proxying the request but to <paramref name="Target"/>
+    ///     (a full http(s) URL) instead of the route's configured cluster --
+    ///     e.g. bots to a sandbox origin, humans to the real origin, with the
+    ///     client-visible URL unchanged. The handler does NOT write a response:
+    ///     it stashes the target on <c>HttpContext.Items</c> and returns
+    ///     <see cref="PolicyDispatchResult.FallThrough"/> so the request
+    ///     continues through the pipeline. Consumption is the commercial
+    ///     host's <c>ProxyPolicyRoutingMiddleware</c>, which retargets via
+    ///     YARP's <see cref="Yarp.ReverseProxy.Forwarder.IHttpForwarder"/>
+    ///     immediately before <c>MapReverseProxy</c>. FOSS hosts ignore the
+    ///     item and proxy normally -- the action is harmless without a
+    ///     consumer.
+    /// </summary>
+    public sealed record RouteSwap(string Target) : PolicyAction
+    {
+        public override PolicyIntentKind Intent => PolicyIntentKind.RouteSwap;
+    }
 }

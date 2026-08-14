@@ -140,8 +140,11 @@ public sealed partial class YamlRuleIdentity
 [YamlObject]
 public sealed partial class YamlRuleAction
 {
-    /// <summary>One of <c>allow</c>, <c>observe</c>, <c>tag</c>, <c>challenge</c>, <c>rate_limit</c>, <c>throttle</c>, <c>block</c>. Case-insensitive.</summary>
+    /// <summary>One of <c>allow</c>, <c>observe</c>, <c>tag</c>, <c>challenge</c>, <c>rate_limit</c>, <c>throttle</c>, <c>block</c>, <c>redirect</c>, <c>route_swap</c>. Case-insensitive.</summary>
     [YamlMember("kind")] public string Kind { get; init; } = "observe";
+
+    /// <summary>Absolute http(s) URL. Read only for <c>redirect</c> and <c>route_swap</c>.</summary>
+    [YamlMember("target")] public string? Target { get; init; }
 
     /// <summary>Challenge implementation (e.g. <c>turnstile</c>, <c>captcha</c>). Read only for <c>challenge</c>.</summary>
     [YamlMember("challenge_kind")] public string? ChallengeKind { get; init; }
