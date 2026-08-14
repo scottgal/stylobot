@@ -38,8 +38,37 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
     // the envelope is the key (operator's model). This is what keeps reads reliably warm.
     private readonly ConcurrentDictionary<DashboardContentEnvelope, long> _latestWarmTick = new();
 
-    private void RecordWarm(DashboardContentEnvelope env, long tick) =>
+    // Floor-agnostic pointer (2026-08-14, the bucket-drift class): the envelope identity
+    // includes the StartBucketTicks/EndBucketTicks floored to the window's BucketMinutes —
+    // a read minutes later derives a NEWER floor and never equals the stamped envelope, so
+    // the pointer misses and the read serves Warming despite the surviving entry (the
+    // 6h/12h-windows-cold class). This registry maps the floor-agnostic identity (every
+    // non-floor field) to the LAST-STAMPED full envelope — the read resolves the stamped
+    // envelope's floor and hits the surviving entry. Freshness = the last stamp (≤ the
+    // wave's cadence).
+    private readonly ConcurrentDictionary<FloorAgnosticEnvelopeKey, DashboardPageWindow> _latestWarmWindow = new();
+
+    private sealed record FloorAgnosticEnvelopeKey(
+        string PageKey, string WidgetKeysCsv, string AudienceFilter, double? ProbMin,
+        string DomainsCsv, int BucketMinutes);
+
+    private static FloorAgnosticEnvelopeKey FloorAgnosticKey(DashboardContentEnvelope env) =>
+        new(env.PageKey, env.WidgetKeysCsv, env.AudienceFilter, env.ProbMin, env.DomainsCsv, env.BucketMinutes);
+
+    private void RecordWarm(DashboardContentEnvelope env, long tick, DashboardPageWindow window)
+    {
         _latestWarmTick.AddOrUpdate(env, tick, (_, old) => Math.Max(old, tick));
+        _latestWarmWindow[FloorAgnosticKey(env)] = window;
+    }
+
+    // Resolve the read's window to the LAST-STAMPED window with the same floor-agnostic
+    // identity — the read's current-floor window never equals the compose-time stamped
+    // one (the atom key's envelope floors the raw times), so the read must hit the
+    // stamped window's entry. Bucket drift can never cold-miss again.
+    private DashboardPageWindow ResolveStampedWindow(DashboardContentEnvelope readEnv, DashboardPageWindow readWindow) =>
+        _latestWarmWindow.TryGetValue(FloorAgnosticKey(readEnv), out var stamped)
+            ? stamped
+            : readWindow;
 
     public DashboardContentCache(
         Func<DashboardPageManifest, DashboardPageWindow, CancellationToken, Task<DashboardPageResult>> compose,
@@ -88,7 +117,7 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
             // full refresh interval and made GetCurrentAsync resolve the Warming tick
             // instead of the previous REAL snapshot.
             if (!existing!.IsWarming)
-                RecordWarm(key.Envelope, tick);
+                RecordWarm(key.Envelope, tick, key.Window);
             return Task.FromResult(existing!);
         }
 
@@ -104,8 +133,14 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         // placeholder. Only a truly never-warmed envelope (no entry in _latestWarmTick at all)
         // falls through to a genuine miss at the current tick.
         var env = DashboardContentEnvelope.From(manifest, window);
-        var readTick = _latestWarmTick.TryGetValue(env, out var warmed) ? warmed : _currentTick();
-        return GetAsync(manifest, window, readTick, ct);
+        // Bucket-drift resolution (2026-08-14): resolve the read's window to the
+        // LAST-STAMPED window with the same floor-agnostic identity — the atom key's
+        // envelope floors the raw times, so the read must hit the stamped window's entry
+        // (the read's current-floor window never equals the compose-time stamped one).
+        var stampedWindow = ResolveStampedWindow(env, window);
+        var stampedEnv = DashboardContentEnvelope.From(manifest, stampedWindow);
+        var readTick = _latestWarmTick.TryGetValue(stampedEnv, out var warmed) ? warmed : _currentTick();
+        return GetAsync(manifest, stampedWindow, readTick, ct);
     }
 
     public async Task<DashboardPageResult> WarmAsync(
@@ -124,7 +159,7 @@ public sealed class DashboardContentCache : IDashboardContentCache, IAsyncDispos
         // stay un-stamped, so the next tick retries and reads keep resolving the last REAL
         // snapshot (stale-but-real beats Warming).
         if (!result.IsWarming)
-            RecordWarm(key.Envelope, tick);
+            RecordWarm(key.Envelope, tick, key.Window);
         return result;
     }
 

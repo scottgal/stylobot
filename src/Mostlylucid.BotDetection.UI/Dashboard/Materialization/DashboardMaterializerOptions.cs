@@ -8,13 +8,12 @@ namespace Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 public sealed class DashboardMaterializerOptions
 {
     /// <summary>Max distinct (envelope, tick) entries the content cache holds before importance-scored eviction.</summary>
-    // 512 (2026-08-14): the atom holds per-(envelope, tick) entries — the pinned wave
+    // 2048 (2026-08-14): the atom holds per-(envelope, tick) entries — the pinned wave
     // writes ~30 entries per tick, so the 64-cap's retention cleanup evicted each
-    // envelope's entry within ~20s, long before a page read landed — the pages served
-    // Warming despite warm stamps (the traffic-windows-cold class). 512 keeps the
-    // entries alive across the cadence; the sliding/absolute expirations still bound
-    // the memory.
-    public int ContentCacheMaxEntries { get; set; } = 512;
+    // envelope's entry within ~20s (the 512-cap still left ~3 min of retention vs the
+    // wave's 60s re-warm cadence — the 7d/30d-cold class). 2048 keeps the entries alive
+    // across many cadence cycles; the sliding/absolute expirations still bound the memory.
+    public int ContentCacheMaxEntries { get; set; } = 2048;
 
     /// <summary>Sliding inactivity window before a cache entry is eligible for expiry.</summary>
     public TimeSpan ContentSlidingExpiration { get; set; } = TimeSpan.FromMinutes(5);
