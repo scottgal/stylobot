@@ -149,6 +149,19 @@ public sealed class DashboardMaterializerOptions
     /// </summary>
     public int MaxConcurrentWarmsPerTick { get; set; } = 4;
 
+    /// <summary>
+    ///     The pinned tier's wave size during the BOOT pass only (operator directive
+    ///     2026-08-14: every standard window's chart must prerender at first paint, even on
+    ///     a fresh boot). The pinned tier is deliberately serial in steady-state ticks (the
+    ///     FOSS SQLite contention rationale — expensive 7d/30d cold reads must not contend),
+    ///     but on the remote-mode host the compose is a gateway round-trip, not a local
+    ///     scan — a serial 30-envelope boot pass took 30+ seconds, so the first paint after
+    ///     a deploy spun for every non-default window. The boot pass runs this many pinned
+    ///     composes in parallel (bounded, background — never blocks boot; BootPrewarmTimeoutMs
+    ///     unchanged). Steady-state ticks keep the serial pinned tier.
+    /// </summary>
+    public int BootPinnedWarmConcurrency { get; set; } = 8;
+
     // -------------------------------------------------------------------------------
     // Stage 2b: per-page-key refresh cadence. Before this, the tick loop re-warmed
     // EVERY live envelope on EVERY Tick10s (gated only by LFU-hotness ordering and

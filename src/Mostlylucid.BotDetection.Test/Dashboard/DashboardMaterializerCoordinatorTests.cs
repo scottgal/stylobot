@@ -172,11 +172,15 @@ public sealed class DashboardMaterializerCoordinatorTests
     }
 
     [Fact]
-    public async Task Tick_serializes_pinned_standard_window_warms_even_when_live_wave_parallelism_is_four()
+    public async Task Boot_pass_parallelizes_pinned_warms_within_the_bump_budget_ticks_stay_serial()
     {
-        // 7d/30d cold materialization is expensive. A four-way pinned startup wave
-        // caused those corpus scans to contend with each other and time out; the
-        // pinned tier must remain serial while live envelopes may still be parallel.
+        // 2026-08-14 (operator gate: every standard window prerendered at first paint on
+        // a fresh boot): the pinned tier's serial-by-design wave (1) made the 30-envelope
+        // boot pass take 30+ seconds on the remote-mode host (the compose is a gateway
+        // round-trip, not a local SQLite scan) — every non-default window spun at first
+        // paint after a deploy. The BOOT pass now runs the pinned tier at
+        // BootPinnedWarmConcurrency (default 8); steady-state ticks keep the serial
+        // pinned tier (the SQLite contention rationale still holds there).
         var sync = new object();
         var inFlight = 0;
         var maxObserved = 0;
@@ -194,11 +198,27 @@ public sealed class DashboardMaterializerCoordinatorTests
             },
             () => tick, Options.Create(new DashboardMaterializerOptions()));
         var sched = new FakeScheduleCoordinator();
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            Options.Create(new DashboardMaterializerOptions { MaxConcurrentWarmsPerTick = 4 }), sched);
+            Options.Create(new DashboardMaterializerOptions
+            {
+                MaxConcurrentWarmsPerTick = 4,
+                BootPrewarmEnabled = true, // the StartAsync boot pass fires only when enabled
+            }),
+            sched, timeProvider: time);
 
-        await coord.StartAsync(default);
+        await coord.StartAsync(default); // the boot pass fires (bumped)
+
+        // 30 pinned composes × 15ms / 8-parallel ≈ 60ms; give the background pass room.
+        await Task.Delay(300);
+        Assert.True(maxObserved > 1 && maxObserved <= 8,
+            $"boot-pass pinned parallelism was {maxObserved}, expected 2..8");
+
+        // Steady-state ticks keep the serial pinned tier (the SQLite contention rationale).
+        maxObserved = 0;
+        time.Advance(TimeSpan.FromSeconds(60)); // Live-class envelopes due again
+        tick = 2;
         await sched.RaiseTickAsync(TickCadence.Tick10s);
 
         Assert.Equal(1, maxObserved);

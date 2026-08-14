@@ -55,6 +55,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly TimeProvider _time;
     private IDisposable? _tickSub;
 
+    // 1 while the StartAsync-fired boot pass runs (the pinned wave bump is boot-scoped).
+    private int _bootPassActive;
+
     // Per-envelope "already warming" guard shared by the tick loop's wave and MarkDirtyAsync.
     // Needed because SlidingCacheAtom.GetOrComputeAsync does NOT itself serialize concurrent
     // computes for the identical key: its underlying EphemeralWorkCoordinator is a
@@ -124,6 +127,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         // the tick loop's first fire waits for the next wall-clock boundary).
         if (_options.BootPrewarmEnabled && _schedule is not null)
         {
+            // Boot-pass pinned wave bump (operator directive 2026-08-14): the first pass
+            // runs the pinned tier at BootPinnedWarmConcurrency so all five standard
+            // windows prerender within seconds of boot (the serial steady-state pinned
+            // tier took 30+ seconds on the remote host). Background — never blocks boot.
+            Interlocked.Exchange(ref _bootPassActive, 1);
             _bootWarm = MaterializeTickAsync(DateTimeOffset.UtcNow, CancellationToken.None);
             ObserveFault(_bootWarm);
         }
@@ -339,6 +347,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         // code path (StartAsync always subscribes when a schedule exists; this is the gate).
         if (!_options.Enabled) return;
 
+        // Boot-pass detection: the StartAsync-fired first pass owns the pinned wave bump
+        // (BootPinnedWarmConcurrency); steady-state ticks keep the serial pinned tier.
+        var isBootPass = Volatile.Read(ref _bootPassActive) == 1;
+
         _diagnostics?.RecordTick(DateTimeOffset.UtcNow);
         var tick = _cursor.CurrentTick;
         var tickCostMs = 0.0;
@@ -442,12 +454,19 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
                 ct.ThrowIfCancellationRequested();
 
-                // Pinned coverage is deliberately serial: the standard 7d/30d views are
-                // known to be the expensive cold reads, and launching them alongside the
-                // short windows turns an idle-start prewarm into a SQLite contention burst.
-                // Once the pinned tier is complete, ordinary live envelopes still use the
+                // Pinned coverage is deliberately serial in steady-state ticks: the
+                // standard 7d/30d views are known to be the expensive cold reads, and
+                // launching them alongside the short windows turns an idle-start prewarm
+                // into a SQLite contention burst. EXCEPTION — the BOOT pass (operator
+                // directive 2026-08-14): on the remote-mode host the compose is a gateway
+                // round-trip, not a local scan, and a serial 30-envelope boot pass left
+                // every non-default window spinning at first paint after a deploy. The
+                // boot pass runs the pinned tier at BootPinnedWarmConcurrency; once the
+                // pinned tier is complete, ordinary live envelopes still use the
                 // configured bounded parallelism.
-                var currentWaveSize = warmQueue[start].IsPinned ? 1 : waveSize;
+                var currentWaveSize = warmQueue[start].IsPinned
+                    ? (isBootPass ? Math.Max(1, _options.BootPinnedWarmConcurrency) : 1)
+                    : waveSize;
                 var wave = warmQueue.Skip(start).Take(Math.Min(currentWaveSize, budget - warmed)).ToList();
                 var waveResults = await Task.WhenAll(wave.Select(async item =>
                 {
@@ -515,6 +534,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // which is itself meaningful input: it lets the adaptive controller's smoothed
             // estimate relax back toward 1.0 during a genuinely quiet tick.
             _adaptive.RecordTickCost(tickCostMs);
+            // The boot pass's bump ends when the pass that owns it completes.
+            if (isBootPass)
+                Interlocked.Exchange(ref _bootPassActive, 0);
         }
     }
 
