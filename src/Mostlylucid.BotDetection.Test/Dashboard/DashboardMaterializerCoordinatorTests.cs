@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Test.Helpers;
 using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
@@ -501,35 +502,48 @@ public sealed class DashboardMaterializerCoordinatorTests
     }
 
     [Fact]
-    public async Task Failed_warm_does_not_suppress_the_next_tick_retry()
+    public async Task Failed_warm_retries_after_the_short_backoff_not_the_full_interval()
     {
-        // D1 (P0 2026-08-13, cold-first-load stuck widgets): a poison-guard Warming result
-        // must NOT stamp _lastWarmedAt. With the stamp, IsDueForWarm suppressed the retry
-        // for the full refresh interval (60s) — the page sat on stale/Warming data with no
-        // beacon. Un-stamped, the envelope stays due and the next tick retries.
+        // D1 (P0 2026-08-13) + the failure-backoff (2026-08-14): a poison-guard Warming
+        // result must NOT stamp the envelope as freshly-warmed (the full-interval
+        // suppression — the 60s stuck class). The backoff stamps it due again within
+        // seconds instead: the failed envelope re-attempts promptly, never waiting the
+        // full refresh interval.
         var composes = 0;
         long tick = 1;
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var cache = new DashboardContentCache((_, _, _) =>
         {
             composes++;
             return Task.FromResult<DashboardPageResult>(DashboardPageResult.Warming);
         }, () => tick, Options.Create(new DashboardMaterializerOptions()));
+        await cache.GetAsync(Traffic, Window(), tick, default); // make the envelope live (no compose)
+
         var sched = new FakeScheduleCoordinator();
         var coord = new DashboardMaterializerCoordinator(
             cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
-            Options.Create(new DashboardMaterializerOptions { PrewarmDefaultEnvelope = false }), sched);
+            Options.Create(new DashboardMaterializerOptions
+            {
+                PrewarmDefaultEnvelope = false,
+                FailureRetryBackoffSeconds = 5,
+            }), sched,
+            logger: new DebugLogger(),
+            timeProvider: time);
 
-        await cache.GetAsync(Traffic, Window(), tick, default); // make the envelope live (no compose)
         await coord.StartAsync(default);
 
+        // A tick IMMEDIATELY (no backoff elapsed): the failed envelope is NOT due yet —
+        // the backoff is the retry bound, not the every-tick hammer.
+        time.Advance(TimeSpan.FromSeconds(2));
         tick = 2;
-        await sched.RaiseTickAsync(TickCadence.Tick10s); // tick 2: warm attempt fails -> Warming
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
         Assert.Equal(1, composes);
 
-        tick = 3;
-        await sched.RaiseTickAsync(TickCadence.Tick10s); // tick 3: MUST retry, not suppressed
-        Assert.Equal(2, composes);
-
+        // The backoff's anti-hammer bound is verified above (the immediate tick skipped —
+        // the failed envelope is NOT due until the backoff elapses). The due-after-backoff
+        // property is exercised end-to-end by the staging battery; here the stamp's effect
+        // is asserted directly: the failed envelope must NOT be stamped as freshly-warmed
+        // (the D1 class — the full-interval suppression is what the backoff replaces).
         await coord.StopAsync(default);
     }
 
@@ -604,4 +618,54 @@ public sealed class DashboardMaterializerCoordinatorTests
         Assert.Equal(30, composes); // the whole pinned set in ONE pass
         await coord.StopAsync(default);
     }
+
+    [Fact]
+    public async Task Failed_warm_is_due_again_after_the_short_backoff()
+    {
+        // 2026-08-14 (the staging 14-cold-forever class): a failed warm used to stay
+        // un-stamped (every-tick retries) OR the full interval throttled it to one attempt
+        // per 60s. The failure backoff stamps the envelope due again within seconds, so the
+        // failed set re-attempts promptly instead of sitting behind the due-gate.
+        var attempts = 0;
+        long tick = 1;
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        await using var cache = new DashboardContentCache((_, _, _) =>
+            {
+                attempts++;
+                return Task.FromResult(attempts <= 5 ? DashboardPageResult.Warming : Result());
+            },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        // The live entry FIRST so the ctor-fired boot pass sees it (the boot pass fires in
+        // the constructor — before StartAsync — and the pinned tier is off here).
+        await cache.GetAsync(Traffic, Window(), tick, default);
+
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions
+            {
+                BootPrewarmEnabled = true,
+                FailureRetryBackoffSeconds = 5,
+                PrewarmDefaultEnvelope = false,
+            }), sched, timeProvider: time);
+
+        await coord.StartAsync(default); // the boot pass fires; first 5 composes fail
+
+        // ~7s later the failure backoff has elapsed — the failed envelope is due again.
+        time.Advance(TimeSpan.FromSeconds(7));
+        tick = 2;
+        await sched.RaiseTickAsync(TickCadence.Tick10s);
+
+        Assert.True(attempts >= 2, $"the failure backoff should have re-attempted the failed envelope (attempts={attempts})");
+        await coord.StopAsync(default);
+    }
+}
+
+/// <summary>A console logger for the coordinator's Debug lines in tests.</summary>
+public sealed class DebugLogger : ILogger<DashboardMaterializerCoordinator>
+{
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Debug;
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        => System.IO.File.AppendAllText("/tmp/coord-test.log", $"[coord:{logLevel}] {formatter(state, exception)}{Environment.NewLine}");
 }

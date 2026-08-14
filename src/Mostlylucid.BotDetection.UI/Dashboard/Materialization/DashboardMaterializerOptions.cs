@@ -175,6 +175,16 @@ public sealed class DashboardMaterializerOptions
     /// </summary>
     public int BootPrewarmMaxDurationSeconds { get; set; } = 180;
 
+    /// <summary>
+    ///     The due-gate backoff for a FAILED warm (2026-08-14): a poison-guard Warming
+    ///     result is stamped as "due again in this many seconds" instead of the full
+    ///     refresh interval — the 60s due-window previously throttled the failed set to
+    ///     one re-attempt per interval (the staging 14-cold-forever class: the queue sat
+    ///     empty through every due-window while the failed envelopes waited). Zero
+    ///     disables (failures stay un-stamped → every-tick retries). Default 5s.
+    /// </summary>
+    public int FailureRetryBackoffSeconds { get; set; } = 5;
+
     // -------------------------------------------------------------------------------
     // Stage 2b: per-page-key refresh cadence. Before this, the tick loop re-warmed
     // EVERY live envelope on EVERY Tick10s (gated only by LFU-hotness ordering and

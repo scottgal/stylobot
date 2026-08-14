@@ -281,8 +281,12 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // last GENUINE warm, whether it came from the tick loop or a MarkDirtyAsync force.
             // D1 (P0 2026-08-13): a poison-guard Warming result is NOT a successful compute —
             // stamping it made IsDueForWarm suppress the retry for the full refresh interval
-            // (60s of stale data with no beacon). Failures stay un-stamped so the next tick
-            // retries.
+            // (60s of stale data with no beacon). Failures get a SHORT backoff instead of
+            // staying un-stamped AND instead of the full interval: un-stamped they re-attempt
+            // every tick (fine), but a stamp at now+FailureRetryBackoff means a failed
+            // envelope is due again within seconds — the 60s due-window previously throttled
+            // the failed set to one attempt per interval (the staging 14-cold-forever class,
+            // 2026-08-14).
             if (!result.IsWarming)
             {
                 _lastWarmedAt[envelope] = _time.GetUtcNow();
@@ -296,6 +300,21 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 // Freshness stamp for the "Updated X ago" indicator: the last time ANY
                 // envelope was actually re-warmed (a real compute, never a skip).
                 _lastWarmedAtUtc = _time.GetUtcNow();
+            }
+            else if (_options.FailureRetryBackoffSeconds > 0)
+            {
+                // A failed compose is due again after a SHORT backoff (not the full refresh
+                // interval, not the every-tick hammer). The due-gate's check is
+                // `now - last >= interval` — stamp the envelope as if it warmed
+                // (interval - backoff) ago, so the elapsed reaches the interval in
+                // `backoff` seconds and the envelope is due again within seconds instead of
+                // throttled to the 60s cadence. The interval's floor (GlobalMinIntervalSeconds,
+                // 60 for the Live class that the traffic envelopes use) is the stamp's basis;
+                // Aggregate-class envelopes (300s) keep the full interval between attempts.
+                var intervalSeconds = Math.Max(1, _options.GlobalMinIntervalSeconds);
+                var backoff = Math.Min(_options.FailureRetryBackoffSeconds, intervalSeconds - 1);
+                _lastWarmedAt[envelope] = _time.GetUtcNow()
+                    - TimeSpan.FromSeconds(intervalSeconds - backoff);
             }
             return result;
         }
