@@ -373,7 +373,13 @@ public static class ReadEndpoints
         DateTime? since = null, DateTime? until = null)
     {
         aggregateCache.MarkHit();
-        var detail = await store.GetEndpointDetailAsync(method, "/" + path, since, until);
+        // The root endpoint's path is sent as its percent-encoded segment ("%2F" — the
+        // catch-all route rejects a trailing-slash-empty with a 400); decode it back, and
+        // the "/" root reconstructs exactly (operator P0 2026-08-14: /endpoint/GET/ read
+        // "Endpoint detail not found" because the empty catch-all never reached the store).
+        var decodedPath = path == "%2F" ? "/" : Uri.UnescapeDataString(path);
+        var fullPath = decodedPath == "/" ? decodedPath : "/" + decodedPath;
+        var detail = await store.GetEndpointDetailAsync(method, fullPath, since, until);
         if (detail is null) return TypedResults.NotFound();
         return TypedResults.Ok(new SingleResponse<DashboardEndpointDetail> { Data = detail, Meta = new ResponseMeta() });
     }

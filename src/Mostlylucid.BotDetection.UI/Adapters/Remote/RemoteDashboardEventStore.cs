@@ -276,7 +276,15 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
 
     public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
     {
-        var query = $"/api/v1/endpoints/{Uri.EscapeDataString(method)}/{path.TrimStart('/')}"
+        // The root endpoint's path "/" trims to an EMPTY catch-all segment — the gateway's
+        // /endpoints/{method}/{**path} route rejects the trailing-slash-empty with a 400,
+        // so the root's detail read "Endpoint detail not found" (operator P0 2026-08-14).
+        // Send the root as its percent-encoded segment; the gateway handler decodes it.
+        var trimmedPath = path.TrimStart('/');
+        var pathSegment = string.IsNullOrEmpty(trimmedPath)
+            ? Uri.EscapeDataString("/")
+            : trimmedPath;
+        var query = $"/api/v1/endpoints/{Uri.EscapeDataString(method)}/{pathSegment}"
             + BuildSinceUntil(startTime, endTime, prefix: "?");
         return GetOrFetchAsync(query, () => _api.GetEnvelopeAsync<DashboardEndpointDetail>(query)!);
     }
