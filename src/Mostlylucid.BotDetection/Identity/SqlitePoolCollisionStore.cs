@@ -86,7 +86,7 @@ public sealed class SqlitePoolCollisionStore
             ?? AppContext.BaseDirectory;
         Data.StoreDbDirectory.EnsureExists(basePath);
         var dbPath = Path.Combine(basePath, "pool_collisions.db");
-        _connectionString = $"Data Source={dbPath};Cache=Shared";
+        _connectionString = $"Data Source={dbPath};Cache=Shared;Pooling=true";
     }
 
     public int TrackedShapeCount => Count;

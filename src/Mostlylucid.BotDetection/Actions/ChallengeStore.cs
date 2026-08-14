@@ -89,7 +89,7 @@ public sealed class SqliteChallengeStore : IChallengeStore, IAsyncDisposable
             ?? AppContext.BaseDirectory;
         Data.StoreDbDirectory.EnsureExists(basePath);
         var dbPath = Path.Combine(basePath, "challenges.db");
-        _connectionString = $"Data Source={dbPath};Cache=Shared";
+        _connectionString = $"Data Source={dbPath};Cache=Shared;Pooling=true";
     }
 
     private void EnsureInitialized()

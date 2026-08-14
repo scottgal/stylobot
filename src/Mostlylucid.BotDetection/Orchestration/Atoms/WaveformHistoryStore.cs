@@ -85,7 +85,7 @@ public sealed class WaveformHistoryStore
             ?? AppContext.BaseDirectory;
         Data.StoreDbDirectory.EnsureExists(basePath);
         var dbPath = Path.Combine(basePath, "waveform_history.db");
-        _connectionString = $"Data Source={dbPath};Cache=Shared";
+        _connectionString = $"Data Source={dbPath};Cache=Shared;Pooling=true";
     }
 
     public Task InitializeAsync(CancellationToken ct = default) =>

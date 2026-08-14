@@ -67,7 +67,7 @@ public sealed class SqliteSignatureCentroidStore
             options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
             ?? AppContext.BaseDirectory;
         StoreDbDirectory.EnsureExists(basePath);
-        _connectionString = $"Data Source={Path.Combine(basePath, "signature_centroids.db")};Cache=Shared";
+        _connectionString = $"Data Source={Path.Combine(basePath, "signature_centroids.db")};Cache=Shared;Pooling=true";
     }
 
     // ctor for test backward compat (accepts explicit connection string; uses default caps).

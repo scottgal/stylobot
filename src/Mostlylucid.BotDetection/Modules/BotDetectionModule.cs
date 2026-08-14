@@ -415,7 +415,7 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             var opts = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<BotDetectionOptions>>().Value;
             var connString = string.IsNullOrEmpty(opts.DatabasePath)
                 ? "Data Source=file::memory:?cache=shared;Mode=Memory;Cache=Shared"
-                : $"Data Source={opts.DatabasePath};Cache=Shared";
+                : $"Data Source={opts.DatabasePath};Cache=Shared;Pooling=true";
             return () => new Microsoft.Data.Sqlite.SqliteConnection(connString);
         });
         // SignatureCoordinator — per-fingerprint verdict aggregator that

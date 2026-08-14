@@ -333,7 +333,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         // Private cache + WAL gives proper reader/writer concurrency. Shared cache forces
         // serialisation across all connections in-process, which deadlocks when the brute-force
         // index holds a reader on `fingerprints` while the absorption service tries to UPDATE.
-        _connectionString = $"Data Source={fpDb}";
+        _connectionString = $"Data Source={fpDb};Pooling=true";
     }
 
     public IdentityVectorLayout Layout => _layout;

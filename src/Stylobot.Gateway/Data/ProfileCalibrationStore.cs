@@ -31,7 +31,7 @@ public record ThresholdSimRow
 public class ProfileCalibrationStore(string dbPath)
 {
     private SqliteConnection CreateConnection() =>
-        new($"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate");
+        new($"Data Source={dbPath};Cache=Shared;Mode=ReadWriteCreate;Pooling=true");
 
     public async Task InitializeAsync(CancellationToken ct)
     {

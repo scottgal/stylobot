@@ -93,7 +93,7 @@ public sealed class SqlitePolicyDecisionLog : IPolicyDecisionLog, IAsyncDisposab
         // database alive across operations within the instance lifetime.
         if (string.Equals(databasePath, ":memory:", StringComparison.Ordinal))
             return "Data Source=:memory:";
-        return $"Data Source={databasePath}";
+        return $"Data Source={databasePath};Pooling=true";
     }
 
     private void InitialiseSchema()

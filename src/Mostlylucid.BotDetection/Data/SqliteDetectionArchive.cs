@@ -40,7 +40,7 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
             ?? AppContext.BaseDirectory;
         StoreDbDirectory.EnsureExists(basePath);
         var dbPath = Path.Combine(basePath, "sessions.db");
-        _connectionString = $"Data Source={dbPath};Cache=Shared";
+        _connectionString = $"Data Source={dbPath};Cache=Shared;Pooling=true";
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)

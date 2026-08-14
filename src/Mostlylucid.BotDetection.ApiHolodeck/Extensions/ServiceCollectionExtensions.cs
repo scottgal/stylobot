@@ -99,7 +99,7 @@ public static class ServiceCollectionExtensions
         {
             var env = sp.GetRequiredService<IHostEnvironment>();
             var dbPath = Path.Combine(env.ContentRootPath, "beacons.db");
-            return new BeaconStore($"Data Source={dbPath};Cache=Shared");
+            return new BeaconStore($"Data Source={dbPath};Cache=Shared;Pooling=true");
         });
         services.AddSingleton<IBeaconStore>(sp => sp.GetRequiredService<BeaconStore>());
 
@@ -164,7 +164,7 @@ public static class ServiceCollectionExtensions
         {
             var env = sp.GetRequiredService<IHostEnvironment>();
             var dbPath = Path.Combine(env.ContentRootPath, "beacons.db");
-            return new BeaconStore($"Data Source={dbPath};Cache=Shared");
+            return new BeaconStore($"Data Source={dbPath};Cache=Shared;Pooling=true");
         });
         services.AddSingleton<IBeaconStore>(sp => sp.GetRequiredService<BeaconStore>());
 

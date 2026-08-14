@@ -14,6 +14,6 @@ internal static class DashboardDbPath
             options.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"));
         var basePath = string.IsNullOrEmpty(dir) ? AppContext.BaseDirectory : dir;
         Directory.CreateDirectory(basePath);
-        return $"Data Source={Path.Combine(basePath, "dashboard.db")};Cache=Shared";
+        return $"Data Source={Path.Combine(basePath, "dashboard.db")};Cache=Shared;Pooling=true";
     }
 }

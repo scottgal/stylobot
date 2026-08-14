@@ -48,7 +48,7 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         var dbPath = options.Value.DatabasePath
             ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
         var dataDir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
-        _connectionString = $"Data Source={Path.Combine(dataDir, "fingerprints.db")}";
+        _connectionString = $"Data Source={Path.Combine(dataDir, "fingerprints.db")};Pooling=true";
     }
 
     public async Task<IReadOnlyList<FingerprintBrowserMode>> GetModesAsync(
