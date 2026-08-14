@@ -29,8 +29,12 @@ public class EndpointRowRealNavigationRegressionTests
     {
         var src = ReadRepoFile(DefaultCshtmlRelativePath);
 
-        Assert.Contains("<a href=\"@EndpointHref(endpoint.Method, endpoint.Path)\"", src);
+        Assert.Contains("<a href=\"@methodHref\"", src);
         Assert.Contains("$\"{bp}/endpoint/", src);
+        // Operator P0 (2026-08-14): the empty-path rows must never render the method-as-id
+        // dead link — the href builder returns null and the cells render text-only.
+        Assert.Contains("string? EndpointHref(string method, string path)", src);
+        Assert.Contains("if (string.IsNullOrWhiteSpace(path)) return null;", src);
         Assert.DoesNotContain("hx-target=\"#endpoint-detail-panel\"", src);
         Assert.DoesNotContain("partials/endpoint-detail", src);
     }

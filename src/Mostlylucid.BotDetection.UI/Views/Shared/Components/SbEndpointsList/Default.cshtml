@@ -45,8 +45,13 @@
     // pattern. Path segments are individually escaped (never the "/" separators
     // themselves) so the server-side manual route match in StyloBotDashboardMiddleware
     // (split on the FIRST "/" after "endpoint/") reconstructs the exact same path.
-    string EndpointHref(string method, string path)
+    string? EndpointHref(string method, string path)
     {
+        // A row without a real identifier must never render a method-as-id dead link
+        // (operator P0 2026-08-14: "/dashboard/endpoint/GET/" is USELESS — the empty
+        // normalized path made the href collapse to the bare method). Null returns
+        // render the cells as text-only.
+        if (string.IsNullOrWhiteSpace(path)) return null;
         var encodedPath = string.Join("/", path.Split('/').Select(seg => Uri.EscapeDataString(seg)));
         return $"{bp}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}";
     }
@@ -337,9 +342,16 @@
                     <tr class="endpoint-row hover:bg-base-200/50 transition-colors"
                         data-endpoint-key="@(endpoint.Method)|@(endpoint.Path)">
                         <td class="py-1 text-[10px] font-bold" style="color: @methodColor;">
-                            <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
-                               class="text-inherit no-underline"
-                               aria-label="@endpoint.Method @endpoint.Path detail">@endpoint.Method</a>
+                            @if (EndpointHref(endpoint.Method, endpoint.Path) is { } methodHref)
+                            {
+                                <a href="@methodHref"
+                                   class="text-inherit no-underline"
+                                   aria-label="@endpoint.Method @endpoint.Path detail">@endpoint.Method</a>
+                            }
+                            else
+                            {
+                                <span class="text-inherit" aria-label="@endpoint.Method (no detail)">@endpoint.Method</span>
+                            }
                         </td>
                         <td class="py-1 text-xs font-medium max-w-[280px] truncate" title="@endpoint.Path">
                             @if (endpoint.IsPinned)
@@ -367,9 +379,16 @@
                                           title="Served by your upstream application">upstream</span>
                                 }
                             }
-                            <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
-                               class="text-inherit no-underline hover:underline"
-                               aria-label="@endpoint.Method @endpoint.Path detail"><span class="font-mono">@endpoint.Path</span></a>
+                            @if (EndpointHref(endpoint.Method, endpoint.Path) is { } pathHref)
+                            {
+                                <a href="@pathHref"
+                                   class="text-inherit no-underline hover:underline"
+                                   aria-label="@endpoint.Method @endpoint.Path detail"><span class="font-mono">@endpoint.Path</span></a>
+                            }
+                            else
+                            {
+                                <span class="font-mono" aria-label="@endpoint.Path (no detail)">@endpoint.Path</span>
+                            }
                         </td>
                         <td class="py-1 text-center">
                             @{
@@ -444,12 +463,15 @@
                                            SbApplyPolicy control for this exact scope -- link straight to
                                            it instead of the FOSS snippet-generator modal below, which
                                            never had a write path to begin with in a licensed context. *@
-                                        <a href="@EndpointHref(endpoint.Method, endpoint.Path)"
-                                           title="Apply policy to this endpoint"
-                                           class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto relative z-10"
-                                           aria-label="Apply policy to @endpoint.Method @endpoint.Path">
-                                            <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
-                                        </a>
+                                        @if (EndpointHref(endpoint.Method, endpoint.Path) is { } policyHref)
+                                        {
+                                            <a href="@policyHref"
+                                               title="Apply policy to this endpoint"
+                                               class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto relative z-10"
+                                               aria-label="Apply policy to @endpoint.Method @endpoint.Path">
+                                                <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
+                                            </a>
+                                        }
                                     }
                                     else
                                     {
