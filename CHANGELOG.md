@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.9.3] - 2026-08-14
+
+8.9.3 ships the SQLite reliability + performance pass (dbreview- 2026-08-14) — index
+write-amplification removed, retention deletes bounded, session persistence drops made
+loud, connection pooling enabled — alongside 44 commits of dashboard cold-start /
+prewarm / materializer hardening since 8.9.1. The release line matches the commercial
+stack's 8.9.3.
+
+### Fixed (database / persistence — the dbreview- pass)
+
+- **SQLite index write-amplification removed.** Five indexes proven duplicate of a
+  PRIMARY KEY or UNIQUE constraint's implicit index are dropped (idempotent at boot):
+  `idx_waveform_history_signature_ts` (≡ PK), `idx_buckets_time` (≡ PK),
+  `idx_bot_patterns_pattern` + `idx_datacenter_ips_range` (≡ UNIQUE), and
+  `ix_adm_archetype_id` (≡ PK prefix). Every insert/upsert paid an extra index for zero
+  read-path benefit — waveform observations and minute buckets were the worst hit.
+- **Metric-snapshot indexes now match the query shapes.** `idx_ms_lookup` led with
+  `bucket_time`, but every dashboard read filters `pack_id + instrument` equality first
+  (EXPLAIN-verified: the old index could only range-scan the leading column). Replaced
+  with pack-led composites + a dedicated prune index.
+- **Retention deletes are bounded batches.** `DELETE FROM detections WHERE timestamp <
+  cutoff` ran as ONE unbounded statement per boot + per hourly tick — a long write lock
+  and WAL spike on busy sites. Now 5 000 rows per statement, looping until the backlog
+  is gone (index-served).
+- **Session-persistence drops are LOUD, not silent.** The finalized-session channel used
+  `DropOldest`, silently evicting the oldest sessions when the Tick10s drainer fell
+  behind — session records lost with no log. Now Wait-mode: a refused write logs a
+  warning naming the signature and increments a monotonic dropped counter exposed to
+  tests + diagnostics.
+- **SQLite connection pooling enabled** on every file-based store (`Pooling=true`).
+  Microsoft.Data.Sqlite pooling is off by default, so every store call opened a fresh
+  physical connection — the per-request dashboard write path paid a file open + WAL
+  recovery on every request. In-memory (`:memory:`) variants are deliberately excluded
+  (each pooled connection would be a fresh empty database). Validated by the full test
+  suite: 5 069 passed / 0 failed.
+
+### Added (dashboard)
+
+- **Boot-pass pinned wave bump** — all five windows prerender at first paint on a fresh
+  boot (operator directive); boot pass waves run against an extended deadline.
+- **Prewarm 12h** — every standard window's chart is prerendered (operator directive);
+  pinned prewarm now covers `dashboard.site`.
+- **Dashboard diagnostics core** — materializer cadence, per-target stash state, poison
+  refusals, compose feed ring; per-envelope warm-result Debug log so a cold verdict is
+  visible; the empty warm-queue is LOUD.
+- **Datatype proportion displays** — endpoint bot-pressure bars + fingerprint bot/human
+  split; Datatype micro-chart font (sparklines + bot-fraction pie as typed ligatures).
+- **Site Analytics page** registered for the tick-materialized compose pipeline.
+
+### Fixed (dashboard cold-start / materializer)
+
+- **First-load zero race** — bounded stash wait for pinned views, spinner fallback
+  instead of false zeros (visitors page, traffic counters, site hits chart, site
+  summary); traffic chart never renders a bare empty canvas; session-derived tiles fall
+  back to gateway-computed session stats.
+- **Cached-poison guards** — empty shingles are never authoritative; the materializer
+  never caches compose-failure bundles (Warming, not lying zeros); one envelope-key
+  derivation with a boot contract guard; one source for the row refresh paths
+  (clusters/sessions/threats read the composed envelope).
+- **Top Bots collapse by bot identity, never the raw UA string** — no duplicate names;
+  Top Bots names = bot family (PetalBot, not "Petalsearch Crawler…").
+- **D1 stamp-on-success + D2 per-request live-updates dedupe** (P0); period-selector
+  chain honours the window (visitors + site swap region).
+- **Failure backoff** — failed warms are due again in seconds, not the full interval;
+  boot pass retries failed envelopes in the same pass, extended to 3 rounds.
+- **Terminal state for cold widgets** — degraded message instead of infinite spinners;
+  traffic counters render dashes on a cold stash, never zeros; spinner alignment
+  normalized; CSP-blocked row onclick handlers replaced with real anchors; site page
+  swap region wired into the FOSS view.
+
+### Added (policy / enforcement)
+
+- **Redirect + RouteSwap policy actions** for proxy-policy routing.
+- **Enforcement honours the key's own `ActionPolicyName` override** — keys define their
+  posture.
+
+### Fixed (API)
+
+- **DatasetKind string-serialized** — compose-batch 400s that killed the prewarm
+  composes are gone.
+
 ## [8.9.1] - 2026-08-12
 
 8.9.1 patches the 8.9.0 release with CI fixes (8 test files that had drifted from
