@@ -63,4 +63,28 @@ public class TopReasonsOrderingTests
         Assert.Single(topReasons);
         Assert.Contains("heuristic", topReasons[0], StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void NaN_confidence_delta_sorts_as_no_delta_instead_of_throwing()
+    {
+        // Staging persist-dead root (2026-08-14): a detector emitting a NaN delta made
+        // Score = NaN and NaN.CompareTo(NaN) = 1 -- non-reflexive -- so Array.Sort threw
+        // "Unable to sort because the IComparer.Compare() method returns inconsistent
+        // results" on EVERY request, killing the middleware's persist path while the
+        // background drainers stayed live (dashboard_detections frozen, signatures fresh).
+        // The NaN score must rank as "no delta" (bottom of its group), never throw.
+        var contributions = new List<DetectionContribution>
+        {
+            C("UserAgent", "Known bot UA pattern: Bingbot", 0.7),
+            C("Heuristic", "AI heuristic model (late): NaN% bot likelihood (298 features)", double.NaN),
+        };
+
+        var (topReasons, _) = DetectionBroadcastMiddleware.AggregateContributionsAndTopReasons(contributions);
+
+        // The concrete reason still surfaces first; the NaN-scored heuristic does not
+        // throw and lands as a trailing row.
+        Assert.Equal("Known bot UA pattern: Bingbot", topReasons[0]);
+        Assert.Equal(2, topReasons.Count);
+        Assert.Contains("heuristic", topReasons[1], StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -1275,7 +1275,16 @@ public partial class DetectionBroadcastMiddleware
 
             // Top-reasons feed.
             if (!string.IsNullOrEmpty(c.Reason))
-                reasonsBuffer.Add((c.Reason, Math.Abs(c.ConfidenceDelta * c.Weight), IsAggregateReason(name)));
+            {
+                // NaN guard (2026-08-14, staging persist-dead root): a detector delta of
+                // NaN (NaN×weight = NaN) made NaN.CompareTo(NaN) = 1 — non-reflexive —
+                // and Array.Sort threw "Unable to sort because the IComparer.Compare()
+                // method returns inconsistent results" on EVERY request, killing the
+                // middleware's persist path while the background drainers stayed live.
+                // Non-finite scores rank as "no delta" (bottom of their group).
+                var score = Math.Abs(c.ConfidenceDelta * c.Weight);
+                reasonsBuffer.Add((c.Reason, double.IsFinite(score) ? score : 0, IsAggregateReason(name)));
+            }
         }
 
         // Sort reasons so the CONCRETE identity/behaviour reasons ("Known bot UA pattern:
