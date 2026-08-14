@@ -523,31 +523,41 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
             // Boot-pass failure retry (operator gate 2026-08-14: every standard window must
             // prerender at first paint on a fresh boot): a compose that failed at boot (the
-            // gateway not yet ready, a transient timeout) must not reset the envelope to the
-            // next tick's cadence — D1 keeps failures un-stamped, so they would re-warm at
-            // the next 10s tick, pushing the non-default windows' first paint past 30s. One
-            // bounded retry round within the same pass, at the bump concurrency, closes the
-            // gap. Steady-state ticks never retry here (their failures ride the cadence).
-            if (isBootPass && failedItems.Count > 0)
+            // gateway not yet ready, a transient timeout, or a gateway-side pressure window
+            // — staging evidence 2026-08-14: the gateway shed writes under DB pressure and
+            // the site's 10s compose timeouts died client-side for ~minutes) must not reset
+            // the envelope to the next tick's cadence — D1 keeps failures un-stamped, so
+            // they would re-warm at the next 10s tick, pushing the non-default windows'
+            // first paint past 30s. Bounded retry rounds within the same pass (up to 3,
+            // backoff 1s/2s/4s — spanning roughly the gateway's settling window), at the
+            // bump concurrency, close the gap. Steady-state ticks never retry here (their
+            // failures ride the cadence).
+            var retrySize = Math.Max(1, _options.BootPinnedWarmConcurrency);
+            for (var round = 1; isBootPass && failedItems.Count > 0 && round <= 3; round++)
             {
                 _logger?.LogWarning(
-                    "DashboardMaterializerCoordinator: boot pass had {Failed} failed envelope(s); one bounded retry round.",
-                    failedItems.Count);
-                await Task.Delay(TimeSpan.FromMilliseconds(1000), ct).ConfigureAwait(false);
-                var retrySize = Math.Max(1, _options.BootPinnedWarmConcurrency);
+                    "DashboardMaterializerCoordinator: boot pass had {Failed} failed envelope(s); retry round {Round}/3.",
+                    failedItems.Count, round);
+                await Task.Delay(TimeSpan.FromSeconds(round), ct).ConfigureAwait(false);
+                var roundFailures = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window, bool IsPinned)>();
                 for (var start = 0; start < failedItems.Count;)
                 {
                     var wave = failedItems.Skip(start).Take(Math.Min(retrySize, budget - warmed)).ToList();
-                    var waveResults = await Task.WhenAll(wave.Select(item => WarmOneAsync(item, tick + 1, ct))).ConfigureAwait(false);
+                    var waveResults = await Task.WhenAll(wave.Select(item => WarmOneAsync(item, tick + round, ct))).ConfigureAwait(false);
                     for (var i = 0; i < waveResults.Length; i++)
                     {
                         tickCostMs += waveResults[i].CostMs;
-                        if (waveResults[i].PageKey is null) continue;
+                        if (waveResults[i].PageKey is null)
+                        {
+                            roundFailures.Add(wave[i]);
+                            continue;
+                        }
                         warmed++;
                         warmedPages.Add(waveResults[i].PageKey!);
                     }
                     start += wave.Count;
                 }
+                failedItems = roundFailures;
             }
 
             // Broadcast invalidation signals for warmed surfaces. The constrainer handles
