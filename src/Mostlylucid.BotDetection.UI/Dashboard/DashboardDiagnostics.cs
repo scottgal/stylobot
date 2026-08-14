@@ -38,6 +38,24 @@ public sealed class DashboardDiagnostics
 
     public int TickCount => Volatile.Read(ref _tickCount);
 
+    // Ticks whose pass aborted before any warm (the silent-abort class: the queue build
+    // throws → no warm, no feed, ticks advance — the "0/30 cold, feedHistory 0" staging
+    // signature). The counter + the last failure message make the abort visible in
+    // /internal/diagnostics/state instead of a silent void.
+    private long _tickFailures;
+    private string _lastTickFailure = "";
+
+    public void RecordTickFailure(Exception ex)
+    {
+        Interlocked.Increment(ref _tickFailures);
+        Volatile.Write(ref _lastTickFailure, $"{ex.GetType().Name}: {ex.Message}".Length > 300
+            ? $"{ex.GetType().Name}: {ex.Message}"[..300]
+            : $"{ex.GetType().Name}: {ex.Message}");
+    }
+
+    public long TickFailures => Volatile.Read(ref _tickFailures);
+    public string LastTickFailure => Volatile.Read(ref _lastTickFailure);
+
     /// <summary>Records one compose-batch result (the website's remote feed).</summary>
     public void RecordFeed(string kind, int? statusCode, double latencyMs)
     {

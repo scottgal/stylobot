@@ -586,6 +586,16 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 }
             }
         }
+        catch (Exception ex)
+        {
+            // The silent-abort class (2026-08-14 staging: ticks advance, feedHistory 0,
+            // 0/30 envelopes — the queue build throws before any warm, and the pass has
+            // no catch, so the abort was invisible). The pass must never fail silently:
+            // log at WARNING + record into the diagnostics so /internal/diagnostics/state
+            // exposes the failure (tickFailures + lastTickFailure).
+            _logger?.LogWarning(ex, "DashboardMaterializerCoordinator: materializer tick aborted before/during warm.");
+            _diagnostics?.RecordTickFailure(ex);
+        }
         finally
         {
             // Recorded exactly once per tick, regardless of which branch/early-return was
