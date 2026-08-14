@@ -56,6 +56,24 @@ public sealed class DashboardDiagnostics
     public long TickFailures => Volatile.Read(ref _tickFailures);
     public string LastTickFailure => Volatile.Read(ref _lastTickFailure);
 
+    // The warm queue's per-tick state (the silent-empty signature's visibility): the last
+    // tick's queue-empty flag + the pinned-eligible + live counts. Exposed in
+    // /internal/diagnostics/state so a next-tick probe names WHY the queue was empty.
+    private long _queueEmpty;
+    private int _lastPinnedEligible;
+    private int _lastLive;
+
+    public void RecordQueueState(bool queueEmpty, int pinnedEligible, int live)
+    {
+        if (queueEmpty) Interlocked.Increment(ref _queueEmpty);
+        Volatile.Write(ref _lastPinnedEligible, pinnedEligible);
+        Volatile.Write(ref _lastLive, live);
+    }
+
+    public long QueueEmptyTicks => Volatile.Read(ref _queueEmpty);
+    public int LastPinnedEligible => Volatile.Read(ref _lastPinnedEligible);
+    public int LastLive => Volatile.Read(ref _lastLive);
+
     /// <summary>Records one compose-batch result (the website's remote feed).</summary>
     public void RecordFeed(string kind, int? statusCode, double latencyMs)
     {

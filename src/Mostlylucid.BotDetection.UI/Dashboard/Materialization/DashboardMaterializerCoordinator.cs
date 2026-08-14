@@ -420,7 +420,21 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                     warmQueue.Add((e.Manifest, e.Window, IsPinned: false));
             }
 
-            if (warmQueue.Count == 0) return;
+            // The silent-empty signature (2026-08-14 staging: ticks advance, zero coordinator
+            // lines, no stamps, no requests — the queue was empty every tick and the return
+            // was invisible). The queue-empty must never be silent: log the per-tier counts so
+            // a next-tick probe names WHY (pinned skipped vs due-gate vs no manifests).
+            if (warmQueue.Count == 0)
+            {
+                var pinnedQueued = _options.PrewarmDefaultEnvelope
+                    ? _options.PrewarmPageKeys.Count(k => _manifests.For(k) is not null) * _options.PrewarmWindows.Count
+                    : 0;
+                _logger?.LogDebug(
+                    "DashboardMaterializerCoordinator: warm queue empty this tick (pinned eligible={Pinned}, live={Live}, enabled={Enabled}, prewarmDefault={PrewarmDefault}).",
+                    pinnedQueued, ranked.Count, _options.Enabled, _options.PrewarmDefaultEnvelope);
+                _diagnostics?.RecordQueueState(queueEmpty: true, pinnedQueued, ranked.Count);
+                return;
+            }
 
             var budget = _options.MaxPagesPerTick;
             var warmed = 0;
