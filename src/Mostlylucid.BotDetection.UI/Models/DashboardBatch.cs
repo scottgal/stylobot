@@ -1,8 +1,17 @@
+using System.Text.Json.Serialization;
 using Mostlylucid.BotDetection.RateLimit;
 
 namespace Mostlylucid.BotDetection.UI.Models;
 
-/// <summary>Which aggregate slice a caller wants from a batched dashboard read.</summary>
+/// <summary>
+///     Which aggregate slice a caller wants from a batched dashboard read.
+///     String-serialized (not the numeric default) so remote/thin clients that
+///     send the enum NAME in the compose-batch JSON bind correctly — the
+///     number-only binding 400'd every string-kind request, which silently
+///     killed the site's prewarm composes (every envelope stayed cold, the
+///     first-paint gate never met). deploy-/dash- 2026-08-14.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<DatasetKind>))]
 public enum DatasetKind { SummaryStats, TimeBuckets, BotAggregate, GeoBreakdown, EndpointStats, DegradationHistory }
 
 /// <summary>Specifies one slice of a batched dashboard read.</summary>
