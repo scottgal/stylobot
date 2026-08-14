@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using Microsoft.Extensions.Caching.Memory;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
@@ -136,10 +135,10 @@ public partial class DetectionBroadcastMiddleware
     private static partial System.Text.RegularExpressions.Regex EmailPattern();
     private readonly ILogger<DetectionBroadcastMiddleware> _logger;
     private readonly RequestDelegate _next;
-    private readonly IMemoryCache? _writeThrottle;
+    // (The per-signature write throttle lived here until 2026-08-14 — removed: see the
+    // persist task's comment for why it undercounted the absorption path.)
 
     /// <summary>Minimum interval between persist writes for the same signature.</summary>
-    private static readonly TimeSpan MinPersistInterval = TimeSpan.FromSeconds(60);
 
     // Caps the world-map attack-arc firehose to at most one arc per
     // AttackArcMinIntervalMs across the whole process. The arc is decorative;
@@ -161,12 +160,10 @@ public partial class DetectionBroadcastMiddleware
 
     public DetectionBroadcastMiddleware(
         RequestDelegate next,
-        ILogger<DetectionBroadcastMiddleware> logger,
-        IMemoryCache? memoryCache = null)
+        ILogger<DetectionBroadcastMiddleware> logger)
     {
         _next = next;
         _logger = logger;
-        _writeThrottle = memoryCache;
     }
 
     public async Task InvokeAsync(
@@ -392,16 +389,14 @@ public partial class DetectionBroadcastMiddleware
         {
             try
             {
-                // Per-signature write throttle: only persist once per MinPersistInterval
-                // (60s). A fingerprint making 1000 requests/minute generates ONE row, not
-                // 1000. SignalR still broadcasts live; the dashboard aggregate cache stays
-                // authoritative. This prevents unbounded accumulation in dashboard_detections.
-                var sig = detectionCapture.PrimarySignature;
-                if (sig is not null && _writeThrottle is not null)
-                {
-                    if (_writeThrottle.TryGetValue(sig, out _)) return;
-                    _writeThrottle.Set(sig, true, MinPersistInterval);
-                }
+                // Every detection persists exactly once (2026-08-14): the old per-signature
+                // write throttle (60s, pre-absorption era — it bounded the removed
+                // per-request RAW-INSERT volume) coalesced the persist to ~1/min/signature,
+                // silently UNDERCOUNTING the absorbed counts the sweep folds into the
+                // aggregate rows. In the absorption regime the persist is a memory absorb +
+                // a coalescing-drainer mark (zero per-request DB writes) and the drainers
+                // bound the DB volume per key by construction — no throttle needed, and
+                // the raw-row writers (SQLite) are bounded by their own fold + retention.
                 await PersistDetectionAndSignatureAsync(detectionCapture, factorsCapture, eventStore);
             }
             catch (Exception ex)
