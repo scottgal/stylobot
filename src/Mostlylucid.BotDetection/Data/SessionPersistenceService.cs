@@ -42,6 +42,24 @@ public sealed class SessionPersistenceService : IDisposable
     private readonly IDisposable? _subscription;
     private int _disposed;
 
+    /// <summary>
+    ///     Bounded-channel capacity for finalized sessions awaiting persistence.
+    ///     A full channel means sessions finalize faster than the Tick10s drainer
+    ///     can persist them.
+    /// </summary>
+    private const int ChannelCapacity = 500;
+
+    /// <summary>
+    ///     Count of sessions refused because the persistence channel was full.
+    ///     The channel used to be DropOldest, which evicted the oldest session
+    ///     SILENTLY on every overflow — session records lost with no log, no
+    ///     counter, no diagnostics (the "silent drops are never silent"
+    ///     doctrine). Now Wait-mode + TryWrite: a refused write is counted,
+    ///     logged loudly, and exposed here for tests + the diagnostics surface.
+    /// </summary>
+    private int _droppedSessions;
+    internal int DroppedSessionCount => Interlocked.CompareExchange(ref _droppedSessions, 0, 0);
+
     public SessionPersistenceService(
         IDetectionArchive store,
         SessionStore sessionStore,
@@ -52,7 +70,7 @@ public sealed class SessionPersistenceService : IDisposable
         _sessionStore = sessionStore;
         _logger = logger;
         _channel = Channel.CreateBounded<(SessionSnapshot, IReadOnlyList<SessionRequest>)>(
-            new BoundedChannelOptions(500) { FullMode = BoundedChannelFullMode.DropOldest });
+            new BoundedChannelOptions(ChannelCapacity) { FullMode = BoundedChannelFullMode.Wait });
 
         // Wire the event source. SessionFinalized is event-driven (sessions
         // fire whenever they expire / complete); the channel decouples the
@@ -133,7 +151,19 @@ public sealed class SessionPersistenceService : IDisposable
 
     private void OnSessionFinalized(SessionSnapshot snapshot, IReadOnlyList<SessionRequest> requests)
     {
-        _channel.Writer.TryWrite((snapshot, requests));
+        if (!_channel.Writer.TryWrite((snapshot, requests)))
+        {
+            // The 500-slot channel is full: the Tick10s drainer cannot keep up
+            // with session finalizes. The write is REFUSED (Wait mode — no silent
+            // DropOldest eviction) and the drop is loud + counted, not silent.
+            var dropped = Interlocked.Increment(ref _droppedSessions);
+            _logger.LogWarning(
+                "Session persistence channel FULL ({Cap} slots) — refused session {Signature}; {Dropped} session(s) dropped in total. " +
+                "Sessions are finalizing faster than the Tick10s drainer can persist; check disk/DB pressure.",
+                ChannelCapacity,
+                snapshot.Signature,
+                dropped);
+        }
     }
 
     private async Task PersistSessionAsync(

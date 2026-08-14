@@ -251,5 +251,7 @@ CREATE TABLE IF NOT EXISTS archetype_drift_metrics (
 );
 CREATE INDEX IF NOT EXISTS ix_adm_calibrated_at
     ON archetype_drift_metrics(calibrated_at DESC);
-CREATE INDEX IF NOT EXISTS ix_adm_archetype_id
-    ON archetype_drift_metrics(archetype_id);
+-- ix_adm_archetype_id is a leading-column duplicate of the
+-- (archetype_id, ua_family, calibrated_at) PRIMARY KEY's implicit index
+-- (dbreview- 2026-08-14).
+DROP INDEX IF EXISTS ix_adm_archetype_id;

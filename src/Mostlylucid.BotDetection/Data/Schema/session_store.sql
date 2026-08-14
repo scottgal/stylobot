@@ -91,7 +91,9 @@ CREATE TABLE IF NOT EXISTS buckets (
     avg_processing_time_ms REAL NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_buckets_time ON buckets(bucket_time DESC);
+-- idx_buckets_time duplicates the bucket_time PRIMARY KEY's implicit index
+-- (SQLite btree indexes scan backward equally well; dbreview- 2026-08-14).
+DROP INDEX IF EXISTS idx_buckets_time;
 
 -- Entity Resolution: resolved actor identities.
 -- An entity is our best guess at "this is one actor."

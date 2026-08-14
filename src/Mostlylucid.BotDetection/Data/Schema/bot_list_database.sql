@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS bot_patterns (
     UNIQUE(pattern)
 );
 
-CREATE INDEX IF NOT EXISTS idx_bot_patterns_pattern ON bot_patterns(pattern);
+-- idx_bot_patterns_pattern duplicates the UNIQUE(pattern) constraint's
+-- implicit index (dbreview- 2026-08-14).
+DROP INDEX IF EXISTS idx_bot_patterns_pattern;
 CREATE INDEX IF NOT EXISTS idx_bot_patterns_category ON bot_patterns(category);
 
 CREATE TABLE IF NOT EXISTS datacenter_ips (
@@ -25,7 +27,9 @@ CREATE TABLE IF NOT EXISTS datacenter_ips (
     created_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_datacenter_ips_range ON datacenter_ips(ip_range);
+-- idx_datacenter_ips_range duplicates the UNIQUE(ip_range) constraint's
+-- implicit index (dbreview- 2026-08-14).
+DROP INDEX IF EXISTS idx_datacenter_ips_range;
 
 CREATE TABLE IF NOT EXISTS list_updates (
     list_type TEXT PRIMARY KEY,

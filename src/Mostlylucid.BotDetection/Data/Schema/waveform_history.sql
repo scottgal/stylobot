@@ -18,5 +18,7 @@ CREATE TABLE IF NOT EXISTS waveform_history (
     PRIMARY KEY (signature, ts_ticks)
 );
 
-CREATE INDEX IF NOT EXISTS idx_waveform_history_signature_ts
-    ON waveform_history(signature, ts_ticks);
+-- idx_waveform_history_signature_ts is an exact duplicate of the
+-- (signature, ts_ticks) PRIMARY KEY's implicit index (dbreview- 2026-08-14);
+-- every observation upsert paid a second index for no read-path benefit.
+DROP INDEX IF EXISTS idx_waveform_history_signature_ts;

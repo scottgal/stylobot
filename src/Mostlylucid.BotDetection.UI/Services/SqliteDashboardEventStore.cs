@@ -192,12 +192,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             }
 
             // Prune old detections per StyloBotDashboardOptions.DetectionRetention
-            // (default 7 days; configurable per host).
-            await using var pruneCmd = conn.CreateCommand();
-            pruneCmd.CommandText = "DELETE FROM detections WHERE timestamp < @cutoff";
-            pruneCmd.Parameters.AddWithValue("@cutoff",
-                DateTime.UtcNow.Subtract(_detectionRetention).ToString("O"));
-            var pruned = await pruneCmd.ExecuteNonQueryAsync(ct);
+            // (default 7 days; configurable per host). Batched: one bounded DELETE
+            // per round-trip instead of a single unbounded statement, so the
+            // boot-time sweep on a busy database cannot hold a long write lock or
+            // bloat the WAL (dbreview- 2026-08-14; the old single DELETE did).
+            var pruned = await PruneDetectionsBatchedAsync(
+                conn, DateTime.UtcNow.Subtract(_detectionRetention), ct);
             if (pruned > 0) _logger.LogDebug("Pruned {Count} old dashboard detections", pruned);
 
             // Same retention sweep for the degradation_history table -- the
@@ -2630,6 +2630,13 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         }
     }
 
+    /// <summary>
+    ///     Rows deleted per retention DELETE statement. Bounding the batch keeps
+    ///     each statement's write-lock + WAL footprint small on a busy database;
+    ///     the loop drains the backlog across round-trips (dbreview- 2026-08-14).
+    /// </summary>
+    private const int RetentionBatchSize = 5000;
+
     public async Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
@@ -2638,16 +2645,45 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);
-
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM detections WHERE timestamp < @cutoff";
-            cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
-            return await cmd.ExecuteNonQueryAsync(ct);
+            return await PruneDetectionsBatchedAsync(conn, cutoff, ct);
         }
         finally
         {
             _writeLock.Release();
         }
+    }
+
+    /// <summary>
+    ///     Bounded-loop retention delete: each statement removes at most
+    ///     <see cref="RetentionBatchSize"/> rows (index-served via
+    ///     <c>idx_det_timestamp</c>), looping until the backlog is gone. The old
+    ///     single unbounded DELETE ran one long statement per prune; under 7-day
+    ///     retention on a busy site that meant a big lock + WAL spike on every
+    ///     Tick1h and every boot.
+    /// </summary>
+    private async Task<int> PruneDetectionsBatchedAsync(
+        SqliteConnection conn, DateTime cutoff, CancellationToken ct)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM detections
+             WHERE id IN (
+                 SELECT id FROM detections
+                  WHERE timestamp < @cutoff
+                  ORDER BY timestamp
+                  LIMIT @batch)
+            """;
+        cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
+        cmd.Parameters.AddWithValue("@batch", RetentionBatchSize);
+
+        var total = 0;
+        while (true)
+        {
+            var deleted = await cmd.ExecuteNonQueryAsync(ct);
+            total += deleted;
+            if (deleted < RetentionBatchSize) break;
+        }
+        return total;
     }
 
     public async Task<int> FoldAgedDetectionsAsync(
