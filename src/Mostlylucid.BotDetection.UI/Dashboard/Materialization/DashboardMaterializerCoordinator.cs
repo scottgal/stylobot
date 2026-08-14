@@ -434,6 +434,42 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // doesn't bound cost when compose cost isn't uniform (a corpus-scale query regression),
             // so once elapsed exceeds the budget the remaining envelopes defer to the next tick
             // rather than grinding through the whole queue regardless of how slow composes have become.
+            // One warm's cost measurement + failure sentinel (the wave body shared by the
+            // main loop and the boot-pass retry round). The retry round passes a FRESH tick
+            // (tick + 1): the atom caches the poison-guard Warming under (env, tick), so a
+            // same-tick retry would return the cached Warming without re-composing.
+            async Task<(string? PageKey, double CostMs)> WarmOneAsync(
+                (DashboardPageManifest Manifest, DashboardPageWindow Window, bool IsPinned) item,
+                long warmTick,
+                CancellationToken ct2)
+            {
+                // Stage 2b: measures the REAL wall-clock cost of this one warm -- fed into
+                // the adaptive controller as part of the tick's total measured cost, whether
+                // the compose succeeded or threw (the time was spent either way).
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                try
+                {
+                    var result = await WarmEnvelopeAsync(item.Manifest, item.Window, warmTick, ct2).ConfigureAwait(false);
+                    // A poison-guard Warming result IS a failure for the retry's purposes
+                    // (the compose ran but returned no data) — the boot pass retries it in
+                    // the same pass instead of letting the envelope ride the next tick.
+                    return result.IsWarming
+                        ? (null, sw.Elapsed.TotalMilliseconds)
+                        : (item.Manifest.PageKey, sw.Elapsed.TotalMilliseconds);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogDebug(ex, "DashboardMaterializerCoordinator: warm failed for {Page}.", item.Manifest.PageKey);
+                    return (null, sw.Elapsed.TotalMilliseconds);
+                }
+            }
+
+            var failedItems = new List<(DashboardPageManifest Manifest, DashboardPageWindow Window, bool IsPinned)>();
+
             for (var start = 0; start < warmQueue.Count;)
             {
                 if (warmed >= budget)
@@ -468,37 +504,50 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                     ? (isBootPass ? Math.Max(1, _options.BootPinnedWarmConcurrency) : 1)
                     : waveSize;
                 var wave = warmQueue.Skip(start).Take(Math.Min(currentWaveSize, budget - warmed)).ToList();
-                var waveResults = await Task.WhenAll(wave.Select(async item =>
-                {
-                    // Stage 2b: measures the REAL wall-clock cost of this one warm -- fed into
-                    // the adaptive controller as part of the tick's total measured cost, whether
-                    // the compose succeeded or threw (the time was spent either way).
-                    var sw = System.Diagnostics.Stopwatch.StartNew();
-                    try
-                    {
-                        await WarmEnvelopeAsync(item.Manifest, item.Window, tick, ct).ConfigureAwait(false);
-                        return (PageKey: (string?)item.Manifest.PageKey, CostMs: sw.Elapsed.TotalMilliseconds);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger?.LogDebug(ex, "DashboardMaterializerCoordinator: warm failed for {Page}.", item.Manifest.PageKey);
-                        return (PageKey: (string?)null, CostMs: sw.Elapsed.TotalMilliseconds);
-                    }
-                })).ConfigureAwait(false);
+                var waveResults = await Task.WhenAll(wave.Select(item => WarmOneAsync(item, tick, ct))).ConfigureAwait(false);
 
-                foreach (var (pageKey, costMs) in waveResults)
+                for (var i = 0; i < waveResults.Length; i++)
                 {
-                    tickCostMs += costMs;
-                    if (pageKey is null) continue;
+                    tickCostMs += waveResults[i].CostMs;
+                    if (waveResults[i].PageKey is null)
+                    {
+                        failedItems.Add(wave[i]);
+                        continue;
+                    }
                     warmed++;
-                    warmedPages.Add(pageKey);
+                    warmedPages.Add(waveResults[i].PageKey!);
                 }
 
                 start += wave.Count;
+            }
+
+            // Boot-pass failure retry (operator gate 2026-08-14: every standard window must
+            // prerender at first paint on a fresh boot): a compose that failed at boot (the
+            // gateway not yet ready, a transient timeout) must not reset the envelope to the
+            // next tick's cadence — D1 keeps failures un-stamped, so they would re-warm at
+            // the next 10s tick, pushing the non-default windows' first paint past 30s. One
+            // bounded retry round within the same pass, at the bump concurrency, closes the
+            // gap. Steady-state ticks never retry here (their failures ride the cadence).
+            if (isBootPass && failedItems.Count > 0)
+            {
+                _logger?.LogWarning(
+                    "DashboardMaterializerCoordinator: boot pass had {Failed} failed envelope(s); one bounded retry round.",
+                    failedItems.Count);
+                await Task.Delay(TimeSpan.FromMilliseconds(1000), ct).ConfigureAwait(false);
+                var retrySize = Math.Max(1, _options.BootPinnedWarmConcurrency);
+                for (var start = 0; start < failedItems.Count;)
+                {
+                    var wave = failedItems.Skip(start).Take(Math.Min(retrySize, budget - warmed)).ToList();
+                    var waveResults = await Task.WhenAll(wave.Select(item => WarmOneAsync(item, tick + 1, ct))).ConfigureAwait(false);
+                    for (var i = 0; i < waveResults.Length; i++)
+                    {
+                        tickCostMs += waveResults[i].CostMs;
+                        if (waveResults[i].PageKey is null) continue;
+                        warmed++;
+                        warmedPages.Add(waveResults[i].PageKey!);
+                    }
+                    start += wave.Count;
+                }
             }
 
             // Broadcast invalidation signals for warmed surfaces. The constrainer handles

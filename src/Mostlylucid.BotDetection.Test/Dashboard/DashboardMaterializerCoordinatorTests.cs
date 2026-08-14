@@ -532,4 +532,41 @@ public sealed class DashboardMaterializerCoordinatorTests
 
         await coord.StopAsync(default);
     }
+
+    [Fact]
+    public async Task Boot_pass_retries_failed_envelopes_within_the_same_pass()
+    {
+        // Operator gate (2026-08-14): a compose that fails at boot (the gateway not yet
+        // ready, a transient timeout, or a poison-guard Warming result) must NOT reset the
+        // envelope to the next-tick cadence — the boot pass retries the failed set once,
+        // so every standard window is warm before the first requests land.
+        var attempts = 0;
+        long tick = 1;
+        await using var cache = new DashboardContentCache((_, _, _) =>
+            {
+                attempts++;
+                return Task.FromResult(attempts <= 3 ? DashboardPageResult.Warming : Result());
+            },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions
+            {
+                BootPrewarmEnabled = true,
+                BootPinnedWarmConcurrency = 2,
+            }), sched);
+
+        await coord.StartAsync(default); // the boot pass fires; first 3 composes fail, the retry round succeeds
+        await Task.Delay(500); // let the background pass + retry round finish
+
+        // The traffic 24h envelope (among the first three to fail) must be warm after the
+        // boot pass alone — no tick was ever raised.
+        var manifest = new DefaultDashboardPageManifestSource().For("dashboard.traffic")!;
+        var window = DashboardRoutingHelpers.BuildPinnedWindow("24h", DateTime.UtcNow);
+        var result = await cache.GetCurrentAsync(manifest, window, default);
+        Assert.False(result.IsWarming, "the boot pass's retry round should have warmed the envelope in the same pass");
+        Assert.True(attempts >= 4, $"expected the retry round to re-run the failures (attempts={attempts})");
+        await coord.StopAsync(default);
+    }
 }
