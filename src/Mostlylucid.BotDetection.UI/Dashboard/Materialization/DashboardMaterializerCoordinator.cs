@@ -491,6 +491,17 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 try
                 {
                     var result = await WarmEnvelopeAsync(item.Manifest, item.Window, warmTick, ct2).ConfigureAwait(false);
+                    // Per-envelope result visibility (2026-08-14, the traffic-windows-cold
+                    // class: composes complete with 200s and real data yet never stamp — the
+                    // wave's verdict per envelope was invisible). The Debug line names the
+                    // exact result state for the failing envelopes: Warming vs real, and the
+                    // slice presence (Summary/TimeBuckets) for the real ones.
+                    _logger?.LogDebug(
+                        "DashboardMaterializerCoordinator: warm result for {Page} tick {Tick}: {State} (summary={HasSummary}, timeBuckets={HasBuckets}, ms={CostMs:F0}).",
+                        item.Manifest.PageKey, warmTick,
+                        result.IsWarming ? "Warming" : "real",
+                        result.Summary is not null, result.TimeBuckets is not null,
+                        sw.Elapsed.TotalMilliseconds);
                     // A poison-guard Warming result IS a failure for the retry's purposes
                     // (the compose ran but returned no data) — the boot pass retries it in
                     // the same pass instead of letting the envelope ride the next tick.
