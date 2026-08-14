@@ -425,7 +425,15 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             var budget = _options.MaxPagesPerTick;
             var warmed = 0;
             var warmedPages = new HashSet<string>(StringComparer.Ordinal);
-            var deadline = _time.GetUtcNow() + TimeSpan.FromMilliseconds(_options.MaxTickDurationMs);
+            // The BOOT pass runs its waves against the extended deadline
+            // (BootPrewarmMaxDurationSeconds, default 180s): steady-state ticks cut at
+            // MaxTickDurationMs (30s), which on a slow compose path (staging: 30-60s per
+            // compose) left the 30-envelope set taking 20+ minutes. The boot pass lands
+            // the whole pinned set in one pass. Background — never blocks boot.
+            var deadline = _time.GetUtcNow()
+                + (isBootPass
+                    ? TimeSpan.FromSeconds(Math.Max(1, _options.BootPrewarmMaxDurationSeconds))
+                    : TimeSpan.FromMilliseconds(_options.MaxTickDurationMs));
             var waveSize = Math.Max(1, _options.MaxConcurrentWarmsPerTick);
 
             // §7 Tier 3 (bounded parallelism): warm in waves of at most MaxConcurrentWarmsPerTick
@@ -483,8 +491,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 if (_time.GetUtcNow() >= deadline)
                 {
                     _logger?.LogWarning(
-                        "DashboardMaterializerCoordinator: MaxTickDurationMs={Budget}ms exceeded after warming {Warmed}; {Deferred} envelope(s) deferred to next tick.",
-                        _options.MaxTickDurationMs, warmed, warmQueue.Count - start);
+                        "DashboardMaterializerCoordinator: wave deadline exceeded after warming {Warmed}; {Deferred} envelope(s) deferred to next tick. (deadline = {DeadlineMs}ms — the boot pass uses BootPrewarmMaxDurationSeconds, steady-state ticks MaxTickDurationMs.)",
+                        warmed, warmQueue.Count - start,
+                        isBootPass ? _options.BootPrewarmMaxDurationSeconds * 1000 : _options.MaxTickDurationMs);
                     break;
                 }
 

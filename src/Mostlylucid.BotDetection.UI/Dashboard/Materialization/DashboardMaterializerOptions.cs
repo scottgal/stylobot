@@ -162,6 +162,19 @@ public sealed class DashboardMaterializerOptions
     /// </summary>
     public int BootPinnedWarmConcurrency { get; set; } = 8;
 
+    /// <summary>
+    ///     The BOOT pass's wave deadline in seconds (operator gate 2026-08-14: every
+    ///     standard window prerendered at first paint on a fresh boot). Steady-state
+    ///     ticks cut their waves at <see cref="MaxTickDurationMs"/> (30s) — on a slow
+    ///     compose path (staging evidence: 30-60s per compose under the gateway's
+    ///     pressure window) the pass warms only 1-2 envelopes per tick, so the full
+    ///     30-envelope set took 20+ minutes. The boot pass runs its waves against this
+    ///     longer deadline (default 180s — 30 envelopes / 8-parallel × ~45s), so the
+    ///     whole pinned set lands within the first pass. Background — never blocks boot
+    ///     (BootPrewarmTimeoutMs unchanged); the L2 gate budget is untouched.
+    /// </summary>
+    public int BootPrewarmMaxDurationSeconds { get; set; } = 180;
+
     // -------------------------------------------------------------------------------
     // Stage 2b: per-page-key refresh cadence. Before this, the tick loop re-warmed
     // EVERY live envelope on EVERY Tick10s (gated only by LFU-hotness ordering and

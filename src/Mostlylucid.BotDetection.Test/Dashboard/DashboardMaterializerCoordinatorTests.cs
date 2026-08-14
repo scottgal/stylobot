@@ -569,4 +569,39 @@ public sealed class DashboardMaterializerCoordinatorTests
         Assert.True(attempts >= 4, $"expected the retry round to re-run the failures (attempts={attempts})");
         await coord.StopAsync(default);
     }
+
+    [Fact]
+    public async Task Boot_pass_uses_the_extended_deadline_not_the_tick_budget()
+    {
+        // Operator gate (2026-08-14): the steady-state tick budget (MaxTickDurationMs)
+        // cuts the waves mid-pass on a slow compose path (staging measured 30-60s per
+        // compose → 1-2 envelopes per tick → the 30-envelope set took 20+ minutes). The
+        // boot pass runs its waves against BootPrewarmMaxDurationSeconds instead, so the
+        // whole pinned set lands within the first pass. Background — never blocks boot.
+        var composes = 0;
+        long tick = 1;
+        await using var cache = new DashboardContentCache(async (_, _, _) =>
+            {
+                composes++;
+                await Task.Delay(50); // a slow compose path
+                return Result();
+            },
+            () => tick, Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions
+            {
+                BootPrewarmEnabled = true,
+                MaxTickDurationMs = 1, // the steady-state budget would kill the pass instantly
+                BootPinnedWarmConcurrency = 8,
+                BootPrewarmMaxDurationSeconds = 30,
+            }), sched);
+
+        await coord.StartAsync(default); // the boot pass (extended deadline)
+        await Task.Delay(3000); // 30 × 50ms / 8-parallel ≈ 200ms + margin
+
+        Assert.Equal(30, composes); // the whole pinned set in ONE pass
+        await coord.StopAsync(default);
+    }
 }
