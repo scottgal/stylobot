@@ -800,6 +800,12 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // investigated in parallel by the design owner.
         services.TryAddSingleton<Data.RequestPersistenceService>();
         services.TryAddSingleton<Services.SessionAtomizerService>();
+        // The legacy session finalize → row path (the same dead-registration class):
+        // SessionPersistenceService drains the Analysis.SessionStore's SessionFinalized
+        // (the guard-fixed atom's finalize set — gap/chunk/idle/eviction) into
+        // AddSessionAsync. Also never registered — only bootstrap-eager-resolved.
+        services.TryAddSingleton<Data.SessionPersistenceService>();
+        services.AddHostedService<Data.SessionPersistenceLifecycleHostedService>();
 
         // Data guardian: prune stale time-series bucket rows (Phase 1, extracted
         // from VectorCompactionService). Runs on its own interval; interval and

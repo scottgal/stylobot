@@ -64,7 +64,15 @@ public sealed class SessionVectorAtom : DetectorAtomBase
     }
 
     public override int Priority => 30;
-    public override IReadOnlyList<string> RequiredSignals => new[] { SignalKeys.PrimarySignature };
+    // WAVE 0 (empty RequiredSignals — the guard fix, 2026-08-15): the atom previously
+    // declared [signature.primary] as required, which the wave plan scheduled into the
+    // LATER waves — and the quorum-exit in wave 0 could break before the later waves
+    // ran, so the atom NEVER executed (the rig's sessions-0 + the instrumented Demo
+    // proof: registered + enabled, engine runs, DetectAsync never called). The atom is
+    // now unconditional like the other Wave 0 foundation atoms; its DetectAsync already
+    // handles the absent signature gracefully (the null-signature early return below),
+    // so the session recording primes on every request.
+    public override IReadOnlyList<string> RequiredSignals => Array.Empty<string>();
 
     private double P(string name, double fallback) => _configProvider.GetParameter(Name, name, fallback);
     private int P(string name, int fallback) => _configProvider.GetParameter(Name, name, fallback);
