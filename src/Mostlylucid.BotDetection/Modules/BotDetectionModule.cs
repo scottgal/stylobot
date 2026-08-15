@@ -789,6 +789,18 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // remote-mode dashboards.
         services.TryAddSingleton<Data.IDetectionArchive, Data.SqliteDetectionArchive>();
 
+        // The session-ROW path's dependable per-request feed (overview- ruling
+        // 2026-08-15): RequestPersistenceService (per-request sampled writer into the
+        // archive's requests table, coalesced via BatchingAtom) + SessionAtomizerService
+        // (Tick1m: pulls unatomized requests, groups by gap, persists the session rows
+        // via AddSessionAsync). Both were written + eagerly-resolved by the bootstrap
+        // but NEVER registered — the entire path was dead code (the rig's sessions-0
+        // class). Routing the row path through the atomizer closes the trace
+        // immediately; the SessionVectorAtom's package-dispatch question is
+        // investigated in parallel by the design owner.
+        services.TryAddSingleton<Data.RequestPersistenceService>();
+        services.TryAddSingleton<Services.SessionAtomizerService>();
+
         // Data guardian: prune stale time-series bucket rows (Phase 1, extracted
         // from VectorCompactionService). Runs on its own interval; interval and
         // enabled flag are config-driven via BotDetection:Guardians:BucketRetention:*.

@@ -4,7 +4,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Definitions.RegistryClients;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Ephemeral;
@@ -48,19 +50,25 @@ public sealed class BotDetectionOrchestrator : IDisposable
     private readonly IFingerprintStore _fingerprintStore;
     private readonly Posture.IDetectionPostureProvider _postureProvider;
     private readonly SignalSink _signalSink;
+    private readonly Data.RequestPersistenceService? _requestPersistence;
 
     public BotDetectionOrchestrator(
         DetectionEngine engine,
         IOptions<BotDetectionOptions> options,
         IFingerprintStore fingerprintStore,
         ILogger<BotDetectionOrchestrator> logger,
-        Posture.IDetectionPostureProvider? postureProvider = null)
+        Posture.IDetectionPostureProvider? postureProvider = null,
+        Data.RequestPersistenceService? requestPersistence = null)
     {
         _engine = engine;
         _options = options.Value;
         _fingerprintStore = fingerprintStore;
         _logger = logger;
         _postureProvider = postureProvider ?? Posture.FullDetectionPostureProvider.Instance;
+        // The session-ROW path's dependable per-request feed (overview- ruling
+        // 2026-08-15): nullable so hosts that never register the request
+        // persistence (minimal/sidecar) don't pay for it.
+        _requestPersistence = requestPersistence;
 
         // Per-request signal sink. This is the ONLY per-request allocation now: the
         // expensive DetectorOrchestrator + ~70-atom Register() wiring is built ONCE in the
@@ -178,6 +186,36 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // policy pipeline against a response, decide whether to raise a
             // SessionSample into the shared SessionStore, and the
             // SessionAtom reacts to aggregate mutations off-thread.
+
+            // The session-ROW path's dependable per-request feed (overview- ruling
+            // 2026-08-15): enqueue this request into the archive's requests table
+            // (sampled + coalesced by RequestPersistenceService); the
+            // SessionAtomizerService groups them into sessions and persists the rows
+            // via AddSessionAsync — "every session MUST leave a trace" closes
+            // immediately, independent of the SessionVectorAtom's dispatch. Learning-
+            // suppressed requests skip (the same gate as the identity write-behind).
+            if (_requestPersistence is not null && !context.IsLearningSuppressedByApiKey()
+                && _postureProvider.LearningEnabled)
+            {
+                try
+                {
+                    _ = _requestPersistence.EnqueueAsync(
+                        _signalSink.ReadHint(SignalKeys.PrimarySignature) ?? sessionId,
+                        context.Request.Path.Value ?? "/",
+                        RequestMarkovClassifier.Classify(context, _signalSink).ToString(),
+                        context.Response.StatusCode > 0 ? context.Response.StatusCode : 200,
+                        evidence.BotProbability,
+                        evidence.Confidence,
+                        evidence.RiskBand.ToString(),
+                        stopwatch.Elapsed.TotalMilliseconds,
+                        DateTime.UtcNow,
+                        RequestScope.Unknown);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Request persistence enqueue failed; session atomizer path skipped for {SessionId}", sessionId);
+                }
+            }
 
             _logger.LogDebug(
                 "Detection completed for {SessionId}: BotProbability={Prob:F2}, Confidence={Conf:F2}, Elapsed={Elapsed}ms",
