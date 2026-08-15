@@ -213,5 +213,16 @@ public sealed class SiteCoordinator : IAsyncDisposable
     public bool TryGetSession(string fingerprintId, out Session? session)
         => _sessions.TryGet(fingerprintId, out session);
 
+    /// <summary>
+    ///     Ends the session for a fingerprint — the epoch-finalize primitive
+    ///     (max-lifetime chunk + idle sweep, 2026-08-15): the bounded cache's
+    ///     onEvict hook fires the store's finalize (the Lifecycle signal chain),
+    ///     and the next <see cref="GetOrCreateSessionAsync"/> starts a fresh
+    ///     epoch. The caller must NOT double-finalize (the onEvict is the single
+    ///     finalize owner, same shape as the cache's own eviction paths).
+    /// </summary>
+    public void InvalidateSession(string fingerprintId)
+        => _sessions.Invalidate(fingerprintId);
+
     public ValueTask DisposeAsync() => _sessions.DisposeAsync();
 }

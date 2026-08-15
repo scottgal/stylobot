@@ -774,6 +774,10 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             .BindConfiguration("BotDetection:SessionCoordinator");
         services.TryAddSingleton<Orchestration.Sessions.SiteCoordinatorRegistry>();
         services.TryAddSingleton<Orchestration.Sessions.SessionStore>();
+        // The session-idle sweep's cadence driver (2026-08-15): finalizes sessions
+        // whose last contribution is past MaxIdle on Tick10s — the stopped/paused
+        // class the gap boundary and the sliding TTL never catch.
+        services.AddHostedService<Orchestration.Sessions.SessionIdleSweepHostedService>();
         services.AddOnInitSignal<Orchestration.Sessions.SessionAtom>(
             Orchestration.Sessions.SessionStoreOptions.InitSignal);
         services.AddOnInitSignal<Orchestration.Sessions.SessionPersistenceAtom>(

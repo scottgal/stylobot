@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -37,6 +38,16 @@ public sealed class SessionStore : IDisposable
     private readonly SessionStoreOptions _options;
     private readonly bool _ownsRegistry;
     private int _disposed;
+
+    /// <summary>
+    ///     Per-(site, fingerprint) last-contribution timestamps — the store's shadow
+    ///     index for the finalize set (max-lifetime chunk + idle sweep, 2026-08-15).
+    ///     The bounded cache owns the Session values but exposes no enumeration, so
+    ///     this index is what the sweep scans; entries are removed on the cache's
+    ///     onEvict finalize (the single finalize owner). Bounded by the cache cap.
+    /// </summary>
+    private readonly ConcurrentDictionary<(string SiteId, string FingerprintId), DateTimeOffset> _lastActivity
+        = new();
 
     /// <summary>
     ///     Change-stream sink. Every upsert raises the freshly-merged aggregate.
@@ -124,6 +135,27 @@ public sealed class SessionStore : IDisposable
 
         var session = await coordinator.GetOrCreateSessionAsync(sample.FingerprintId, ct).ConfigureAwait(false);
 
+        // The max-lifetime CHUNK (operator 2026-08-15: "even for continuous we can
+        // chunk them"): the never-idle class (5-min pings, always-on clients, the rig's
+        // continuous driver) would otherwise accumulate forever with no boundary and
+        // never leave a trace — neither the gap nor the sliding TTL ever fires. A
+        // request whose session's age from creation exceeds MaxLifetime finalizes the
+        // epoch (the Lifecycle finalize chain — raised here; the cache's Invalidate is
+        // SILENT, so there is no second finalize) and starts fresh; THIS sample
+        // continues in the new epoch. Retrogressive, request-driven — same shape as
+        // the legacy chunk. Rig-visible Information discriminator.
+        var age = sample.Timestamp - session.Created;
+        if (age >= _options.MaxLifetime)
+        {
+            _logger.LogInformation(
+                "Session max-lifetime chunk for {FingerprintId} on {SiteId}: age {Age:hh\\:mm\\:ss} >= {MaxLifetime:hh\\:mm\\:ss} — finalizing epoch, starting fresh",
+                sample.FingerprintId, sample.SiteId, age, _options.MaxLifetime);
+            _lastActivity.TryRemove((sample.SiteId, sample.FingerprintId), out _);
+            RaiseFinalize(sample.SiteId, sample.FingerprintId, session, SessionFinalizeReason.MaxLifetime);
+            coordinator.InvalidateSession(sample.FingerprintId);
+            session = await coordinator.GetOrCreateSessionAsync(sample.FingerprintId, ct).ConfigureAwait(false);
+        }
+
         var previous = SessionAggregateMolecule.FromSession(session, sample.FingerprintId, sample.SiteId);
         var merged = previous is null
             ? SessionAggregateMerge.FromFirstSample(sample)
@@ -133,6 +165,8 @@ public sealed class SessionStore : IDisposable
             RequestId: sample.RequestId ?? $"{sample.FingerprintId}:{merged.SampleCount}",
             At: sample.Timestamp,
             Signals: new[] { SessionAggregateMolecule.ToSignal(merged) }));
+
+        _lastActivity[(sample.SiteId, sample.FingerprintId)] = sample.Timestamp;
 
         Changes.Raise(SessionSignalKeys.AggregateUpdated.Name, merged, sample.FingerprintId);
         return merged;
@@ -198,17 +232,71 @@ public sealed class SessionStore : IDisposable
             Signals: new[] { WebBotAuthVerdictMolecule.ToSignal(verdict) }));
     }
 
-    private ValueTask OnSessionEvictedAsync(
-        string siteId,
-        string fingerprintId,
-        Session session,
-        CancellationToken ct)
+    /// <summary>
+    ///     The session-idle sweep (operator 2026-08-15: "the distance since the last
+    ///     request, that is the threshold"): finalizes every session whose LAST
+    ///     contribution is older than <see cref="SessionStoreOptions.MaxIdle"/> — the
+    ///     stopped/paused class. Independent of whether another request ever arrives;
+    ///     driven on a cadence by the caller. The finalize is DELEGATED to the cache's
+    ///     onEvict (the single finalize owner — the Lifecycle chain); the sweep only
+    ///     invalidates the session + drops the shadow entry. Rig-visible Information
+    ///     count.
+    /// </summary>
+    public async Task<int> FinalizeIdleSessionsAsync(DateTimeOffset now, CancellationToken ct = default)
     {
-        // The cache has removed this value already. Build the final projection from
-        // the frozen value supplied by onEvict rather than attempting a racy lookup.
+        if (_options.MaxIdle <= TimeSpan.Zero) return 0;
+
+        var entries = _lastActivity.ToArray();
+        var finalized = 0;
+        foreach (var ((siteId, fingerprintId), lastActivity) in entries)
+        {
+            if (ct.IsCancellationRequested) break;
+            if (now - lastActivity < _options.MaxIdle) continue;
+
+            var coordinator = _sessions.TryGet(siteId, out var c) ? c : null;
+            if (coordinator is null)
+            {
+                _lastActivity.TryRemove((siteId, fingerprintId), out _);
+                continue;
+            }
+
+            if (!coordinator.TryGetSession(fingerprintId, out var session) || session is null)
+            {
+                _lastActivity.TryRemove((siteId, fingerprintId), out _);
+                continue;
+            }
+
+            // The Lifecycle finalize is raised HERE (the cache's Invalidate is silent —
+            // no onEvict fires, so there is no second finalize) and the session is
+            // removed so its next upsert starts fresh.
+            _lastActivity.TryRemove((siteId, fingerprintId), out _);
+            RaiseFinalize(siteId, fingerprintId, session, SessionFinalizeReason.Ttl);
+            coordinator.InvalidateSession(fingerprintId);
+            finalized++;
+        }
+
+        if (finalized > 0)
+        {
+            _logger.LogInformation(
+                "Session-idle sweep: {Count} session(s) idle past {MaxIdle:hh\\:mm\\:ss} finalized",
+                finalized, _options.MaxIdle);
+        }
+        return finalized;
+    }
+
+    /// <summary>
+    ///     Raises the Lifecycle finalize chain for an epoch's end — shared by the
+    ///     max-lifetime chunk, the idle sweep, and the cache's own eviction
+    ///     (OnSessionEvictedAsync). The finalize signal's payload carries the epoch's
+    ///     aggregate projection (built from the session's latest contributions) + the
+    ///     reason; the ack protocol (FinalizeDeadline / ExpectedAckCount) is the
+    ///     subscribers' contract.
+    /// </summary>
+    private void RaiseFinalize(
+        string siteId, string fingerprintId, Session session, SessionFinalizeReason reason)
+    {
         var aggregate = SessionAggregateMolecule.FromSession(session, fingerprintId, siteId);
-        if (aggregate is null)
-            return ValueTask.CompletedTask;
+        if (aggregate is null) return;
 
         Lifecycle.Raise(
             signal: SessionFinalizingSignal.Key.Name,
@@ -218,10 +306,21 @@ public sealed class SessionStore : IDisposable
                 SiteId = siteId,
                 Aggregate = aggregate,
                 DeadlineUtc = DateTimeOffset.UtcNow + _options.FinalizeDeadline,
-                Reason = SessionFinalizeReason.Ttl,
+                Reason = reason,
             },
             key: fingerprintId);
+    }
 
+    private ValueTask OnSessionEvictedAsync(
+        string siteId,
+        string fingerprintId,
+        Session session,
+        CancellationToken ct)
+    {
+        // The cache has removed this value already. Build the final projection from
+        // the frozen value supplied by onEvict rather than attempting a racy lookup.
+        _lastActivity.TryRemove((siteId, fingerprintId), out _);
+        RaiseFinalize(siteId, fingerprintId, session, SessionFinalizeReason.Ttl);
         return ValueTask.CompletedTask;
     }
 

@@ -61,10 +61,28 @@ public sealed class SessionStoreOptions
     public TimeSpan Ttl { get; set; } = TimeSpan.FromMinutes(10);
 
     /// <summary>
-    ///     Absolute upper bound on aggregate lifetime regardless of access.
-    ///     Same shape as <c>SlidingCacheAtom</c>'s absolute expiration.
+    ///     Absolute upper bound on aggregate lifetime regardless of access —
+    ///     the operator's "even for continuous we can chunk them" (2026-08-15).
+    ///     The CHUNK fires at the upsert boundary (a request whose session's age
+    ///     from its creation exceeds this finalizes the epoch + starts fresh), so
+    ///     the never-idle class (5-min pings, always-on clients, the soak rig's
+    ///     continuous driver) still leaves a trace every chunk. Default 30 min —
+    ///     the same cadence as the gap. Mirrors the legacy store's chunk knob;
+    ///     the cache's absolute expiration is the coordinator-level
+    ///     <c>SessionCoordinatorOptions.SessionMaxLifetime</c> backstop.
     /// </summary>
-    public TimeSpan MaxLifetime { get; set; } = TimeSpan.FromHours(2);
+    public TimeSpan MaxLifetime { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    ///     The session-idle threshold (the operator's "the distance since the last
+    ///     request, that is the threshold"): a session whose LAST contribution is
+    ///     older than this is finalized by the store's idle sweep
+    ///     (<see cref="SessionStore.FinalizeIdleSessionsAsync"/>), independently of
+    ///     whether another request ever arrives. Covers the stopped/paused class;
+    ///     the cache's sliding TTL is the coordinator-level backstop. Default 30 min;
+    ///     TimeSpan.Zero disables the sweep.
+    /// </summary>
+    public TimeSpan MaxIdle { get; set; } = TimeSpan.FromMinutes(30);
 
     /// <summary>
     ///     Floor for adaptive TTL when the store is at capacity. The
