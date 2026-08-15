@@ -19,7 +19,12 @@ input:
     - type: botdetection.request
       required: true
       description: HTTP request for session tracking
-      signal_pattern: waveform.*
+      # Un-gated (stream- ruling 2026-08-15): the waveform.* input requirement was the
+      # cold-start deadlock — the waveform producer needs session history to compute
+      # intervals, the session store needs the waveform signals to run, so the legacy
+      # session-ROW path never primed under continuous load (the rig's sessions-0).
+      # The atom's session records are waveform-independent; the BehavioralWaveformAtom
+      # keeps its own inputs.
 
   required_signals:
     - signature.primary
