@@ -289,6 +289,14 @@ CREATE TABLE IF NOT EXISTS fingerprint_mutations (
 CREATE INDEX IF NOT EXISTS ix_fingerprint_mutations_observed_at
     ON fingerprint_mutations (observed_at);
 
+-- Partial index for the delta de-resolution (perf audit fd4633c1, 2026-08-15):
+-- the de-resolution's DELETE scans only the non-created deltas; without the
+-- partial, the scan walks the created rows too (the corpus's dominant class).
+-- SQLite supports partial indexes; CREATE IF NOT EXISTS keeps it idempotent.
+CREATE INDEX IF NOT EXISTS ix_fingerprint_mutations_delta_observed_at
+    ON fingerprint_mutations (observed_at)
+    WHERE mutation_type <> 'created';
+
 -- Monotonic per-fingerprint version of the materialized state. Bumped by every
 -- mutation; the mutations' PRIMARY KEY (fingerprint_id, state_version) makes
 -- the delta chain gapless per fingerprint. The guarded ALTER lives in

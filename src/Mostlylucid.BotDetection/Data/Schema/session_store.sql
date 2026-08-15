@@ -49,6 +49,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_signature ON sessions(signature, ended_a
 CREATE INDEX IF NOT EXISTS idx_sessions_ended ON sessions(ended_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_is_bot ON sessions(is_bot, ended_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_country ON sessions(country_code);
+-- Bare started_at range (perf audit fd4633c1, 2026-08-15): the traffic time-series
+-- read's sessions_started subquery filters started_at ALONE; the (domain, started_at)-
+-- style composites' leading columns are unconstrained for that range scan.
+CREATE INDEX IF NOT EXISTS ix_sessions_started ON sessions(started_at);
 -- Multi-domain composite indexes. On fresh installs the sessions.domain/host
 -- columns don't exist until MigrateAddColumnAsync in SqliteSessionStore runs
 -- first (see the C# init path). SQLite CREATE INDEX will fail with
