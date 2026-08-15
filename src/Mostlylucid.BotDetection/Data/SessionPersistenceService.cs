@@ -110,6 +110,26 @@ public sealed class SessionPersistenceService : IDisposable
     {
         if (_disposed != 0) return;
 
+        // The session-idle sweep (deploy- 2026-08-15 rig evidence): under continuous
+        // load the gap boundary never fires (requests keep arriving, re-arming the
+        // sliding TTL) — finalize any session whose last request is older than the
+        // configured idle period, so every session leaves a trace. The sweep's
+        // finalizes land on the channel below, drained this same tick.
+        try
+        {
+            var removed = await _sessionStore.FinalizeIdleSessionsAsync(now, ct);
+            if (removed > 0)
+                _logger.LogDebug("Session-idle sweep: {Count} idle session(s) finalized", removed);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Session-idle sweep failed; retrying next tick");
+        }
+
         while (_channel.Reader.TryRead(out var item))
         {
             if (ct.IsCancellationRequested) break;

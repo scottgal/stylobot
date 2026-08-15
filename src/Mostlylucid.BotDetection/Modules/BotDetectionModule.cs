@@ -336,10 +336,21 @@ public sealed class BotDetectionModule : IStyloflowWebModule
                 max = cfgMax;
             else if (int.TryParse(Environment.GetEnvironmentVariable("STYLOBOT_SESSION_STORE_MAX_SIGNATURES"), out var envMax) && envMax > 0)
                 max = envMax;
+
+            // Session-idle finalize (deploy- 2026-08-15): every session MUST leave a
+            // trace — under continuous load neither the gap boundary nor the TTL
+            // eviction ever fires, so a session would otherwise live forever without
+            // finalizing. The bound is a PERIOD SINCE THE LAST REQUEST, actively swept
+            // (FinalizeIdleSessionsAsync on a cadence). Minutes; 0 disables. Default 30.
+            TimeSpan? maxIdle = TimeSpan.FromMinutes(30);
+            if (cfg is not null && int.TryParse(cfg["BotDetection:SessionStore:MaxSessionIdleMinutes"], out var cfgIdle))
+                maxIdle = cfgIdle > 0 ? TimeSpan.FromMinutes(cfgIdle) : null;
+
             return new Analysis.SessionStore(
                 sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Analysis.SessionStore>>(),
-                activeSignaturesMaxEntries: max);
+                activeSignaturesMaxEntries: max,
+                maxSessionIdle: maxIdle);
         });
         // Client-side fingerprint population tracker (browser fingerprint
         // observed-value distribution).

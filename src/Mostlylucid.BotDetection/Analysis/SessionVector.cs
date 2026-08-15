@@ -725,6 +725,7 @@ public sealed class SessionStore
     private readonly IMemoryCache _cache;
     private readonly ILogger<SessionStore> _logger;
     private readonly TimeSpan _sessionGapThreshold;
+    private readonly TimeSpan? _maxSessionIdle;
     private readonly int _maxSnapshotsPerSignature;
     private readonly int _maxRequestsPerSession;
     // Striped lock pool: a FIXED number of locks, chosen by hashing the signature.
@@ -786,7 +787,8 @@ public sealed class SessionStore
         TimeSpan? sessionGapThreshold = null,
         int maxSnapshotsPerSignature = 10,
         int maxRequestsPerSession = 200,
-        int activeSignaturesMaxEntries = 20_000)
+        int activeSignaturesMaxEntries = 20_000,
+        TimeSpan? maxSessionIdle = null)
     {
         _cache = cache;
         _logger = logger;
@@ -794,6 +796,16 @@ public sealed class SessionStore
         _maxSnapshotsPerSignature = maxSnapshotsPerSignature;
         _maxRequestsPerSession = maxRequestsPerSession;
         _activeSignaturesMaxEntries = activeSignaturesMaxEntries > 0 ? activeSignaturesMaxEntries : 20_000;
+        // Session-idle finalize (deploy- 2026-08-15 rig evidence): under CONTINUOUS load
+        // the gap boundary never fires (requests keep arriving, re-arming the sliding
+        // TTL) and the slot capacity never presses — sessions lived forever without
+        // leaving a trace. The bound is a PERIOD SINCE THE LAST REQUEST for the
+        // fingerprint: an ACTIVE sweep (FinalizeIdleSessionsAsync, driven on a
+        // cadence) finalizes any session whose last request is older than this period —
+        // independent of whether another request ever arrives. Default 30 min;
+        // TimeSpan.Zero or null disables the sweep. Config:
+        // BotDetection:SessionStore:MaxSessionIdleMinutes.
+        _maxSessionIdle = maxSessionIdle is { } idle && idle > TimeSpan.Zero ? idle : null;
     }
 
     /// <summary>
@@ -821,7 +833,7 @@ public sealed class SessionStore
                 var lastRequest = currentSession[^1];
                 var gap = request.Timestamp - lastRequest.Timestamp;
 
-                // Retrogressive boundary: the gap tells us the PREVIOUS session is over
+                // Retrogressive boundary: the gap tells us the PREVIOUS session is over.
                 if (gap >= _sessionGapThreshold)
                 {
                     // Finalize the previous session into a snapshot
@@ -962,6 +974,62 @@ public sealed class SessionStore
             }
             _activeSignatures.TryRemove(signature, out _);
         }
+    }
+
+    /// <summary>
+    ///     The session-idle sweep (deploy- 2026-08-15 rig evidence): finalizes every
+    ///     active session whose LAST REQUEST is older than
+    ///     <see cref="_maxSessionIdle"/> — the period since the last request for the
+    ///     fingerprint. This is the ACTIVE path "every session MUST leave a trace"
+    ///     needs under continuous load: the gap boundary never fires (requests keep
+    ///     arriving, re-arming the sliding TTL) and the slot capacity never presses,
+    ///     so without this sweep a session could live forever without finalizing.
+    ///     Fires independently of whether another request ever arrives — driven on a
+    ///     cadence by the caller.
+    ///     <para>
+    ///     The finalize is DELEGATED to the slot's Removed-eviction callback (the same
+    ///     shape as <see cref="FlushAllActiveSessionsAsync"/>): a synchronous finalize
+    ///     plus Remove would double-fire the callback's finalize (two rows). The
+    ///     removal runs under the per-signature lock; a request arriving before the
+    ///     deferred callback re-creates the slot and the callback's re-creation check
+    ///     skips — which is CORRECT: the session was not idle if a request arrived.
+    ///     </para>
+    /// </summary>
+    public async Task<int> FinalizeIdleSessionsAsync(DateTimeOffset now, CancellationToken ct = default)
+    {
+        if (_maxSessionIdle is null) return 0;
+
+        var signatures = _activeSignatures.Keys.ToList();
+        var removed = 0;
+        foreach (var signature in signatures)
+        {
+            if (ct.IsCancellationRequested) break;
+            var sessionLock = LockFor(signature);
+            await sessionLock.WaitAsync(ct);
+            try
+            {
+                var sessionKey = $"session:current:{signature}";
+                var currentSession = _cache.Get<List<SessionRequest>>(sessionKey);
+                // The lock serializes with any concurrent request: the freshest state is
+                // re-read here, so a request that arrived since the scan re-arms the
+                // session and it is skipped.
+                if (currentSession is { Count: > 0 }
+                    && now - currentSession[^1].Timestamp >= _maxSessionIdle.Value)
+                {
+                    _cache.Remove(sessionKey); // the Removed-eviction finalizes + drops the shadow entry
+                    removed++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to finalize idle session for {Signature}", signature);
+            }
+            finally
+            {
+                sessionLock.Release();
+            }
+        }
+        return removed;
     }
 
     /// <summary>

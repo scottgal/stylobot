@@ -119,6 +119,58 @@ public sealed class SessionStoreEvictionFinalizeTests
         Assert.Equal(0f, trace.Maturity);
     }
 
+
+    [Fact]
+    public async Task Idle_sweep_finalizes_sessions_past_the_idle_period()
+    {
+        // deploy- 2026-08-15 rig evidence: under continuous load the gap boundary never
+        // fires (requests keep arriving, re-arming the sliding TTL) — the ACTIVE sweep
+        // (period since the LAST request, driven on a cadence) finalizes a session whose
+        // last request is older than the period, even though no further request ever
+        // arrives. Not an age-from-birth bound: a long-lived but recently-active session
+        // is untouched (see the next test).
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new SessionStore(cache, NullLogger<SessionStore>.Instance,
+            sessionGapThreshold: TimeSpan.FromHours(1), maxSessionIdle: TimeSpan.FromSeconds(1));
+        var finalized = new List<string>();
+        store.SessionFinalized += (snap, _) => finalized.Add(snap.Signature);
+
+        var t0 = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 3; i++)
+            await store.RecordRequestAsync("sig-idle", MakeRequest(RequestState.PageView, t0.AddSeconds(i)));
+
+        // The sweep's now is well past the last request (the 1s idle period).
+        var removed = await store.FinalizeIdleSessionsAsync(t0.AddSeconds(30), CancellationToken.None);
+        removed.Should().Be(1, "the idle session must be removed by the sweep");
+
+        // The finalize lands via the slot's Removed-eviction callback (deferred).
+        await WaitForAsync(() => finalized.Count == 1);
+        finalized.Should().ContainSingle(s => s == "sig-idle",
+            "the idle session must finalize so the ladder's row write sees it");
+    }
+
+    [Fact]
+    public async Task Idle_sweep_skips_a_recently_active_session()
+    {
+        // The period is measured since the LAST request, not the session's birth: a
+        // long-lived session with recent activity is NOT idle.
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new SessionStore(cache, NullLogger<SessionStore>.Instance,
+            sessionGapThreshold: TimeSpan.FromHours(1), maxSessionIdle: TimeSpan.FromSeconds(10));
+        var finalized = new List<string>();
+        store.SessionFinalized += (snap, _) => finalized.Add(snap.Signature);
+
+        var t0 = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 3; i++)
+            await store.RecordRequestAsync("sig-active", MakeRequest(RequestState.PageView, t0.AddSeconds(i)));
+
+        // The sweep's now is 5s past the last request — under the 10s idle period.
+        var removed = await store.FinalizeIdleSessionsAsync(t0.AddSeconds(8), CancellationToken.None);
+        removed.Should().Be(0, "a recently-active session is not idle");
+        await Task.Delay(200);
+        finalized.Should().BeEmpty("no finalize for a non-idle session");
+    }
+
     private static async Task WaitForAsync(Func<bool> predicate, int timeoutMs = 5000)
     {
         var deadline = Environment.TickCount + timeoutMs;
