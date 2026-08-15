@@ -434,6 +434,19 @@ public sealed class TemporalStoreOptions
     public int FoldBatchSize { get; set; } = 200;
 
     /// <summary>
+    ///     Session-row horizon (ladder-on-sessions ruling, operator 2026-08-15): the
+    ///     sessions table is a first-class row unit WITHIN this horizon — the Sessions
+    ///     view reads live rows. Past it, the sweep's de-resolution pass
+    ///     (<c>SqliteDashboardEventStore.DeResolveSessionsAsync</c>) verifies the
+    ///     signature's aggregate coverage (the row's data entered the window aggregates
+    ///     once at the hour boundary — the fold of the same requests), lands a guarded
+    ///     one-time backfill only where coverage is absent (never a double count), and
+    ///     deletes the row — one transaction per batch, the table flat by construction.
+    ///     Default 24h.
+    /// </summary>
+    public TimeSpan SessionRowHorizon { get; set; } = TimeSpan.FromHours(24);
+
+    /// <summary>
     ///     Weight of the row's own bot probability in the write-time importance
     ///     score (0..1, blend weights sum to 1). Default 0.5.
     /// </summary>

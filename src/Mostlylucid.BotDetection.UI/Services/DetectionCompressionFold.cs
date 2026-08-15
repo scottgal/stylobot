@@ -108,5 +108,14 @@ public sealed class DetectionCompressionFold : IHostedService, IDisposable
                 "DetectionCompressionFold: folded {Count} aged detection row(s) (hotCutoff={HotCutoff:O}, floor={Floor})",
                 folded, now - _options.HotWindow, _options.ImportanceFloor);
         }
+
+        // Ladder-on-sessions (operator ruling 2026-08-15): session rows past
+        // SessionRowHorizon are de-resolved AFTER the fold — the fold's hour rows are
+        // the coverage the verification checks against. Same gate as the fold (the
+        // ladder rests on the fold's aggregates).
+        if (_store is SqliteDashboardEventStore sqliteStore)
+        {
+            await sqliteStore.DeResolveSessionsAsync(now, ct);
+        }
     }
 }

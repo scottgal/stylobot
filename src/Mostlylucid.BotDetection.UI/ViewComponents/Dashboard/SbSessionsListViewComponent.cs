@@ -72,39 +72,55 @@ public class SbSessionsListViewComponent(
             // The store has no server-side pagination, so we over-fetch conservatively.
             var fetchCount = Math.Min((page * pageSize) + pageSize, 200);
             var since = DateTime.UtcNow - options.Value.DetectionRetention;
-
-            // Phase B (write-path grain redesign): the sessions read surface re-points at
-            // the window folds — the archived sessions rows retired with the session
-            // grain. The fold summaries ARE the persisted session summaries at the hour
-            // grain; the scoped read (visitor-detail "Hit history" panel) filters the
-            // same folds by signature; the bot/human filter maps to the fold's split.
-            var folds = string.IsNullOrEmpty(primarySignature)
-                ? await eventStore.GetSessionFoldSummariesAsync(fetchCount, isBot, since)
-                : await eventStore.GetSessionFoldSummariesAsync(fetchCount, isBot, since, signature: primarySignature);
+            List<Mostlylucid.BotDetection.Data.PersistedSession> allSessions;
+            if (!string.IsNullOrEmpty(primarySignature))
+            {
+                // Scoped read uses the per-signature path. IDetectionArchive.GetSessionsAsync
+                // returns most-recent-first already; the bot/human filter is a post-
+                // filter so the page-size math still applies.
+                var scoped = await sessionStore.GetSessionsAsync(primarySignature, fetchCount);
+                allSessions = isBot.HasValue
+                    ? scoped.Where(s => s.IsBot == isBot.Value).ToList()
+                    : scoped;
+            }
+            else
+            {
+                allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
+            }
 
             var sigLookup = await eventStore.LoadSignatureLookupAsync();
             var uaLookup  = await eventStore.LoadUserAgentLookupAsync();
 
-            // The fold read returns DESC by StartedAt (hour anchor). To compute a per-row
-            // score-delta we need the *next* (older) fold for the same signature.
+            // GetRecentSessionsAsync returns DESC by StartedAt. To compute a per-row
+            // score-delta we need the *next* (older) session for the same signature.
             // Build a per-signature timeline ASC once, then look up the prior entry
             // by Id in the visible window.
             var priorProbBySessionId = new Dictionary<long, double>();
-            foreach (var group in folds.GroupBy(s => s.Signature))
+            foreach (var group in allSessions.GroupBy(s => s.Signature))
             {
                 var asc = group.OrderBy(s => s.StartedAt).ToList();
                 for (var i = 1; i < asc.Count; i++)
                 {
-                    priorProbBySessionId[asc[i].Id] = asc[i - 1].BotProbability;
+                    priorProbBySessionId[asc[i].Id] = asc[i - 1].AvgBotProbability;
                 }
             }
 
-            allEntries = folds.Select(s =>
+            allEntries = allSessions.Select(s =>
             {
+                IReadOnlyList<string>? paths = null;
+                if (!string.IsNullOrEmpty(s.PathsJson))
+                {
+                    try
+                    {
+                        paths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(s.PathsJson);
+                    }
+                    catch (System.Text.Json.JsonException) { /* tolerate malformed PathsJson */ }
+                }
+
                 double? deltaPp = null;
                 if (priorProbBySessionId.TryGetValue(s.Id, out var priorProb))
                 {
-                    deltaPp = (s.BotProbability - priorProb) * 100.0;
+                    deltaPp = (s.AvgBotProbability - priorProb) * 100.0;
                 }
 
                 return new SessionListEntry
@@ -114,22 +130,21 @@ public class SbSessionsListViewComponent(
                     StartedAt = s.StartedAt,
                     EndedAt = s.EndedAt,
                     RequestCount = s.RequestCount,
-                    DominantState = "unknown",
+                    DominantState = s.DominantState,
                     IsBot = s.IsBot,
-                    AvgBotProbability = s.BotProbability,
-                    RiskBand = s.RiskBand ?? "Unknown",
+                    AvgBotProbability = s.AvgBotProbability,
+                    RiskBand = s.RiskBand,
                     Action = s.Action,
                     BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
                     CountryCode = s.CountryCode,
                     UserAgent = uaLookup.ResolveUserAgent(signatureCache, s.Signature),
-                    // Retired with the sessions row — the fold summary carries the
-                    // operator's grain, not the analytic baggage. The UI degrades
-                    // gracefully on these fields.
-                    ErrorCount = 0,
-                    TimingEntropy = 0,
-                    Maturity = 0,
-                    TransitionCounts = null,
-                    Paths = null,
+                    ErrorCount = s.ErrorCount,
+                    TimingEntropy = s.TimingEntropy,
+                    Maturity = s.Maturity,
+                    TransitionCounts = s.TransitionCountsJson != null
+                        ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
+                        : null,
+                    Paths = paths,
                     ScoreDeltaPp = deltaPp
                 };
             }).ToList();

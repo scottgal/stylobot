@@ -153,22 +153,73 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
 
     // === Write path ===
 
-    public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
+    public async Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
     {
-        // Phase B (write-path grain redesign, operator directive 2026-08-15): the session
-        // is the FOLDING unit, not the row unit (settled ruling §1.1). The session's data
-        // — "that they happened and how long they took" — already lands in the window
-        // aggregates via the dashboard store's in-memory fold at the sweep (the same
-        // requests at signature/hour-epoch grain with endpoint lists). Persisting a
-        // heavyweight sessions row (vectors, transitions, narratives) per session is the
-        // per-session logging class the design retires. FOSS keeps firing finalize events
-        // (the session pipeline shape stays); the archive FOLDS them — which here means
-        // dropping the row: the data is already folded, nothing is lost.
-        _logger.LogTrace(
-            "SqliteDetectionArchive.AddSessionAsync: sessions row retired (Phase B) — " +
-            "session for fp={FingerprintId} folded into the window aggregates by the sweep; no session row",
-            session.Signature[..Math.Min(8, session.Signature.Length)]);
-        return Task.FromResult(0L);
+        // Ladder-on-sessions ruling (operator 2026-08-15, supersedes the window-folds-only
+        // reading): the sessions table is a FIRST-CLASS ROW UNIT within its horizon — one
+        // row per session, the operator's grain ("that they happened and how long they
+        // took"): counts, durations, bot/human split, statuses, endpoint refs (paths),
+        // seen-times. The per-session ANALYTIC BAGGAGE (vector, transitions, timing
+        // entropy, narrative, header hashes, frequency fingerprint, drift vector) is NOT
+        // written and NOT served — the drill-in shows the row's summary + the
+        // fingerprint's mutation history. The de-resolution pass
+        // (SqliteDashboardEventStore.DeResolveSessionsAsync) deletes the row past
+        // SessionRowHorizon after verifying its data is folded in the window aggregates —
+        // the table stays flat by construction.
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO sessions (
+                    domain, host,
+                    signature, started_at, ended_at, request_count,
+                    is_bot, avg_bot_probability, avg_confidence, risk_band,
+                    action, bot_name, bot_type, country_code,
+                    paths_json, avg_processing_time_ms, error_count,
+                    -- NOT NULL baggage columns the summary-grain write does not fill:
+                    -- defaults keep the legacy schema shape; the analytic baggage is
+                    -- never written and never served.
+                    dominant_state, maturity
+                ) VALUES (
+                    @domain, @host,
+                    @sig, @started, @ended, @reqCount,
+                    @isBot, @avgProb, @avgConf, @risk,
+                    @action, @botName, @botType, @country,
+                    @paths, @avgTime, @errors,
+                    'unknown', 0
+                )
+                """;
+            // Per-row values on the payload win over the scope fallback.
+            cmd.Parameters.AddWithValue("@domain", (object?)(session.Domain ?? scope.Domain) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@host", (object?)(session.Host ?? scope.Host) ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@sig", session.Signature);
+            cmd.Parameters.AddWithValue("@started", session.StartedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("@ended", session.EndedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("@reqCount", session.RequestCount);
+            cmd.Parameters.AddWithValue("@isBot", session.IsBot ? 1 : 0);
+            cmd.Parameters.AddWithValue("@avgProb", session.AvgBotProbability);
+            cmd.Parameters.AddWithValue("@avgConf", session.AvgConfidence);
+            cmd.Parameters.AddWithValue("@risk", session.RiskBand);
+            cmd.Parameters.AddWithValue("@action", (object?)session.Action ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@botName", (object?)session.BotName ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@botType", (object?)session.BotType ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@country", (object?)session.CountryCode ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@paths", (object?)session.PathsJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@avgTime", session.AvgProcessingTimeMs);
+            cmd.Parameters.AddWithValue("@errors", session.ErrorCount);
+
+            await cmd.ExecuteNonQueryAsync(ct);
+            cmd.CommandText = "SELECT last_insert_rowid()";
+            return (long)(await cmd.ExecuteScalarAsync(ct))!;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     public async Task<long> AddEchoAsync(
@@ -221,15 +272,6 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
         {
             _writeLock.Release();
         }
-    }
-
-    private void FeedSessionVectorToHnsw(PersistedSession session)
-    {
-        if (_vectorSearch == null || session.Vector is not { Length: > 0 }) return;
-        var vector = DeserializeVector(session.Vector);
-        if (vector != null)
-            _ = AddToVectorSearchAsync(vector, session.Signature, session.IsBot, session.AvgBotProbability,
-                session.FrequencyFingerprintBlob, session.DriftVectorBlob);
     }
 
     public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)

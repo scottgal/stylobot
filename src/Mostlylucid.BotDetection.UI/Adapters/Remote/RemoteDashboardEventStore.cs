@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Caching.Memory;
-using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -381,45 +380,6 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         {
             var l = await _api.GetEnvelopeListAsync<DegradationSnapshot>(path, ct);
             return l ?? new List<DegradationSnapshot>();
-        }).ConfigureAwait(false);
-        return list;
-    }
-
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<DashboardSessionFoldSummary>> GetSessionFoldSummariesAsync(
-        int limit, bool? isBot, DateTime since, string? signature = null, CancellationToken ct = default)
-    {
-        // The gateway's /api/v1/sessions/* endpoints now serve the window-fold summaries
-        // (the sessions rows retired with the session grain); the DTO contract is
-        // unchanged, so the remote viewer proxies the same envelope.
-        var query = string.IsNullOrEmpty(signature)
-            ? $"/api/v1/sessions/recent?limit={limit}"
-            : $"/api/v1/sessions/{Uri.EscapeDataString(signature)}?limit={limit}";
-        if (isBot.HasValue) query += $"&isBot={isBot.Value.ToString().ToLowerInvariant()}";
-        query += $"&since={Uri.EscapeDataString(since.ToString("O"))}";
-
-        var list = await GetOrFetchAsync(query, async () =>
-        {
-            var sessions = await _api.GetEnvelopeListAsync<PersistedSession>(query, ct);
-            if (sessions is null) return new List<DashboardSessionFoldSummary>();
-            return sessions.Select(s => new DashboardSessionFoldSummary
-            {
-                Id = s.Id,
-                Signature = s.Signature,
-                StartedAt = s.StartedAt,
-                EndedAt = s.EndedAt,
-                RequestCount = s.RequestCount,
-                BotCount = s.IsBot ? s.RequestCount : 0,
-                BotProbability = s.AvgBotProbability,
-                Confidence = s.AvgConfidence,
-                RiskBand = s.RiskBand,
-                Action = s.Action,
-                BotName = s.BotName,
-                BotType = s.BotType,
-                CountryCode = s.CountryCode,
-                MsSum = s.AvgProcessingTimeMs * s.RequestCount,
-                MsMax = 0,
-            }).ToList();
         }).ConfigureAwait(false);
         return list;
     }

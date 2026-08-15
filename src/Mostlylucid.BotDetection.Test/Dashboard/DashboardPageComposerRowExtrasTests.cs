@@ -236,21 +236,19 @@ public sealed class DashboardPageComposerRowExtrasTests
         // since = DateTime.UtcNow - retention, ignoring the manifest's own resolved window
         // start entirely (retention defaults to 30 days -- so a 6h window still queried 30
         // days back). GREEN after: the window's StartTime, when supplied, wins.
-        // Phase B: the sessions read surface re-pointed at the window folds; the since
-        // semantics moved to the fold read.
-        var store = new RecordingStore();
+        var archive = new RecordingDetectionArchive();
         var composer = new DefaultDashboardPageComposer(
-            EmptyCatalog(), store,
+            EmptyCatalog(), new RecordingStore(),
             signatureCache: new SignatureAggregateCache(new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions()),
-            detectionArchive: new RecordingDetectionArchive());
+            detectionArchive: archive);
         var manifest = new DashboardPageManifest("dashboard.sessions", new[] { DashboardRowWidgetKeys.SessionsRaw });
         var start = DateTime.UtcNow.AddHours(-6);
         var end = DateTime.UtcNow;
 
         await composer.ComposeAsync(manifest, WindowedWindow(start, end), default);
 
-        Assert.NotNull(store.LastSessionsFoldSince);
-        Assert.Equal(start, store.LastSessionsFoldSince!.Value);
+        Assert.NotNull(archive.LastSince);
+        Assert.Equal(start, archive.LastSince!.Value);
     }
 
     [Fact]
@@ -376,14 +374,6 @@ public sealed class DashboardPageComposerRowExtrasTests
         public DateTime? LastThreatsEndTime { get; private set; }
         public DateTime? LastDetectionsFilterStartTime { get; private set; }
         public DateTime? LastDetectionsFilterEndTime { get; private set; }
-        public DateTime? LastSessionsFoldSince { get; private set; }
-
-        public Task<IReadOnlyList<DashboardSessionFoldSummary>> GetSessionFoldSummariesAsync(
-            int limit, bool? isBot, DateTime since, string? signature = null, CancellationToken ct = default)
-        {
-            LastSessionsFoldSince = since;
-            return Task.FromResult<IReadOnlyList<DashboardSessionFoldSummary>>(Array.Empty<DashboardSessionFoldSummary>());
-        }
 
         public List<DashboardTopBotEntry> TopBotsResult { get; set; } = new() { new() { PrimarySignature = "sig-topbots" } };
         public List<DashboardDetectionEvent> DetectionsResult { get; set; } = new();

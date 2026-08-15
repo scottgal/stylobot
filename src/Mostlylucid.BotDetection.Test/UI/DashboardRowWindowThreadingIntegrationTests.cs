@@ -108,8 +108,7 @@ public sealed class DashboardRowWindowThreadingIntegrationTests : IAsyncDisposab
         var narrowTopBots = store.TopBotsCalls.ToList();
         var narrowThreats = store.ThreatsCalls.ToList();
         var narrowDetections = store.DetectionsCalls.ToList();
-        var narrowSessionsFolds = store.SessionsFoldSinces.ToList();
-
+        var narrowSinces = archive.SinceCalls.ToList();
 
         // --- Wide window (30d) ---
         store.Reset();
@@ -121,8 +120,7 @@ public sealed class DashboardRowWindowThreadingIntegrationTests : IAsyncDisposab
         var wideTopBots = store.TopBotsCalls.ToList();
         var wideThreats = store.ThreatsCalls.ToList();
         var wideDetections = store.DetectionsCalls.ToList();
-        var wideSessionsFolds = store.SessionsFoldSinces.ToList();
-
+        var wideSinces = archive.SinceCalls.ToList();
 
         // Membership is unaffected by the window (operator ruling: Leiden clustering is
         // NOT re-run per window) -- both renders show the SAME cluster.
@@ -158,11 +156,10 @@ public sealed class DashboardRowWindowThreadingIntegrationTests : IAsyncDisposab
         Assert.Contains(narrowDetections, c => c.Start is not null && SpanHours(c) <= 7);
         Assert.Contains(wideDetections, c => c.Start is not null && SpanHours(c) > 100);
 
-        // Sessions (Phase B: the surface reads the window folds): the fold read's
-        // "since" bound is the window's start, not the fixed DetectionRetention
-        // default (30 days).
-        Assert.Contains(narrowSessionsFolds, s => s is not null && DateTime.UtcNow - s <= TimeSpan.FromHours(7));
-        Assert.Contains(wideSessionsFolds, s => s is not null && DateTime.UtcNow - s > TimeSpan.FromHours(100));
+        // Sessions: GetRecentSessionsAsync's "since" bound is the window's start, not the
+        // fixed DetectionRetention default (30 days).
+        Assert.Contains(narrowSinces, s => s is not null && DateTime.UtcNow - s.Value <= TimeSpan.FromHours(7));
+        Assert.Contains(wideSinces, s => s is not null && DateTime.UtcNow - s.Value > TimeSpan.FromHours(100));
 
         return;
 
@@ -223,21 +220,12 @@ public sealed class DashboardRowWindowThreadingIntegrationTests : IAsyncDisposab
         public List<(DateTime? Start, DateTime? End)> TopBotsCalls { get; } = new();
         public List<(DateTime? Start, DateTime? End)> ThreatsCalls { get; } = new();
         public List<(DateTime? Start, DateTime? End)> DetectionsCalls { get; } = new();
-        public List<DateTime?> SessionsFoldSinces { get; } = new();
 
         public void Reset()
         {
             TopBotsCalls.Clear();
             ThreatsCalls.Clear();
             DetectionsCalls.Clear();
-            SessionsFoldSinces.Clear();
-        }
-
-        public Task<IReadOnlyList<DashboardSessionFoldSummary>> GetSessionFoldSummariesAsync(
-            int limit, bool? isBot, DateTime since, string? signature = null, CancellationToken ct = default)
-        {
-            SessionsFoldSinces.Add(since);
-            return Task.FromResult<IReadOnlyList<DashboardSessionFoldSummary>>(Array.Empty<DashboardSessionFoldSummary>());
         }
 
         private int HitCountFor(DateTime? start, DateTime? end)

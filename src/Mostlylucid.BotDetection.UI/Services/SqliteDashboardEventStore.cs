@@ -28,6 +28,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     // caller didn't bind StyloBotDashboardOptions at all.
     private readonly Configuration.TemporalStoreOptions _temporalStore;
     private readonly double _botFloor;
+    private readonly BotDetectionOptions _options;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _initialized;
@@ -38,6 +39,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         IOptions<Configuration.StyloBotDashboardOptions>? dashboardOptions = null)
     {
         _logger = logger;
+        _options = options.Value;
         _connectionString = DashboardDbPath.GetConnectionString(options.Value);
         // The ONE bot/human cut. Every aggregation below derives is_bot from
         // bot_probability >= @botFloor, never the stored is_bot boolean, so the
@@ -1754,67 +1756,6 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return results;
     }
 
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<DashboardSessionFoldSummary>> GetSessionFoldSummariesAsync(
-        int limit, bool? isBot, DateTime since, string? signature = null, CancellationToken ct = default)
-    {
-        if (limit <= 0) return Array.Empty<DashboardSessionFoldSummary>();
-
-        await EnsureInitializedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-
-        // The sessions read surface at the window-fold grain (Phase B): one summary per
-        // fused (signature, hour) detection row. The fused row's timestamp IS the hour
-        // anchor (bucket start); hit_count/bot_count/ms_sum/ms_max are the fold counters;
-        // the representative's other columns carry the headline values.
-        var where = new System.Text.StringBuilder("WHERE fused = 1 AND timestamp >= @since");
-        if (signature is { Length: > 0 })
-            where.Append(" AND signature = @sig");
-        if (isBot.HasValue)
-            where.Append(isBot.Value ? " AND bot_count > 0" : " AND bot_count = 0");
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"""
-            SELECT id, timestamp, signature, bot_probability, confidence, risk_band,
-                   bot_name, bot_type, action, country_code,
-                   hit_count, bot_count, ms_sum, ms_max
-            FROM detections
-            {where}
-            ORDER BY timestamp DESC
-            LIMIT @limit
-            """;
-        cmd.Parameters.AddWithValue("@since", since.ToString("O"));
-        if (signature is { Length: > 0 })
-            cmd.Parameters.AddWithValue("@sig", signature);
-        cmd.Parameters.AddWithValue("@limit", limit);
-
-        var results = new List<DashboardSessionFoldSummary>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            var started = DateTime.Parse(reader.GetString(1));
-            results.Add(new DashboardSessionFoldSummary
-            {
-                Id           = reader.GetInt64(0),
-                Signature    = reader.GetString(2),
-                StartedAt    = started,
-                EndedAt      = started.AddHours(1),
-                RequestCount = reader.GetInt32(10),
-                BotCount     = reader.GetInt32(11),
-                BotProbability = reader.IsDBNull(3) ? 0 : reader.GetDouble(3),
-                Confidence   = reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
-                RiskBand     = reader.IsDBNull(5) ? null : reader.GetString(5),
-                BotName      = reader.IsDBNull(6) ? null : reader.GetString(6),
-                BotType      = reader.IsDBNull(7) ? null : reader.GetString(7),
-                Action       = reader.IsDBNull(8) ? null : reader.GetString(8),
-                CountryCode  = reader.IsDBNull(9) ? null : reader.GetString(9),
-                MsSum        = reader.IsDBNull(12) ? 0 : reader.GetDouble(12),
-                MsMax        = reader.IsDBNull(13) ? 0 : reader.GetDouble(13),
-            });
-        }
-        return results;
-    }
 
     public async Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(
         string signature,
@@ -2852,6 +2793,144 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         finally
         {
             _writeLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Session de-resolution (ladder-on-sessions ruling, operator 2026-08-15): the
+    ///     sessions table is a first-class row unit WITHIN
+    ///     <see cref="TemporalStoreOptions.SessionRowHorizon"/> — the Sessions view reads
+    ///     live rows. Past the horizon, each row is de-resolved: its data entered the
+    ///     window aggregates ONCE at the hour boundary (this sweep's fold of the same
+    ///     requests); the de-resolution VERIFIES the signature's aggregate coverage
+    ///     exists (a guarded one-time backfill folds the row's summary in ONLY where the
+    ///     coverage is absent — a missed-fold gap, never a double count) and DELETES the
+    ///     row. The backfill + delete are on separate SQLite databases (detections vs
+    ///     sessions.db), so there is no cross-DB transaction — the guarded coverage check
+    ///     makes the pass self-healing: a crash between backfill and delete leaves the
+    ///     row plus its aggregate, and the next pass sees the coverage and just deletes.
+    ///     The table stays flat by construction (bounded by sessions-within-horizon).
+    /// </summary>
+    public async Task DeResolveSessionsAsync(DateTime nowUtc, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+
+        var cutoff = nowUtc - _temporalStore.SessionRowHorizon;
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        var sessionsDb = Path.Combine(
+            Path.GetDirectoryName(_options.DatabasePath) ?? AppContext.BaseDirectory, "sessions.db");
+        await using var sessionConn = new SqliteConnection($"Data Source={sessionsDb};Cache=Shared;Pooling=true");
+        await sessionConn.OpenAsync(ct);
+
+        // The sessions table may not exist (a store-only host, or a DB that predates the
+        // ladder) — the pass is a no-op then.
+        await using (var probe = sessionConn.CreateCommand())
+        {
+            probe.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sessions'";
+            if (Convert.ToInt64(await probe.ExecuteScalarAsync(ct)) == 0) return;
+        }
+
+        // Aged rows, oldest first, batch-capped (the fold's batch knob bounds one pass).
+        var aged = new List<(long Id, string Signature, DateTime StartedAt, bool IsBot, double? AvgMs, string? Paths, string? Domain, string? Host, string? RiskBand)>();
+        await using (var agedCmd = sessionConn.CreateCommand())
+        {
+            agedCmd.CommandText = """
+                SELECT id, signature, started_at, ended_at, request_count, is_bot,
+                       avg_processing_time_ms, paths_json, domain, host, risk_band
+                FROM sessions
+                WHERE ended_at < @cutoff
+                ORDER BY ended_at
+                LIMIT @batch
+                """;
+            agedCmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
+            agedCmd.Parameters.AddWithValue("@batch", _temporalStore.FoldBatchSize);
+            await using var reader = await agedCmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                aged.Add((
+                    reader.GetInt64(0), reader.GetString(1),
+                    DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                    reader.GetInt32(5) != 0,
+                    reader.IsDBNull(6) ? null : reader.GetDouble(6),
+                    reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8),
+                    reader.IsDBNull(9) ? null : reader.GetString(9),
+                    reader.IsDBNull(10) ? null : reader.GetString(10)));
+            }
+        }
+        if (aged.Count == 0) return;
+
+        var deleted = 0;
+        await using (var delTx = (SqliteTransaction)await sessionConn.BeginTransactionAsync(ct))
+        {
+            foreach (var row in aged)
+            {
+                if (ct.IsCancellationRequested) break;
+                var hourStart = new DateTime(row.StartedAt.Year, row.StartedAt.Month, row.StartedAt.Day,
+                    row.StartedAt.Hour, 0, 0, DateTimeKind.Utc);
+                var hourEnd = hourStart.AddHours(1);
+
+                // Coverage check: this sweep's fold wrote hour-anchored fused rows for
+                // the signature in the session's hour span — OR a prior pass's SESSION
+                // backfill row (itself the coverage; without this arm a second pass
+                // would double-count).
+                await using var covCmd = conn.CreateCommand();
+                covCmd.CommandText = """
+                    SELECT COUNT(*) FROM detections
+                     WHERE (fused = 1 OR method = 'SESSION') AND signature = @sig
+                       AND timestamp >= @from AND timestamp < @to
+                    """;
+                covCmd.Parameters.AddWithValue("@sig", row.Signature);
+                covCmd.Parameters.AddWithValue("@from", hourStart.ToString("O"));
+                covCmd.Parameters.AddWithValue("@to", hourEnd.ToString("O"));
+                var covered = Convert.ToInt64(await covCmd.ExecuteScalarAsync(ct));
+
+                if (covered == 0)
+                {
+                    // Guarded one-time backfill: the session's data never reached the
+                    // aggregates (a missed fold — not a double count: coverage was
+                    // absent). One sparse-but-valid aggregate row anchored at the
+                    // session's start hour. request_id names the source row so a
+                    // duplicate backfill attempt is identifiable.
+                    await using var backCmd = conn.CreateCommand();
+                    backCmd.CommandText = """
+                        INSERT INTO detections (
+                            timestamp, signature, method, path, is_bot,
+                            bot_probability, confidence, risk_band, processing_time_ms,
+                            domain, host
+                        ) VALUES (
+                            @ts, @sig, 'SESSION', '/', @isBot,
+                            0, 0, @risk, @ms,
+                            @domain, @host
+                        )
+                        """;
+                    backCmd.Parameters.AddWithValue("@ts", hourStart.ToString("O"));
+                    backCmd.Parameters.AddWithValue("@sig", row.Signature);
+                    backCmd.Parameters.AddWithValue("@isBot", row.IsBot ? 1 : 0);
+                    backCmd.Parameters.AddWithValue("@risk", (object?)row.RiskBand ?? "Low");
+                    backCmd.Parameters.AddWithValue("@ms", row.AvgMs ?? 0);
+                    backCmd.Parameters.AddWithValue("@domain", (object?)row.Domain ?? DBNull.Value);
+                    backCmd.Parameters.AddWithValue("@host", (object?)row.Host ?? DBNull.Value);
+                    await backCmd.ExecuteNonQueryAsync(ct);
+                }
+
+                await using var delCmd = sessionConn.CreateCommand();
+                delCmd.Transaction = delTx;
+                delCmd.CommandText = "DELETE FROM sessions WHERE id = @id";
+                delCmd.Parameters.AddWithValue("@id", row.Id);
+                await delCmd.ExecuteNonQueryAsync(ct);
+                deleted++;
+            }
+            await delTx.CommitAsync(ct);
+        }
+
+        if (deleted > 0)
+        {
+            _logger.LogInformation(
+                "Session de-resolution: {Count} session row(s) past the {Horizon} horizon de-resolved into the window aggregates",
+                deleted, _temporalStore.SessionRowHorizon);
         }
     }
 
