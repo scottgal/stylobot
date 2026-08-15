@@ -779,6 +779,36 @@ public class SqliteFingerprintStore : IFingerprintStore
             await vec.ExecuteNonQueryAsync(ct);
         }
 
+        // The birth mutation (write-path grain redesign, Phase A -- the fingerprint is
+        // the aggregate root; the durable feed is the fingerprint's SIGNIFICANT state
+        // changes, not per-request observations). The row insert leaves
+        // fingerprints.state_version at its DEFAULT 1, so the `created` delta is
+        // version 1 -- the first element of the fingerprint's delta chain. In-tx with
+        // the birth: a fingerprint row without its birth mutation cannot exist.
+        // ON CONFLICT DO NOTHING keeps a legacy re-insert (idempotent retry) from
+        // double-recording the birth.
+        await using (var birth = conn.CreateCommand())
+        {
+            birth.Transaction = tx;
+            birth.CommandText = """
+                INSERT INTO fingerprint_mutations (fingerprint_id, state_version, mutation_type, payload_json, observed_at)
+                VALUES (@id, 1, 'created', @payload, @ts)
+                ON CONFLICT (fingerprint_id, state_version) DO NOTHING
+                """;
+            birth.Parameters.AddWithValue("@id", fp.FingerprintId);
+            birth.Parameters.AddWithValue("@payload",
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    archetypeOrigin = fp.ArchetypeOrigin,
+                    primarySignature,
+                    // The birth band -- the flip evaluator's baseline for the
+                    // fingerprint's first verdict transition (Phase B).
+                    band = FingerprintRiskProjection.Compose(fp).RiskBand.ToString(),
+                }));
+            birth.Parameters.AddWithValue("@ts", fp.FirstSeen.ToString("O"));
+            await birth.ExecuteNonQueryAsync(ct);
+        }
+
         await tx.CommitAsync(ct);
 
         // Bug O fix: pre-populate the binding cache so the parallel HTTP/2 burst
@@ -1004,6 +1034,63 @@ public class SqliteFingerprintStore : IFingerprintStore
             hist.Parameters.AddWithValue("@op", (object?)operatorId ?? DBNull.Value);
             hist.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
             await hist.ExecuteNonQueryAsync(ct);
+
+            // Genuine name change = a fingerprint mutation (the delta feed — Phase A
+            // of the write-path grain redesign). The mutation carries the source + the
+            // new name; the name_history row above remains the audit trail.
+            await RecordMutationAsync(conn, fingerprintId, "name_change",
+                new { source = "operator", name = trimmed }, updatedAt, ct);
+        }
+    }
+
+    /// <summary>
+    ///     Record a fingerprint mutation — the detection primitive's durable delta
+    ///     feed (write-path grain redesign, docs/architecture/write-path-grain-design.md
+    ///     §3.2: the fingerprint is the aggregate root; significant state changes persist
+    ///     as mutations, never per-request observations). Bumps
+    ///     <c>fingerprints.state_version</c> and appends the delta to
+    ///     <c>fingerprint_mutations</c> on the SAME connection as the caller's write
+    ///     (transaction taken by the caller when one is open). The bump-then-insert
+    ///     pair is loss-tolerant: a crash between the two leaves the materialized state
+    ///     ahead of the feed by one version, and the fold-time evaluator's comparison
+    ///     self-heals on the next pass — a delta feed must never throw a real name-write.
+    /// </summary>
+    private async Task RecordMutationAsync(
+        SqliteConnection conn,
+        string fingerprintId,
+        string mutationType,
+        object? payload,
+        DateTime observedAt,
+        CancellationToken ct)
+    {
+        long stateVersion;
+        await using (var bump = conn.CreateCommand())
+        {
+            bump.CommandText = """
+                UPDATE fingerprints
+                   SET state_version = state_version + 1
+                 WHERE fingerprint_id = @id
+                RETURNING state_version
+                """;
+            bump.Parameters.AddWithValue("@id", fingerprintId);
+            var result = await bump.ExecuteScalarAsync(ct);
+            if (result is null) return; // fingerprint vanished mid-write; nothing to version
+            stateVersion = Convert.ToInt64(result);
+        }
+
+        await using (var ins = conn.CreateCommand())
+        {
+            ins.CommandText = """
+                INSERT INTO fingerprint_mutations (fingerprint_id, state_version, mutation_type, payload_json, observed_at)
+                VALUES (@id, @version, @type, @payload, @ts)
+                """;
+            ins.Parameters.AddWithValue("@id", fingerprintId);
+            ins.Parameters.AddWithValue("@version", stateVersion);
+            ins.Parameters.AddWithValue("@type", mutationType);
+            ins.Parameters.AddWithValue("@payload",
+                payload is null ? DBNull.Value : System.Text.Json.JsonSerializer.Serialize(payload));
+            ins.Parameters.AddWithValue("@ts", observedAt.ToString("O"));
+            await ins.ExecuteNonQueryAsync(ct);
         }
     }
 
@@ -1125,6 +1212,11 @@ public class SqliteFingerprintStore : IFingerprintStore
                     hist.Parameters.AddWithValue("@ts", ind.At.ToString("O"));
                     hist.Parameters.AddWithValue("@snap", (object?)ind.SignalSnapshotJson ?? DBNull.Value);
                     await hist.ExecuteNonQueryAsync().ConfigureAwait(false);
+
+                    // Genuine name change = a fingerprint mutation (the delta feed —
+                    // Phase A of the write-path grain redesign).
+                    await RecordMutationAsync(conn, ind.FingerprintId, "name_change",
+                        new { source = "matcher", name = ind.NewName }, ind.At, CancellationToken.None).ConfigureAwait(false);
                 }
                 break;
             }
@@ -1160,6 +1252,11 @@ public class SqliteFingerprintStore : IFingerprintStore
                     hist.Parameters.AddWithValue("@new", llm.NewName);
                     hist.Parameters.AddWithValue("@ts", llm.At.ToString("O"));
                     await hist.ExecuteNonQueryAsync().ConfigureAwait(false);
+
+                    // Genuine name change = a fingerprint mutation (the delta feed —
+                    // Phase A of the write-path grain redesign).
+                    await RecordMutationAsync(conn, llm.FingerprintId, "name_change",
+                        new { source = "llm", name = llm.NewName }, llm.At, CancellationToken.None).ConfigureAwait(false);
                 }
                 break;
             }

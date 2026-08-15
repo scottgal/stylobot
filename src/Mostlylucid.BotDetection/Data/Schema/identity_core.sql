@@ -81,7 +81,13 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     -- timestamp, verdict writes use the wide DriftReopenAlpha instead of the slow
     -- steady-state alpha, so cached_bot_probability converges to the fingerprint's
     -- new behaviour within ~1-2 observations instead of dozens. NULL = not reopened.
-    drift_reopened_until_utc    TEXT
+    drift_reopened_until_utc    TEXT,
+    -- Write-path grain redesign (2026-08-15): monotonic per-fingerprint version of
+    -- the materialized state, bumped by every fingerprint_mutations row. The
+    -- delta chain (fingerprint_mutations PK (fingerprint_id, state_version)) is
+    -- gapless per fingerprint. Legacy DBs get the column via the guarded ALTER in
+    -- IdentitySchema.MigrateExistingTablesAsync.
+    state_version               INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS fingerprint_root_history (
@@ -255,3 +261,37 @@ CREATE INDEX IF NOT EXISTS ix_adm_calibrated_at
 -- (archetype_id, ua_family, calibrated_at) PRIMARY KEY's implicit index
 -- (dbreview- 2026-08-14).
 DROP INDEX IF EXISTS ix_adm_archetype_id;
+
+-- Fingerprint mutation feed (stylobot-, 2026-08-15) -- the FOSS half of the
+-- write-path grain redesign (commercial spec: docs/architecture/write-path-grain-design.md
+-- §3.2/§7.5). The fingerprint is the aggregate root; its DURABLE feed is the
+-- fingerprint's significant state changes (the needle-movers: created /
+-- centroid_drift / verdict_flip / name_change / archetype_evidence /
+-- mode_transition), not per-request observation rows. fingerprint_mutations is
+-- the delta history alongside the materialized fingerprints row; the
+-- per-fingerprint state_version orders the deltas. The fingerprints row is the
+-- materialized CURRENT state (coalesced per-key writes); the mutations replay +
+-- the materialized row re-seed the LFU on restart. Additive only -- the
+-- observation feeds keep landing until Phase B switches the fold source.
+-- Boot-idempotent: CREATE IF NOT EXISTS, re-applied at every boot by the
+-- identity_core corpus loader.
+CREATE TABLE IF NOT EXISTS fingerprint_mutations (
+    fingerprint_id  TEXT NOT NULL REFERENCES fingerprints (fingerprint_id) ON DELETE CASCADE,
+    state_version   INTEGER NOT NULL,
+    mutation_type   TEXT NOT NULL,
+    payload_json    TEXT,
+    observed_at     TEXT NOT NULL,
+    PRIMARY KEY (fingerprint_id, state_version)
+);
+
+-- Serves the fold-time drift/flip evaluation (age-priority scan) and the
+-- dashboard's mutation-history reads.
+CREATE INDEX IF NOT EXISTS ix_fingerprint_mutations_observed_at
+    ON fingerprint_mutations (observed_at);
+
+-- Monotonic per-fingerprint version of the materialized state. Bumped by every
+-- mutation; the mutations' PRIMARY KEY (fingerprint_id, state_version) makes
+-- the delta chain gapless per fingerprint. The guarded ALTER lives in
+-- IdentitySchema.MigrateExistingTablesAsync (SQLite has no ADD COLUMN IF NOT
+-- EXISTS, so the ADD is wrapped in the idempotent try/catch helper there).
+-- Fresh schemas get the column from this corpus file.

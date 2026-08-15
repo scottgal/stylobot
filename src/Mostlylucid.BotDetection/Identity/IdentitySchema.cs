@@ -234,6 +234,16 @@ internal static class IdentitySchema
         // mid-rebuild. The CREATE in identity_core.sql already carries this for fresh schemas.
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN drift_reopened_until_utc TEXT", ct);
+
+        // Write-path grain redesign (2026-08-15): monotonic per-fingerprint
+        // state_version, bumped by every fingerprint_mutations row (Phase A of the
+        // FOSS three-grain pattern -- docs/architecture/write-path-grain-design.md
+        // §7.5). Legacy databases (table predates the column) get it here via the
+        // idempotent try/catch helper; fresh schemas already carry the column in
+        // identity_core.sql. Default 1 so the birth `created` delta is version 1 --
+        // the first element of the fingerprint's delta chain.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN state_version INTEGER NOT NULL DEFAULT 1", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)
