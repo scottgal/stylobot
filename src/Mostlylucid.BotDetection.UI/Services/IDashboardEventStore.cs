@@ -66,6 +66,30 @@ public interface IDashboardEventStore
         string? audienceFilter = null,
         IReadOnlyList<string>? domains = null);
 
+    /// <summary>The live-tier overlay read (dash- 2026-08-16, the delay defect): the
+    ///     recent window's LIVE minute-buckets from the in-memory epoch tier, bucketed at
+    ///     the requested resolution. The serve composes this OVER the warm envelope's
+    ///     folds so the graph's latest point is minutes-fresh, not the last re-roll's.
+    ///     Default: empty (stores without a live tier contribute no overlay — the
+    ///     envelope's folds remain the base).</summary>
+    Task<IReadOnlyList<DashboardTimeSeriesPoint>> GetLiveTimeSeriesAsync(
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        string? audienceFilter = null)
+        => Task.FromResult<IReadOnlyList<DashboardTimeSeriesPoint>>([]);
+
+    /// <summary>The live endpoint overlay read (dash- 2026-08-16, the delay defect): the
+    ///     in-memory session endpoint folds merged into the endpoint-stats shape for the
+    ///     recent window — the serve composes the current hour from the LIVE folds + the
+    ///     swept rollup's older hours. Default: empty (no live contribution — the rollup
+    ///     remains the base).</summary>
+    Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
+        DateTime windowStart,
+        DateTime windowEnd,
+        string? audienceFilter = null)
+        => Task.FromResult<IReadOnlyList<DashboardEndpointStats>>([]);
+
     /// <summary>
     ///     Get top bot signatures ordered by hit count descending.
     ///     When startTime/endTime are provided, only detections within that range are considered.

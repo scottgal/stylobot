@@ -189,6 +189,25 @@ public sealed class TrafficController : Controller
         var countriesData = (IReadOnlyList<DashboardCountryStats>)(page.Geo ?? new List<DashboardCountryStats>());
         var endpointsData = (IReadOnlyList<DashboardEndpointStats>)(page.Endpoints ?? new List<DashboardEndpointStats>());
 
+        // THE LIVE-TIER OVERLAY (dash- 2026-08-16, the delay defect): the current hour's
+        // LIVE session endpoint folds over the swept rollup's rows — the endpoints were
+        // ~2h-old (the rollup-only compose). The live rows replace the same-key rollup
+        // rows for the recent window; the overlay never fails the page.
+        try
+        {
+            var liveEndpoints = await _eventStore.GetLiveEndpointStatsAsync(startTime, now, null);
+            if (liveEndpoints.Count > 0)
+            {
+                var byKey = endpointsData.ToDictionary(e => (e.Method, e.Path));
+                foreach (var e in liveEndpoints) byKey[(e.Method, e.Path)] = e;
+                endpointsData = byKey.Values.OrderByDescending(e => e.TotalCount).ToList();
+            }
+        }
+        catch
+        {
+            // The overlay never fails the page — the envelope's/rollup's rows remain the base.
+        }
+
         // P0 (operator 2026-08-08): endpoints MUST pre-render on the initial page load,
         // exactly like every other widget. The middleware shell path seeds
         // DashboardEndpointsFirstPaintContext; the MVC TrafficController path never did,
@@ -259,8 +278,15 @@ public sealed class TrafficController : Controller
             country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 
         var counters = BuildCounters(summary, priorSummary, topBots, priorBots);
+        // THE LIVE-TIER OVERLAY (dash- 2026-08-16, the delay defect): the recent
+        // window's LIVE buckets at the read — over the envelope's folds — so the graph's
+        // latest point is minutes-fresh, not the last re-roll's. The overlay never fails
+        // the page (the envelope's folds remain the base); its data rides IN the served
+        // payload.
+        var baseBuckets = page.TimeBuckets?.ToList() ?? new List<DashboardTimeSeriesPoint>();
         var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(
-            page.TimeBuckets?.ToList() ?? new List<DashboardTimeSeriesPoint>(), startTime, now, bucketSize);
+            await OverlayLiveTimeSeriesAsync(baseBuckets, startTime, now, bucketSize, ct),
+            startTime, now, bucketSize);
         var botFamilies = BuildBotFamilies(visitors, windowMinutes);
 
         var model = new TrafficPageModel(
@@ -342,6 +368,27 @@ public sealed class TrafficController : Controller
     {
         try { return await _eventStore.GetTimeSeriesAsync(start, end, bucketSize, domains: domains); }
         catch { return new List<DashboardTimeSeriesPoint>(); }
+    }
+
+    /// <summary>The live-tier overlay merge (2026-08-16): the recent window's LIVE
+    ///     minute-buckets replace the envelope's same-timestamp points (the recent
+    ///     segment's freshness at the read); the envelope's folds remain the base for
+    ///     everything else. Never fails the page.</summary>
+    private async Task<List<DashboardTimeSeriesPoint>> OverlayLiveTimeSeriesAsync(
+        List<DashboardTimeSeriesPoint> baseBuckets, DateTime start, DateTime end, TimeSpan bucketSize, CancellationToken ct)
+    {
+        try
+        {
+            var live = await _eventStore.GetLiveTimeSeriesAsync(start, end, bucketSize, null);
+            if (live.Count == 0) return baseBuckets;
+            var byTime = baseBuckets.ToDictionary(p => p.Timestamp);
+            foreach (var p in live) byTime[p.Timestamp] = p;
+            return byTime.Values.OrderBy(p => p.Timestamp).ToList();
+        }
+        catch
+        {
+            return baseBuckets;
+        }
     }
 
     /// <summary>
