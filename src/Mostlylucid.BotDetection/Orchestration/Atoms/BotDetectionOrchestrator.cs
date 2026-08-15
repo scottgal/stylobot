@@ -197,7 +197,14 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // AddSessionAsync → the rows fires regardless of the atom's dispatch.
             // Learning-suppressed requests skip (the same gate as the identity
             // write-behind).
-            if (_legacySessionStore is not null && !context.IsLearningSuppressedByApiKey()
+            // The atom's ORIGINAL learning gate covered BOTH arms: the API-key
+            // DisableLearningWrites suppression AND the sink's LearningSuppressed
+            // signal (impersonation — the anti-poisoning principle: impersonated
+            // traffic must not write into the session accumulation). Both must gate
+            // the feed.
+            var learningSuppressed = _signalSink.Detect(SignalKeys.LearningSuppressed);
+            if (_legacySessionStore is not null && !learningSuppressed
+                && !context.IsLearningSuppressedByApiKey()
                 && _postureProvider.LearningEnabled)
             {
                 try
