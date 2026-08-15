@@ -1030,6 +1030,15 @@ public sealed class SessionStore
     {
         if (_maxSessionIdle is null) return 0;
 
+        // Rig-visible session-liveness probe (deploy- rig verdict 2026-08-15): logs the
+        // ACTIVE in-memory session count on the sweep's cadence — the sessions-0
+        // discriminator between "RecordRequestAsync never runs (no epochs at all)" and
+        // "epochs exist but the finalize path fails". Information — visible at the
+        // default level.
+        _logger.LogInformation(
+            "SessionStore idle sweep: {Active} active session(s) in memory",
+            _activeSignatures.Count);
+
         var signatures = _activeSignatures.Keys.ToList();
         var removed = 0;
         foreach (var signature in signatures)
