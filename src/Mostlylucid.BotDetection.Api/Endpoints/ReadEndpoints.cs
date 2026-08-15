@@ -284,8 +284,11 @@ public static class ReadEndpoints
     }
 
     private static async Task<Ok<PaginatedResponse<DashboardTimeSeriesPoint>>> HandleTimeseries(
+        CancellationToken ct,
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
+        [FromServices] Mostlylucid.BotDetection.UI.Dashboard.Materialization.IDashboardContentCache? contentCache = null,
+        [FromServices] Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageManifestSource? manifests = null,
         string interval = "5m", DateTime? since = null, DateTime? until = null)
     {
         aggregateCache.MarkHit();
@@ -305,6 +308,36 @@ public static class ReadEndpoints
                 },
                 Meta = new ResponseMeta()
             });
+        }
+
+        // THE WARM-ENVELOPE READ (dash- 2026-08-15, the frozen-fold [] class): the
+        // site's timeseries serves the L1's warm bundle (the materializer's complete
+        // page — the same data the gateway's direct read serves), NOT the live store
+        // compose — the route no longer depends on the fold's live data state (a
+        // frozen fold served [] through the live compose). The default view's pinned
+        // envelope (24h/5m); a miss or an empty bundle falls through to the live
+        // compose (the honest pre-envelope behavior during the boot wave).
+        if (contentCache is not null && manifests is not null && since is null && until is null && interval == "5m")
+        {
+            var manifest = manifests.For("dashboard.traffic");
+            if (manifest is not null)
+            {
+                var window = Mostlylucid.BotDetection.UI.Dashboard.DashboardRoutingHelpers
+                    .BuildPinnedWindow("24h", DateTime.UtcNow, null);
+                var page = await contentCache.GetCurrentAsync(manifest, window, ct);
+                if (page is { IsWarming: false } && page.TimeBuckets is { Count: > 0 } warmBuckets)
+                {
+                    return TypedResults.Ok(new PaginatedResponse<DashboardTimeSeriesPoint>
+                    {
+                        Data = warmBuckets,
+                        Pagination = new PaginationInfo
+                        {
+                            Offset = 0, Limit = warmBuckets.Count, Total = warmBuckets.Count
+                        },
+                        Meta = new ResponseMeta()
+                    });
+                }
+            }
         }
 
         var bucketSize = interval switch
