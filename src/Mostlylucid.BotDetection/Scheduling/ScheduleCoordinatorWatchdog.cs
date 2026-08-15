@@ -63,6 +63,14 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
     private readonly List<IDisposable> _subscriptions = new();
     private long _startedAtUtcTicks;
 
+    // Fault-storm bookkeeping: per-subscriber FaultCount observed at the
+    // previous check + the set of keys whose baseline was already captured
+    // (the first observation of a subscriber only records the baseline, it
+    // never triggers — a subscriber that was already faulting before the
+    // watchdog started must not trip the storm check on first sight).
+    private readonly Dictionary<string, int> _lastFaultCounts = new();
+    private readonly HashSet<string> _faultBaselineSeen = new();
+
     public ScheduleCoordinatorWatchdog(
         IScheduleCoordinator coordinator,
         IHostApplicationLifetime lifetime,
@@ -165,6 +173,54 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
                 return; // one stop is enough; don't log per-cadence ftl spam
             }
         }
+
+        if (TryDetectFaultStorm())
+        {
+            _lifetime.StopApplication();
+        }
+    }
+
+    /// <summary>
+    ///     Fault-storm detection: a subscriber that throws on EVERY tick makes
+    ///     its work silently dead while the cadence itself looks healthy (the
+    ///     2026-08-15 staging 01:29 freeze class -- ticks flowing, the sweep's
+    ///     aggregate persist never ran). The silence check above cannot see
+    ///     that; this check watches each watched cadence's subscriber
+    ///     <c>FaultCount</c> grow between checks and reports a storm past
+    ///     <see cref="ScheduleCoordinatorOptions.WatchdogFaultStormThreshold"/>.
+    ///     Returns <c>true</c> when a storm is detected (the caller stops the
+    ///     application). The first observation of a subscriber only records the
+    ///     baseline and can never trigger.
+    /// </summary>
+    private bool TryDetectFaultStorm()
+    {
+        var threshold = _options.WatchdogFaultStormThreshold;
+        if (threshold <= 0) return false;
+
+        var watched = WatchedCadences.Select(c => c.Cadence).ToHashSet();
+        var storm = false;
+        lock (_lastFaultCounts)
+        {
+            foreach (var meta in _coordinator.Snapshot())
+            {
+                if (!watched.Contains(meta.Cadence)) continue;
+                var key = $"{meta.Cadence}:{meta.SubscriberName}";
+                if (!_faultBaselineSeen.Add(key))
+                {
+                    var prev = _lastFaultCounts.GetValueOrDefault(key, 0);
+                    var delta = meta.FaultCount - prev;
+                    if (delta >= threshold)
+                    {
+                        _logger.LogCritical(
+                            "ScheduleCoordinatorWatchdog: subscriber {Subscriber} on {Cadence} faulted {Delta}x since the last check (>{Threshold}); forcing process exit so the supervisor can restart.",
+                            meta.SubscriberName, meta.Cadence, delta, threshold);
+                        storm = true;
+                    }
+                }
+                _lastFaultCounts[key] = meta.FaultCount;
+            }
+        }
+        return storm;
     }
 
     private void SubscribeToWatchedCadences()

@@ -394,6 +394,47 @@ public sealed class ScheduleCoordinatorTests
         parked.SetResult();
     }
 
+    [Fact]
+    public async Task Cadence_loop_fault_does_not_kill_ticks_forever()
+    {
+        // Tick-death regression (operator directive 2026-08-15): the cadence
+        // loop's generic catch previously exited FOREVER on any non-shutdown
+        // fault ("ticks lost until restart") -- a silent tick-death that froze
+        // every subscriber on the cadence until a redeploy (the staging
+        // 2026-08-15 01:29 freeze class). The loop must self-heal: fault ->
+        // loud log -> bounded backoff -> re-enter at the next wall-clock
+        // boundary. Only shutdown may exit.
+        var firstTick = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new FaultOnceTimeProvider(TimeProvider.System);
+        var options = new ScheduleCoordinatorOptions
+        {
+            LoopFaultBackoff = TimeSpan.FromMilliseconds(100),
+            LoopFaultMaxBackoff = TimeSpan.FromMilliseconds(100),
+            OverlapWarnEveryNth = int.MaxValue
+        };
+        var coord = new ScheduleCoordinator(
+            Options.Create(options),
+            NullLogger<ScheduleCoordinator>.Instance,
+            provider);
+
+        coord.Subscribe(TickCadence.Tick1s, "AliveSubscriber", CostHint.Low,
+            (_, _) => { firstTick.TrySetResult(); return Task.CompletedTask; });
+
+        var loop = coord.RunCadenceLoop(TickCadence.Tick1s, TimeSpan.FromSeconds(1));
+
+        // The injected fault fires on the loop's FIRST GetUtcNow (alignment).
+        // The loop must back off and re-enter; the subscriber must still
+        // receive a tick afterwards.
+        var completed = await Task.WhenAny(firstTick.Task, Task.Delay(TimeSpan.FromSeconds(10)));
+        completed.Should().Be(firstTick.Task,
+            "the tick source must survive a cadence-loop fault — ticks are NOT lost until restart");
+
+        provider.FaultCount.Should().Be(1, "exactly one fault was injected; the loop re-entered past it");
+
+        await coord.StopAsync(CancellationToken.None);
+        await loop;
+    }
+
     // ---- Helpers ------------------------------------------------------------
 
     private static (ScheduleCoordinator coord, FixedTimeProvider time) Build(
@@ -441,6 +482,30 @@ public sealed class ScheduleCoordinatorTests
         {
             public static readonly NullScope Instance = new();
             public void Dispose() { }
+        }
+    }
+
+    /// <summary>
+    ///     <see cref="TimeProvider"/> that throws from <see cref="GetUtcNow"/>
+    ///     exactly once, then delegates to the inner provider. Used to fault
+    ///     the cadence loop at its first alignment read and prove the loop
+    ///     re-enters instead of exiting forever.
+    /// </summary>
+    private sealed class FaultOnceTimeProvider : TimeProvider
+    {
+        private readonly TimeProvider _inner;
+        private int _faulted;
+
+        public FaultOnceTimeProvider(TimeProvider inner) => _inner = inner;
+
+        /// <summary>1 once the single injected fault has fired.</summary>
+        public int FaultCount => Volatile.Read(ref _faulted);
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            if (Interlocked.CompareExchange(ref _faulted, 1, 0) == 0)
+                throw new InvalidOperationException("injected cadence-loop fault");
+            return _inner.GetUtcNow();
         }
     }
 }

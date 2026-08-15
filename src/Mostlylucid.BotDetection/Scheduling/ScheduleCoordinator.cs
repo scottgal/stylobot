@@ -257,51 +257,75 @@ public sealed class ScheduleCoordinator : IScheduleCoordinator, IHostedService, 
 
     // ---- Cadence loop --------------------------------------------------------
 
-    private async Task RunCadenceLoop(TickCadence cadence, TimeSpan period)
+    internal async Task RunCadenceLoop(TickCadence cadence, TimeSpan period)
     {
         var ct = _shutdownCts.Token;
-        try
+        var faultCount = 0;
+        while (!ct.IsCancellationRequested)
         {
-            // Initial alignment: wait until the next wall-clock boundary.
-            var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-            var nextBoundary = NextBoundary(nowUtc, period);
-            var initialDelay = nextBoundary - nowUtc;
-            if (initialDelay > TimeSpan.Zero)
-                await Task.Delay(initialDelay, _timeProvider, ct).ConfigureAwait(false);
-
-            using var timer = new PeriodicTimer(period, _timeProvider);
-            // First fire happens immediately after the alignment delay, so
-            // emit a tick BEFORE the first WaitForNextTickAsync (otherwise
-            // the first real tick fires `period` after alignment, defeating
-            // the point).
-            //
-            // Detached fan-out: a slow subscriber CANNOT stall the cadence loop.
-            // FireTickAsync uses Task.WhenAll over all subscriber handlers --
-            // if any one hangs (sync I/O, deadlock, long-running CPU work), the
-            // WhenAll waits indefinitely. Before this change, the cadence loop
-            // awaited that WhenAll directly, so one bad subscriber starved
-            // every other subscriber on the same cadence -- including the
-            // ScheduleCoordinatorWatchdog's own bookkeeping handler, which is
-            // exactly why the watchdog kept declaring Tick10s silent for ~60s
-            // and SIGTERM'ing the gateway every minute on staging. The
-            // BusyFlag CAS in InvokeSubscriberAsync still prevents the SAME
-            // subscriber from overlapping with itself, and
-            // FireTickSafelyAsync catches + logs handler exceptions internally,
-            // so discarding the returned Task here is safe.
-            _ = FireTickSafelyAsync(cadence, _timeProvider.GetUtcNow(), ct);
-
-            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+            try
             {
+                // Initial alignment: wait until the next wall-clock boundary.
+                var nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+                var nextBoundary = NextBoundary(nowUtc, period);
+                var initialDelay = nextBoundary - nowUtc;
+                if (initialDelay > TimeSpan.Zero)
+                    await Task.Delay(initialDelay, _timeProvider, ct).ConfigureAwait(false);
+
+                using var timer = new PeriodicTimer(period, _timeProvider);
+                // First fire happens immediately after the alignment delay, so
+                // emit a tick BEFORE the first WaitForNextTickAsync (otherwise
+                // the first real tick fires `period` after alignment, defeating
+                // the point).
+                //
+                // Detached fan-out: a slow subscriber CANNOT stall the cadence loop.
+                // FireTickAsync uses Task.WhenAll over all subscriber handlers --
+                // if any one hangs (sync I/O, deadlock, long-running CPU work), the
+                // WhenAll waits indefinitely. Before this change, the cadence loop
+                // awaited that WhenAll directly, so one bad subscriber starved
+                // every other subscriber on the same cadence -- including the
+                // ScheduleCoordinatorWatchdog's own bookkeeping handler, which is
+                // exactly why the watchdog kept declaring Tick10s silent for ~60s
+                // and SIGTERM'ing the gateway every minute on staging. The
+                // BusyFlag CAS in InvokeSubscriberAsync still prevents the SAME
+                // subscriber from overlapping with itself, and
+                // FireTickSafelyAsync catches + logs handler exceptions internally,
+                // so discarding the returned Task here is safe.
                 _ = FireTickSafelyAsync(cadence, _timeProvider.GetUtcNow(), ct);
+
+                while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+                {
+                    _ = FireTickSafelyAsync(cadence, _timeProvider.GetUtcNow(), ct);
+                    // A completed tick cycle resets the fault streak; only
+                    // consecutive faults between successful ticks escalate.
+                    faultCount = 0;
+                }
+                return; // the inner loop only exits on shutdown/dispose
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // shutdown
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "ScheduleCoordinator: cadence loop {Cadence} crashed; ticks lost until restart.", cadence);
+            catch (OperationCanceledException)
+            {
+                return; // shutdown
+            }
+            catch (Exception ex)
+            {
+                // Tick-death doctrine (operator directive 2026-08-15): a fault in
+                // the loop body must NEVER kill the tick source for the process
+                // lifetime. Previously this catch exited the loop forever
+                // ("ticks lost until restart") -- a silent tick-death that froze
+                // every subscriber on the cadence (the staging 2026-08-15 01:29
+                // freeze class) until a manual redeploy. Now: log loudly, back
+                // off briefly (escalating, capped), and re-enter at the next
+                // wall-clock boundary. Only shutdown exits the loop.
+                faultCount++;
+                var backoff = TimeSpan.FromSeconds(
+                    Math.Min(_options.LoopFaultMaxBackoff.TotalSeconds,
+                             _options.LoopFaultBackoff.TotalSeconds * faultCount));
+                _logger.LogError(ex,
+                    "ScheduleCoordinator: cadence loop {Cadence} faulted ({FaultCount}x); re-entering in {Backoff:g} — ticks are NOT lost until restart.",
+                    cadence, faultCount, backoff);
+                try { await Task.Delay(backoff, _timeProvider, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { return; }
+            }
         }
     }
 

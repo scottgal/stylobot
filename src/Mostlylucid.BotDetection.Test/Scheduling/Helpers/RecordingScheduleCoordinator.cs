@@ -68,8 +68,24 @@ public sealed class RecordingScheduleCoordinator : IScheduleCoordinator
         {
             var result = new List<TickSubscriberMetadata>(_subs.Count);
             foreach (var rec in _subs)
-                result.Add(new TickSubscriberMetadata(rec.Cadence, rec.Name, rec.Hint, null, null, 0, 0));
+                result.Add(new TickSubscriberMetadata(rec.Cadence, rec.Name, rec.Hint, null, null, 0, rec.FaultCount));
             return result;
+        }
+    }
+
+    /// <summary>
+    ///     Test hook: simulate a faulted subscriber by setting its cumulative
+    ///     fault count (surfaced via <see cref="Snapshot"/>). Returns
+    ///     <c>false</c> if no subscription with that name exists.
+    /// </summary>
+    public bool SetFaults(string subscriberName, int faultCount)
+    {
+        lock (_gate)
+        {
+            var rec = _subs.FirstOrDefault(r => r.Name == subscriberName);
+            if (rec is null) return false;
+            rec.FaultCount = faultCount;
+            return true;
         }
     }
 
@@ -92,6 +108,9 @@ public sealed class RecordingScheduleCoordinator : IScheduleCoordinator
 
         /// <summary>The handler captured at subscription -- tests invoke this directly to drive ticks.</summary>
         public Func<DateTimeOffset, CancellationToken, Task> Handler { get; }
+
+        /// <summary>Simulated cumulative fault count, surfaced via <see cref="Snapshot"/>.</summary>
+        public int FaultCount { get; set; }
 
         /// <summary><c>true</c> once the subscription handle has been disposed.</summary>
         public bool Disposed { get; private set; }

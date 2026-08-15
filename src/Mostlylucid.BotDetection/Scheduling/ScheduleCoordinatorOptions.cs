@@ -43,6 +43,30 @@ public sealed class ScheduleCoordinatorOptions
     /// </summary>
     public int MaxConcurrentSubscribersPerTick { get; set; } = int.MaxValue;
 
+    // ---- Cadence loop fault tolerance --------------------------------------
+    //
+    // The cadence loop self-heals: any non-shutdown fault in the loop body is
+    // logged loudly and re-entered at the next wall-clock boundary instead of
+    // exiting forever (the tick-death doctrine, operator directive 2026-08-15).
+    // These knobs bound the re-entry backoff.
+
+    /// <summary>
+    ///     Base backoff between cadence-loop re-entries after a fault. The
+    ///     actual wait is <c>LoopFaultBackoff * consecutiveFaults</c>, capped at
+    ///     <see cref="LoopFaultMaxBackoff"/>. The consecutive-fault streak resets
+    ///     on the first successful tick after a fault. Default 5s -- long
+    ///     enough to avoid a hot re-entry spin on a deterministic fault, short
+    ///     enough that a transient fault costs at most a few ticks.
+    /// </summary>
+    public TimeSpan LoopFaultBackoff { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    ///     Ceiling for the cadence-loop fault backoff. Default 30s -- at that
+    ///     point the loop is still firing log lines every 30s (loud, never
+    ///     silent) while the watchdog remains the last-resort process exit.
+    /// </summary>
+    public TimeSpan LoopFaultMaxBackoff { get; set; } = TimeSpan.FromSeconds(30);
+
     // ---- Watchdog -----------------------------------------------------------
     //
     // ScheduleCoordinatorWatchdog is the irreducible bootstrap BackgroundService
@@ -85,4 +109,16 @@ public sealed class ScheduleCoordinatorOptions
     ///     with a 2x staleness multiplier).
     /// </summary>
     public TimeSpan WatchdogStartupGrace { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    ///     Fault-storm detection: how many additional subscriber faults
+    ///     (between two consecutive watchdog checks) mark a subscriber as
+    ///     storming. A subscriber that throws on EVERY tick makes its work
+    ///     silently dead while the cadence itself looks healthy -- the
+    ///     watchdog's silence check cannot see it. When a watched cadence's
+    ///     subscriber crosses this delta, the watchdog forces the same
+    ///     supervisor-restart path the silence check uses. Default 6 faults
+    ///     per 30s check interval; a value &lt;= 0 disables the check.
+    /// </summary>
+    public int WatchdogFaultStormThreshold { get; set; } = 6;
 }

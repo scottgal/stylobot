@@ -130,6 +130,106 @@ public sealed class ScheduleCoordinatorWatchdogTests
     }
 
     [Fact]
+    public void Subscriber_fault_storm_calls_StopApplication()
+    {
+        // Fault-storm detection (2026-08-15): a subscriber that throws on
+        // EVERY tick makes its work silently dead while the cadence itself
+        // looks healthy — the silence check cannot see it. The watchdog must
+        // stop the application when a watched cadence's subscriber faults past
+        // the threshold between two checks.
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero));
+        var coordinator = new RecordingScheduleCoordinator();
+        var lifetime = new CapturingHostApplicationLifetime();
+        var options = new ScheduleCoordinatorOptions
+        {
+            WatchdogStartupGrace = TimeSpan.FromSeconds(0),
+            WatchdogFaultStormThreshold = 6
+        };
+
+        var watchdog = new ScheduleCoordinatorWatchdog(
+            coordinator,
+            lifetime,
+            Options.Create(options),
+            NullLogger<ScheduleCoordinatorWatchdog>.Instance,
+            time);
+
+        // A real subscriber on a watched cadence.
+        coordinator.Subscribe(TickCadence.Tick10s, "SweepSubscriber", CostHint.Medium,
+            (_, _) => Task.CompletedTask);
+
+        // Baseline check: records every subscriber's fault baseline; must not
+        // trigger even though the storm threshold would be crossed later.
+        watchdog.EvaluateOnce(time.GetUtcNow());
+        lifetime.StopRequested.Should().BeFalse("the first check only records baselines; it never triggers");
+
+        // Storm: 8 faults since the baseline check (threshold 6).
+        coordinator.SetFaults("SweepSubscriber", 8);
+        watchdog.EvaluateOnce(time.GetUtcNow());
+        lifetime.StopRequested.Should().BeTrue("a subscriber faulting 8x between checks is a storm (threshold 6)");
+    }
+
+    [Fact]
+    public void Subscriber_faults_below_threshold_do_not_stop()
+    {
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero));
+        var coordinator = new RecordingScheduleCoordinator();
+        var lifetime = new CapturingHostApplicationLifetime();
+        var options = new ScheduleCoordinatorOptions
+        {
+            WatchdogStartupGrace = TimeSpan.FromSeconds(0),
+            WatchdogFaultStormThreshold = 6
+        };
+
+        var watchdog = new ScheduleCoordinatorWatchdog(
+            coordinator,
+            lifetime,
+            Options.Create(options),
+            NullLogger<ScheduleCoordinatorWatchdog>.Instance,
+            time);
+
+        coordinator.Subscribe(TickCadence.Tick10s, "SweepSubscriber", CostHint.Medium,
+            (_, _) => Task.CompletedTask);
+
+        watchdog.EvaluateOnce(time.GetUtcNow()); // baseline
+
+        // Below threshold: 3 faults — no stop. Then no growth — no stop.
+        coordinator.SetFaults("SweepSubscriber", 3);
+        watchdog.EvaluateOnce(time.GetUtcNow());
+        lifetime.StopRequested.Should().BeFalse("3 faults between checks is below the threshold of 6");
+
+        watchdog.EvaluateOnce(time.GetUtcNow());
+        lifetime.StopRequested.Should().BeFalse("no fault growth between checks must not trigger");
+    }
+
+    [Fact]
+    public void Threshold_disabled_disables_fault_storm_check()
+    {
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero));
+        var coordinator = new RecordingScheduleCoordinator();
+        var lifetime = new CapturingHostApplicationLifetime();
+        var options = new ScheduleCoordinatorOptions
+        {
+            WatchdogStartupGrace = TimeSpan.FromSeconds(0),
+            WatchdogFaultStormThreshold = 0 // disabled
+        };
+
+        var watchdog = new ScheduleCoordinatorWatchdog(
+            coordinator,
+            lifetime,
+            Options.Create(options),
+            NullLogger<ScheduleCoordinatorWatchdog>.Instance,
+            time);
+
+        coordinator.Subscribe(TickCadence.Tick10s, "SweepSubscriber", CostHint.Medium,
+            (_, _) => Task.CompletedTask);
+
+        watchdog.EvaluateOnce(time.GetUtcNow()); // baseline
+        coordinator.SetFaults("SweepSubscriber", 100);
+        watchdog.EvaluateOnce(time.GetUtcNow());
+        lifetime.StopRequested.Should().BeFalse("a threshold <= 0 disables the fault-storm check");
+    }
+
+    [Fact]
     public async Task Disable_flag_makes_watchdog_a_noop()
     {
         var coordinator = new RecordingScheduleCoordinator();
