@@ -789,21 +789,12 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // remote-mode dashboards.
         services.TryAddSingleton<Data.IDetectionArchive, Data.SqliteDetectionArchive>();
 
-        // The session-ROW path's dependable per-request feed (overview- ruling
-        // 2026-08-15): RequestPersistenceService (per-request sampled writer into the
-        // archive's requests table, coalesced via BatchingAtom) + SessionAtomizerService
-        // (Tick1m: pulls unatomized requests, groups by gap, persists the session rows
-        // via AddSessionAsync). Both were written + eagerly-resolved by the bootstrap
-        // but NEVER registered — the entire path was dead code (the rig's sessions-0
-        // class). Routing the row path through the atomizer closes the trace
-        // immediately; the SessionVectorAtom's package-dispatch question is
-        // investigated in parallel by the design owner.
-        services.TryAddSingleton<Data.RequestPersistenceService>();
-        services.TryAddSingleton<Services.SessionAtomizerService>();
-        // The legacy session finalize → row path (the same dead-registration class):
-        // SessionPersistenceService drains the Analysis.SessionStore's SessionFinalized
-        // (the guard-fixed atom's finalize set — gap/chunk/idle/eviction) into
-        // AddSessionAsync. Also never registered — only bootstrap-eager-resolved.
+        // The legacy session finalize → row path (stream- ruling 2026-08-15 — the
+        // un-gate is the canonical row path; the atomizer routing retired with its
+        // requests-table input): SessionPersistenceService drains the
+        // Analysis.SessionStore's SessionFinalized (the guard-fixed atom's finalize
+        // set — gap/chunk/idle/eviction) into AddSessionAsync. Was never registered
+        // — only bootstrap-eager-resolved.
         services.TryAddSingleton<Data.SessionPersistenceService>();
         services.AddHostedService<Data.SessionPersistenceLifecycleHostedService>();
 
