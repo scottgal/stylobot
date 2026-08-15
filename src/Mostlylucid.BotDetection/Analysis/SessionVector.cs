@@ -866,17 +866,39 @@ public sealed class SessionStore
     /// <summary>
     ///     Fired by IMemoryCache when a session slot leaves the cache. Removes the parallel
     ///     shadow-index entry so its lifetime tracks the session's, preventing unbounded
-    ///     growth under rotating-fingerprint traffic.
+    ///     growth under rotating-fingerprint traffic — AND finalizes the session when the
+    ///     eviction is its natural completion.
+    ///     <para>
+    ///     SessionFinalized previously fired ONLY on the gap boundary (the retrogressive
+    ///     detection — the NEXT request after the gap) or the shutdown flush. Under
+    ///     CONTINUOUS traffic (no gaps ever), the TTL / sliding-expiry eviction dropped
+    ///     the session without finalizing — it evaporated, and the ladder's session-row
+    ///     write never saw it (the sessions-0-on-the-rig class, stream- 2026-08-15). The
+    ///     eviction IS the session's natural completion under continuous load; finalizing
+    ///     it here feeds the same SessionPersistenceService path as the gap boundary.
+    ///     </para>
     /// </summary>
     private void OnSessionSlotEvicted(object key, object? value, EvictionReason reason, object? state)
     {
         // Replaced == a fresh Set for the same signature superseded the old slot; the
-        // session is still live, so keep the shadow entry.
+        // session is still live, so keep the shadow entry and do NOT finalize.
         if (reason == EvictionReason.Replaced) return;
         if (state is not string signature) return;
         // A newer request may have re-created the session slot after this callback was
         // queued; only drop the shadow entry if the slot is genuinely gone.
         if (_cache.TryGetValue($"session:current:{signature}", out _)) return;
+
+        // Expired / Removed / Capacity eviction of a genuinely-gone slot: the session's
+        // natural completion under continuous load (no gap boundary will ever fire).
+        // FinalizeSession gates on >= 3 requests and fires SessionFinalized, which the
+        // persistence service drains exactly like the gap-boundary path. The fingerprint
+        // context rides the shadow index; grab it before the removal below.
+        if (value is List<SessionRequest> evicted)
+        {
+            _activeSignatures.TryGetValue(signature, out var fingerprint);
+            FinalizeSession(signature, evicted, fingerprint);
+        }
+
         _activeSignatures.TryRemove(signature, out _);
     }
 
@@ -907,6 +929,12 @@ public sealed class SessionStore
     ///     Finalizes all active in-memory sessions and fires SessionFinalized for each.
     ///     Called on graceful shutdown to ensure no sessions are silently dropped.
     ///     Sessions with fewer than 3 requests are skipped (no meaningful vector).
+    ///     <para>
+    ///     The finalize is delegated to the slot's Removed-eviction callback
+    ///     (<see cref="OnSessionSlotEvicted"/>) — the eviction IS the session's
+    ///     completion under every exit path now (TTL / capacity / removal), so the
+    ///     explicit finalize here would double-fire it.
+    ///     </para>
     /// </summary>
     public async Task FlushAllActiveSessionsAsync()
     {
@@ -919,14 +947,10 @@ public sealed class SessionStore
             await sessionLock.WaitAsync();
             try
             {
-                var sessionKey = $"session:current:{signature}";
-                var currentSession = _cache.Get<List<SessionRequest>>(sessionKey);
-                if (currentSession is { Count: >= 3 })
-                {
-                    _activeSignatures.TryGetValue(signature, out var fingerprint);
-                    FinalizeSession(signature, currentSession, fingerprint);
-                    _cache.Remove(sessionKey);
-                }
+                // The Remove fires OnSessionSlotEvicted (Removed reason), which
+                // finalizes the session (>= 3 gate) + drops the shadow entry — under
+                // the per-signature lock, so no concurrent append can race it.
+                _cache.Remove($"session:current:{signature}");
             }
             catch (Exception ex)
             {
