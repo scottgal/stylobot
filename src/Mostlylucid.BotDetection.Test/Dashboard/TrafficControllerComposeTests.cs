@@ -257,41 +257,18 @@ public sealed class TrafficControllerComposeTests
     }
 
     [Fact]
-    public async Task Index_waits_for_the_first_paint_stash_on_a_pinned_window()
+    public async Task Pinned_window_without_the_boot_coordinator_serves_warming_once_no_poll()
     {
-        // The cold first-load 0 on the counters strip (operator directive 2026-08-12:
-        // pages NEVER load with empty data): a Warming envelope for the PINNED default
-        // view must hold the paint until the stash lands, never render "VISITORS 0"
-        // beside real widgets. Mirrors SiteControllerSummaryStashTests' wait test.
-        var page = new DashboardPageResult(new DashboardDatasetBundle(
-            Summary: new DashboardSummary
-            {
-                Timestamp = DateTime.UtcNow,
-                TotalRequests = 10,
-                BotRequests = 8,
-                HumanRequests = 2,
-                UncertainRequests = 0,
-                UniqueSignatures = 6,
-                RiskBandCounts = new(),
-                TopBotTypes = new(),
-                TopActions = new()
-            },
-            TimeBuckets:
-            [
-                new DashboardTimeSeriesPoint
-                {
-                    Timestamp = DateTime.UtcNow, BotCount = 8, HumanCount = 2, TotalCount = 10
-                }
-            ],
-            BotAggregate: [new DashboardTopBotEntry { PrimarySignature = "sig", HitCount = 1 }],
-            Geo: [new DashboardCountryStats { CountryCode = "GB", TotalCount = 1 }],
-            Endpoints: [new DashboardEndpointStats { Method = "GET", Path = "/", TotalCount = 1 }]));
-
+        // The complete-cache serve (operator 2026-08-15 — "the JSON loads WITH the page,
+        // NOT afterwards. A spinner should be IMPOSSIBLE"): a pinned window's serve AWAITS
+        // the boot pass's completion (the coordinator's BootWarmCompletion) and then
+        // serves the complete cached page — never a poll loop, never a rescue fill. A
+        // host without the coordinator is misconfigured: the Warming serves as-is (the
+        // page either contains the data or the host is broken — no self-heal window).
         var cache = new Mock<IDashboardContentCache>();
-        cache.SetupSequence(c => c.GetCurrentAsync(
+        cache.Setup(c => c.GetCurrentAsync(
                 It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(DashboardPageResult.Warming)
-            .ReturnsAsync(page);
+            .ReturnsAsync(DashboardPageResult.Warming);
 
         var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
             new RecordingEventStore(),
@@ -306,9 +283,9 @@ public sealed class TrafficControllerComposeTests
         var result = await controller.Index(null, null, null, null, null, null, null, CancellationToken.None);
 
         Assert.IsType<ViewResult>(result);
-        cache.Verify(c => c.GetCurrentAsync(
-            It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),
-            Times.AtLeast(2));
-        Assert.Same(page, controller.HttpContext.Items["sb.dashboard.pageresult"]);
+        // The page result is the Warming as-served — the old first-paint poll loop is
+        // gone by design (a host without the boot coordinator is misconfigured; the
+        // page either contains the data or the host is broken — no self-heal window).
+        Assert.Same(DashboardPageResult.Warming, controller.HttpContext.Items["sb.dashboard.pageresult"]);
     }
 }

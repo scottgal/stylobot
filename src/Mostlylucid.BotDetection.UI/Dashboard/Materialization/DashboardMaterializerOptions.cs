@@ -12,14 +12,22 @@ public sealed class DashboardMaterializerOptions
     // writes ~30 entries per tick, so the 64-cap's retention cleanup evicted each
     // envelope's entry within ~20s (the 512-cap still left ~3 min of retention vs the
     // wave's 60s re-warm cadence — the 7d/30d-cold class). 2048 keeps the entries alive
-    // across many cadence cycles; the sliding/absolute expirations still bound the memory.
+    // across many cadence cycles.
+    // (2026-08-15, the operator's always-full contract: "the content cache IS ALWAYS
+    // FULL — it does not time out ever — replaced not even emptied.") The capacity
+    // remains as the LFU-ACTIVITY cleanup bound (the importance-scored retention);
+    // the TIME-based expirations below are disabled — no TTL, ever.
     public int ContentCacheMaxEntries { get; set; } = 2048;
 
-    /// <summary>Sliding inactivity window before a cache entry is eligible for expiry.</summary>
-    public TimeSpan ContentSlidingExpiration { get; set; } = TimeSpan.FromMinutes(5);
+    /// <summary>Sliding inactivity window before a cache entry is eligible for expiry.
+    ///     DISABLED (TimeSpan.MaxValue) per the operator's always-full contract — the
+    ///     content cache never times out; entries are replaced by newer complete pages,
+    ///     never expired by time.</summary>
+    public TimeSpan ContentSlidingExpiration { get; set; } = TimeSpan.MaxValue;
 
-    /// <summary>Hard ceiling on a cache entry's lifetime regardless of activity.</summary>
-    public TimeSpan ContentAbsoluteExpiration { get; set; } = TimeSpan.FromMinutes(30);
+    /// <summary>Hard ceiling on a cache entry's lifetime regardless of activity.
+    ///     DISABLED (TimeSpan.MaxValue) — same always-full contract: no TTL, ever.</summary>
+    public TimeSpan ContentAbsoluteExpiration { get; set; } = TimeSpan.MaxValue;
 
     /// <summary>
     ///     Ticks within <c>[current - RetentionRecentTicks, current]</c> are kept at

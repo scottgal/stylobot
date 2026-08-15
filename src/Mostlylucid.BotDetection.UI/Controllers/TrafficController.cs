@@ -38,6 +38,7 @@ public sealed class TrafficController : Controller
     private readonly IOptions<ThreatsOptions> _threatsOpts;
     private readonly SignatureAggregateCache? _cache;
     private readonly IOptions<DashboardMaterializerOptions> _materializerOpts;
+    private readonly DashboardMaterializerCoordinator? _coordinator;
 
     public TrafficController(
         IDashboardEventStore eventStore,
@@ -46,7 +47,8 @@ public sealed class TrafficController : Controller
         IOptions<DashboardLayoutOptions> layout,
         IOptions<ThreatsOptions> threatsOpts,
         SignatureAggregateCache? cache = null,
-        IOptions<DashboardMaterializerOptions>? materializerOpts = null)
+        IOptions<DashboardMaterializerOptions>? materializerOpts = null,
+        DashboardMaterializerCoordinator? coordinator = null)
     {
         // IDashboardEventStore is the canonical, share-with-the-rest-of-the-dashboard
         // change-detection mechanism (feedback_centralised_change_detection). The
@@ -61,6 +63,7 @@ public sealed class TrafficController : Controller
         _threatsOpts = threatsOpts;
         _cache = cache;
         _materializerOpts = materializerOpts ?? Microsoft.Extensions.Options.Options.Create(new DashboardMaterializerOptions());
+        _coordinator = coordinator;
     }
 
     [HttpGet("")]
@@ -161,30 +164,22 @@ public sealed class TrafficController : Controller
             : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, endTime, domainsForQuery);
         var page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
 
-        // First-paint bounded wait (operator directive 2026-08-12: pages NEVER load with
-        // empty data — the traffic counters strip has no warming branch, so a cold stash
-        // painted "VISITORS 0" beside real widgets until the next load). Same shape as
-        // SiteController's wait: PINNED default views only (no custom range, no domain
-        // filter), bounded by FirstPaintStashWaitMs; the read never composes.
+        // The complete-cache serve (operator 2026-08-15 — "the JSON loads WITH the page,
+        // NOT afterwards. A spinner should be IMPOSSIBLE"): the pinned windows' pages are
+        // warm BEFORE any first load — the boot pass populates the cache at startup
+        // (self-initiated, never first-request-triggered) and the first-load serve
+        // AWAITS its completion, then serves the complete cached page. No wait loop, no
+        // degraded marker, no rescue fill: the page either contains the data or the host
+        // is broken. The custom range + filtered views stay demand-warmed (the operator's
+        // rule: only non-default/custom filters may be cold).
         if (page is { IsWarming: true }
             && domainsForQuery is null
             && !string.Equals(filters.Window, "custom", StringComparison.OrdinalIgnoreCase)
             && _materializerOpts.Value.PrewarmWindows.Contains(filters.Window)
-            && _materializerOpts.Value.FirstPaintStashWaitMs > 0)
+            && _coordinator is not null)
         {
-            var deadline = DateTime.UtcNow + TimeSpan.FromMilliseconds(_materializerOpts.Value.FirstPaintStashWaitMs);
-            while (page is { IsWarming: true } && DateTime.UtcNow < deadline)
-            {
-                await Task.Delay(Math.Max(10, _materializerOpts.Value.FirstPaintStashPollMs), ct);
-                try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }
-                catch { break; }
-            }
-        // Terminal state (operator directive 2026-08-13): the bounded wait gave up —
-        // the data feed stayed unavailable (gateway compose flap). Stamp the degraded
-        // marker so the widget renders the explicit "data feed unavailable" state
-        // instead of an infinite spinner; the next tick/beacon retries.
-        if (page is { IsWarming: true })
-            DashboardWarmingSignal.MarkDegraded(HttpContext);
+            await _coordinator.BootWarmCompletion.WaitAsync(ct);
+            page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
         }
 
         HttpContext.Items["sb.dashboard.pageresult"] = page;
