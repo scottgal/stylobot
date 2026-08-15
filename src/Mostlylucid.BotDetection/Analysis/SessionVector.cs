@@ -855,6 +855,18 @@ public sealed class SessionStore
 
                 if (gap >= _sessionGapThreshold || age >= _sessionMaxLifetime)
                 {
+                    // Rig-visible chunk log (Information — visible at the default level):
+                    // distinguishes "the chunk never fires" from "the chunk fires but the
+                    // row write fails" on the soak rig (the sessions-0 discriminator).
+                    if (age >= _sessionMaxLifetime)
+                        _logger.LogInformation(
+                            "Session max-lifetime chunk for {Signature}: age {Age:hh\\:mm\\:ss} past {MaxLifetime:hh\\:mm\\:ss} — finalizing the epoch",
+                            signature, age, _sessionMaxLifetime);
+                    else
+                        _logger.LogInformation(
+                            "Session gap boundary for {Signature}: gap {Gap:hh\\:mm\\:ss} past {GapThreshold:hh\\:mm\\:ss} — finalizing the session",
+                            signature, gap, _sessionGapThreshold);
+
                     // Finalize the previous session into a snapshot
                     completedSnapshot = FinalizeSession(signature, currentSession, fingerprint);
 
