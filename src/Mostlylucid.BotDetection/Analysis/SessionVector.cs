@@ -1008,7 +1008,17 @@ public sealed class SessionStore
     private SessionSnapshot? FinalizeSession(
         string signature, List<SessionRequest> requests, FingerprintContext? fingerprint = null)
     {
-        if (requests.Count < 3) return null; // Too few requests for meaningful vector
+        if (requests.Count < 3)
+        {
+            // Minimal trace (stream- refinement, 2026-08-15; the operator's "they MUST
+            // leave a trace"): a 1-2 request session's summary (counts + durations +
+            // statuses — no vector) is a legitimate trace row for the ladder's
+            // session-row write. Fire the event with a summary-only snapshot; the
+            // analytic HISTORY RING (the vector consumers — drift/velocity) stays
+            // untouched — an empty vector in the ring would corrupt the drift math.
+            FireMinimalTrace(signature, requests, fingerprint);
+            return null;
+        }
 
         var vector = SessionVectorizer.Encode(requests, fingerprint);
         var maturity = SessionVectorizer.ComputeMaturity(requests);
@@ -1068,6 +1078,41 @@ public sealed class SessionStore
         catch (Exception ex) { _logger.LogWarning(ex, "SessionFinalized event handler failed"); }
 
         return snapshot;
+    }
+
+    /// <summary>
+    ///     Summary-only trace for a too-short session (fewer than 3 requests — the vector
+    ///     maturity gate). The operator's "they MUST leave a trace": a 1-2 request
+    ///     session's summary (counts, durations, dominant state — no vector) is a
+    ///     legitimate trace row; the ladder's session-row write (AddSessionAsync) lands
+    ///     the summary grain. Fires the same SessionFinalized event as the full path —
+    ///     the persistence service drains it identically.
+    /// </summary>
+    private void FireMinimalTrace(
+        string signature, List<SessionRequest> requests, FingerprintContext? fingerprint = null)
+    {
+        if (requests.Count == 0) return;
+        var snapshot = new SessionSnapshot
+        {
+            Signature = signature,
+            StartedAt = requests[0].Timestamp,
+            EndedAt = requests[^1].Timestamp,
+            RequestCount = requests.Count,
+            Vector = Array.Empty<float>(),
+            Maturity = 0,
+            DominantState = requests
+                .GroupBy(r => r.State)
+                .OrderByDescending(g => g.Count())
+                .First().Key,
+            HeaderHashesJson = _cache.Get<string>($"session:headers:{signature}"),
+        };
+
+        _logger.LogDebug(
+            "Session minimal trace for {Signature}: {Count} requests (below the vector maturity gate)",
+            signature, requests.Count);
+
+        try { SessionFinalized?.Invoke(snapshot, requests); }
+        catch (Exception ex) { _logger.LogWarning(ex, "SessionFinalized event handler failed"); }
     }
 
     /// <summary>

@@ -91,6 +91,34 @@ public sealed class SessionStoreEvictionFinalizeTests
             "the gap boundary must still finalize the previous session exactly once");
     }
 
+
+    [Fact]
+    public async Task Evicted_below_maturity_session_still_leaves_a_minimal_trace()
+    {
+        // The operator's "they MUST leave a trace" (stream- refinement 2026-08-15): a
+        // 1-2 request session (below the vector maturity gate) that ends by eviction
+        // still fires SessionFinalized with a summary-only snapshot (counts, durations,
+        // dominant state — no vector), so the ladder's session-row write sees it.
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new SessionStore(cache, NullLogger<SessionStore>.Instance, sessionGapThreshold: TimeSpan.FromHours(1));
+        var traces = new List<SessionSnapshot>();
+        store.SessionFinalized += (snap, _) => traces.Add(snap);
+
+        var t0 = DateTimeOffset.UtcNow;
+        // A 2-request session (below the 3-request vector gate)…
+        await store.RecordRequestAsync("sig-short", MakeRequest(RequestState.PageView, t0));
+        await store.RecordRequestAsync("sig-short", MakeRequest(RequestState.ApiCall, t0.AddSeconds(1)));
+        // …ended by the flush's removal (the eviction path).
+        await store.FlushAllActiveSessionsAsync();
+
+        await WaitForAsync(() => traces.Count == 1);
+        var trace = Assert.Single(traces);
+        Assert.Equal("sig-short", trace.Signature);
+        Assert.Equal(2, trace.RequestCount);
+        Assert.Empty(trace.Vector);
+        Assert.Equal(0f, trace.Maturity);
+    }
+
     private static async Task WaitForAsync(Func<bool> predicate, int timeoutMs = 5000)
     {
         var deadline = Environment.TickCount + timeoutMs;
