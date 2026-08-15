@@ -48,19 +48,29 @@ public sealed class BotDetectionOrchestrator : IDisposable
     private readonly IFingerprintStore _fingerprintStore;
     private readonly Posture.IDetectionPostureProvider _postureProvider;
     private readonly SignalSink _signalSink;
+    private readonly Analysis.SessionStore? _legacySessionStore;
 
     public BotDetectionOrchestrator(
         DetectionEngine engine,
         IOptions<BotDetectionOptions> options,
         IFingerprintStore fingerprintStore,
         ILogger<BotDetectionOrchestrator> logger,
-        Posture.IDetectionPostureProvider? postureProvider = null)
+        Posture.IDetectionPostureProvider? postureProvider = null,
+        Analysis.SessionStore? legacySessionStore = null)
     {
         _engine = engine;
         _options = options.Value;
         _fingerprintStore = fingerprintStore;
         _logger = logger;
         _postureProvider = postureProvider ?? Posture.FullDetectionPostureProvider.Instance;
+        // The session-ROW path's dispatch-independent per-request feed (deploy- rig
+        // evidence 2026-08-15 — the SessionVectorAtom's dispatch is package-gated on
+        // the rig): the orchestrator feeds the legacy Analysis.SessionStore DIRECTLY
+        // (the atom's own recording is removed — this is the single recording point),
+        // so the finalize set (gap/chunk/idle/eviction) → SessionPersistenceService →
+        // AddSessionAsync → the rows fires on every request. Nullable so minimal
+        // hosts without the legacy store don't pay for it.
+        _legacySessionStore = legacySessionStore;
 
         // Per-request signal sink. This is the ONLY per-request allocation now: the
         // expensive DetectorOrchestrator + ~70-atom Register() wiring is built ONCE in the
@@ -178,6 +188,53 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // policy pipeline against a response, decide whether to raise a
             // SessionSample into the shared SessionStore, and the
             // SessionAtom reacts to aggregate mutations off-thread.
+
+            // The session-ROW path's dispatch-independent feed (deploy- rig evidence
+            // 2026-08-15 — the SessionVectorAtom's dispatch is package-gated on the
+            // rig): feed the legacy Analysis.SessionStore DIRECTLY — the same
+            // recording the atom performed, guaranteed per request — so the finalize
+            // set (gap/chunk/idle/eviction) → SessionPersistenceService →
+            // AddSessionAsync → the rows fires regardless of the atom's dispatch.
+            // Learning-suppressed requests skip (the same gate as the identity
+            // write-behind).
+            if (_legacySessionStore is not null && !context.IsLearningSuppressedByApiKey()
+                && _postureProvider.LearningEnabled)
+            {
+                try
+                {
+                    var feedSignature = _signalSink.ReadHint(SignalKeys.PrimarySignature);
+                    if (!string.IsNullOrEmpty(feedSignature))
+                    {
+                        var statusCode = context.Response.StatusCode;
+                        var shed = _signalSink.ReadHint(SignalKeys.Shed) is not null
+                            ? _signalSink.ReadBoolHint(SignalKeys.Shed)
+                            : context.Items.ContainsKey(Middleware.BotDetectionMiddleware.BotDetectionShedKey);
+                        var feedRequest = new Analysis.SessionRequest(
+                            Markov.RequestMarkovClassifier.Classify(context, _signalSink),
+                            DateTimeOffset.UtcNow,
+                            SessionVectorAtom.TemplatizePath(context.Request.Path.Value ?? "/"),
+                            statusCode > 0 ? statusCode : 200,
+                            FromUpstream: _signalSink.ReadBoolHint(SignalKeys.ResponseFromUpstream, fallback: true),
+                            Shed: shed,
+                            EnforcementMode: _signalSink.ReadHint(SignalKeys.EnforcementMode),
+                            PolicyRevision: _signalSink.ReadHint(SignalKeys.PolicyRevision),
+                            IsDocumentNavigation: ContentSequenceAtom.IsDocumentRequest(context.Request, _signalSink));
+
+                        _ = await _legacySessionStore.RecordRequestAsync(
+                            feedSignature, feedRequest, SessionVectorAtom.BuildFingerprintContext(_signalSink));
+                        if (_legacySessionStore.GetCurrentSession(feedSignature) is { Count: 1 })
+                        {
+                            var headerHashes = _signalSink.ReadHint(SignalKeys.HeaderHashes);
+                            if (!string.IsNullOrEmpty(headerHashes))
+                                _legacySessionStore.SetHeaderHashes(feedSignature, headerHashes);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Legacy session feed failed; session rows skipped for {SessionId}", sessionId);
+                }
+            }
 
             _logger.LogDebug(
                 "Detection completed for {SessionId}: BotProbability={Prob:F2}, Confidence={Conf:F2}, Elapsed={Elapsed}ms",

@@ -139,50 +139,17 @@ public sealed class SessionVectorAtom : DetectorAtomBase
                 ? sink.ReadBoolHint(SignalKeys.Shed)
                 : context.Items.ContainsKey(BotDetectionMiddleware.BotDetectionShedKey);
 
-            var sessionRequest = new SessionRequest(
-                requestState, DateTimeOffset.UtcNow, path,
-                statusCode > 0 ? statusCode : 200,
-                FromUpstream: fromUpstream, Shed: shed,
-                EnforcementMode: enforcementMode,
-                PolicyRevision: policyRevision,
-                IsDocumentNavigation: ContentSequenceAtom.IsDocumentRequest(context.Request, sink));
-
-            var fpContext = BuildFingerprintContext(sink);
-
-            // Learning-suppressed requests (bypass key with DisableLearningWrites, or
-            // impersonation) score against existing session history but must NOT record
-            // this request's Markov transition into the store. RecordRequestAsync +
-            // SetHeaderHashes are learning writes -- skip them; the reads below
-            // (GetCurrentSession / GetHistory) still drive scoring off prior knowledge.
-            var learningSuppressed = sink.Detect(SignalKeys.LearningSuppressed);
-
-            var completedSession = learningSuppressed
-                ? null
-                : await _sessionStore.RecordRequestAsync(signature, sessionRequest, fpContext).ConfigureAwait(false);
+            // The session RECORDING is the orchestrator's dispatch-independent feed
+            // (deploy- rig evidence 2026-08-15 — the atom's dispatch is package-gated on
+            // the rig; the recording must not depend on it). The reads below still
+            // drive the atom's contributions off the store's state, which the
+            // orchestrator's DetectAsync feed updates per request.
             var currentSession = _sessionStore.GetCurrentSession(signature);
-
-            if (!learningSuppressed && currentSession is { Count: 1 })
-            {
-                var headerHashesJson = sink.ReadHint(SignalKeys.HeaderHashes);
-                if (!string.IsNullOrEmpty(headerHashesJson))
-                    _sessionStore.SetHeaderHashes(signature, headerHashesJson);
-            }
-
             var sessionHistory = _sessionStore.GetHistory(signature);
 
             sink.Raise($"{SignalKeys.SessionRequestCount}:{currentSession?.Count ?? 1}", sessionId);
             sink.Raise($"{SignalKeys.SessionHistoryCount}:{sessionHistory.Count}", sessionId);
             sink.Raise($"{SignalKeys.SessionCurrentState}:{requestState}", sessionId);
-
-            if (completedSession is not null)
-            {
-                sink.Raise($"{SignalKeys.SessionBoundaryDetected}:true", sessionId);
-                sink.Raise($"{SignalKeys.SessionCompletedMaturity}:{completedSession.Maturity.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
-                sink.Raise($"{SignalKeys.SessionCompletedRequestCount}:{completedSession.RequestCount}", sessionId);
-                sink.Raise($"{SignalKeys.SessionDominantState}:{completedSession.DominantState}", sessionId);
-                _logger.LogDebug("Session boundary detected for {Signature}: {Count} requests, maturity={Maturity:F2}",
-                    signature, completedSession.RequestCount, completedSession.Maturity);
-            }
 
             if (sink.ReadBoolHint(SignalKeys.GatewayWarmup))
             {
@@ -194,11 +161,11 @@ public sealed class SessionVectorAtom : DetectorAtomBase
             if (currentSession is not null
                 && currentSession.Count >= PartialChainMinRequests
                 && currentSession.Count < MinSessionRequests)
-                AnalyzePartialChain(sink, sessionId, currentSession, fpContext, contributions);
+                AnalyzePartialChain(sink, sessionId, currentSession, BuildFingerprintContext(sink), contributions);
 
             if (currentSession is not null && currentSession.Count >= MinSessionRequests)
             {
-                var currentVector = SessionVectorizer.Encode(currentSession, fpContext);
+                var currentVector = SessionVectorizer.Encode(currentSession, BuildFingerprintContext(sink));
                 var currentMaturity = SessionVectorizer.ComputeMaturity(currentSession);
                 sink.Raise($"{SignalKeys.SessionVectorMaturity}:{currentMaturity.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
                 if (currentMaturity >= MinMaturityForScoring)
@@ -532,7 +499,7 @@ private void AnalyzeCurrentSession(SignalSink sink, string sessionId, string sig
         return denom > 0 ? dot / denom : 0f;
     }
 
-    private static FingerprintContext BuildFingerprintContext(SignalSink sink)
+    internal static FingerprintContext BuildFingerprintContext(SignalSink sink)
     {
         var tlsProtocol = sink.ReadHint(SignalKeys.TlsProtocol) ?? string.Empty;
         var tlsVersion = tlsProtocol switch
@@ -579,7 +546,7 @@ private void AnalyzeCurrentSession(SignalSink sink, string sessionId, string sig
         };
     }
 
-    private static string TemplatizePath(string path)
+    internal static string TemplatizePath(string path)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < segments.Length; i++)
