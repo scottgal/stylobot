@@ -290,6 +290,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             if (!result.IsWarming)
             {
                 _lastWarmedAt[envelope] = _time.GetUtcNow();
+                // The L2 decision's baseline (2026-08-15): the cursor's tick at this
+                // successful re-roll — the next re-roll requires a surface to advance
+                // past it.
+                _lastRolledCursorTick[envelope] = _cursor.CurrentTick;
                 // Health latch: this compose PATH is proven to work. Read by the request path
                 // (dashboard-graph-quality PART 4 infinite-warming guard) so it only paints the
                 // instant "warming" state for a cold-miss once the materializer has demonstrably
@@ -334,8 +338,34 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     is ever seen, and is what keeps every existing single-tick coordinator test
     ///     passing unchanged (they never warm the SAME envelope across two ticks).
     /// </summary>
+    // The L1 change surfaces the L2 re-roll decision watches (the middleware bumps
+    // these per detection — the centralised change-detection cursor).
+    private static readonly string[] ReRollSurfaces = ["signature", "summary", "threats"];
+
+    // The cursor's tick at each envelope's last successful re-roll (the L2 decision's
+    // baseline — the envelope re-rolls ONLY when a surface advanced past this).
+    private readonly ConcurrentDictionary<DashboardContentEnvelope, long> _lastRolledCursorTick = new();
+
     private bool IsDueForWarm(DashboardContentEnvelope envelope, DashboardPageManifest manifest, int accessCount)
     {
+        // The L2 re-roll decision (operator 2026-08-15 — "when L1 has a new report, L2
+        // decides if it needs to re-roll"): the envelope re-rolls when the L1's change
+        // surfaces advanced since its last roll (the content-change decision — L2's
+        // call, not L1's, not the clock's). The refresh cadence remains ONLY as the
+        // staleness floor (a never-bumped surface still refreshes on the cadence —
+        // the "replaced not emptied" guarantee's bound), never as the trigger — the
+        // per-tick churn is gone: an unchanged envelope keeps its existing complete
+        // page.
+        if (_lastRolledCursorTick.TryGetValue(envelope, out var lastRolled))
+        {
+            var surfacesChanged = false;
+            foreach (var surface in ReRollSurfaces)
+            {
+                if (_cursor.TickFor(surface) > lastRolled) { surfacesChanged = true; break; }
+            }
+            if (surfacesChanged) return true;
+        }
+
         var intervalSeconds = DashboardRefreshCadence.ComputeEffectiveIntervalSeconds(
             manifest, accessCount, _adaptive.CurrentScaleFactor, _options);
         if (!_lastWarmedAt.TryGetValue(envelope, out var last)) return true;
