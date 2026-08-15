@@ -86,7 +86,7 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
 
         // 8 absorbed observations (same archetype "chrome-desktop" / ua "chrome").
         for (var i = 0; i < 8; i++)
-            await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, "fp");
         await MarkAllObservationsAbsorbedAsync("fp");
 
         // Baseline: the drift reader ranks a full cap of 5 rows.
@@ -116,10 +116,10 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
 
         // 4 absorbed then 3 unabsorbed. effectiveK = max(1, 1) = 1.
         for (var i = 0; i < 4; i++)
-            await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, "fp");
         await MarkAllObservationsAbsorbedAsync("fp");
         for (var i = 0; i < 3; i++)
-            await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, "fp");
 
         await NewGuardian(store, opts).GuardAsync();
 
@@ -135,7 +135,7 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
         var store = await NewStoreAsync(opts);
         await SeedFingerprintAsync(store, "fp");
         for (var i = 0; i < 4; i++)
-            await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, "fp");
         await MarkAllObservationsAbsorbedAsync("fp");
 
         var report = await NewGuardian(store, opts).GuardAsync();
@@ -160,12 +160,14 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
         await SeedFingerprintAsync(store, "fp");
         var modeStore = NewModeStore(store, opts);
 
-        // 6 absorbed then 3 unabsorbed mode observations.
+        // 6 absorbed then 3 unabsorbed mode observations (seeded directly — Phase B:
+        // RecordModeObservationAsync is memory-only; the guardian's prune serves
+        // legacy rows).
         for (var i = 0; i < 6; i++)
-            await modeStore.RecordModeObservationAsync(RequestScope.Unknown, "fp", "mode-a", UnitVector(), "chrome");
+            await SeedModeObservationRowAsync(store, "fp", "mode-a");
         await MarkAllModeObservationsAbsorbedAsync("fp");
         for (var i = 0; i < 3; i++)
-            await modeStore.RecordModeObservationAsync(RequestScope.Unknown, "fp", "mode-a", UnitVector(), "chrome");
+            await SeedModeObservationRowAsync(store, "fp", "mode-a");
 
         var report = await NewGuardian(store, opts).GuardAsync();
 
@@ -195,6 +197,48 @@ public class FingerprintObservationRetentionGuardianTests : IDisposable
     // ============================================================
     // Helpers
     // ============================================================
+
+    // ── Phase B seeding (write-path grain redesign): RecordObservationAsync /
+    // RecordModeObservationAsync are memory-only; the retention guardian's prune
+    // mechanisms serve LEGACY rows, so observations are seeded directly. ────────
+
+    private async Task SeedObservationRowAsync(SqliteFingerprintStore store, string fpId)
+    {
+        var blob = SqliteFingerprintStore.FloatsToBlob(UnitVector());
+        await using var conn = new SqliteConnection($"Data Source={_fpDb}");
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at, ua_family)
+            VALUES (@fp, @vec, @ts, NULL, 'chrome');
+            UPDATE fingerprints
+               SET observation_count = observation_count + 1,
+                   last_seen = @ts
+             WHERE fingerprint_id = @fp;
+            """;
+        cmd.Parameters.AddWithValue("@fp", fpId);
+        cmd.Parameters.AddWithValue("@vec", blob);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task SeedModeObservationRowAsync(
+        SqliteFingerprintStore store, string fpId, string modeId)
+    {
+        var blob = SqliteFingerprintStore.FloatsToBlob(UnitVector());
+        await using var conn = new SqliteConnection($"Data Source={_fpDb}");
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO fingerprint_mode_observations (fingerprint_id, mode_id, vector, observed_at, absorbed_at, ua_family)
+            VALUES (@fp, @mode, @vec, @ts, NULL, 'chrome');
+            """;
+        cmd.Parameters.AddWithValue("@fp", fpId);
+        cmd.Parameters.AddWithValue("@mode", modeId);
+        cmd.Parameters.AddWithValue("@vec", blob);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync();
+    }
 
     private static float[] UnitVector()
     {

@@ -977,6 +977,54 @@ public sealed record SessionListEntry
 }
 
 /// <summary>
+///     A persisted session summary at the window-fold grain (write-path grain
+///     redesign, Phase B — docs/architecture/write-path-grain-design.md §3.2/§7.5).
+///     The sessions read surfaces (/api/sessions/recent, /api/sessions/signature/{id},
+///     the compose SessionsRaw row) are re-pointed at the window aggregates: one fold
+///     summary per fused (signature, hour) detection row, carrying the operator's grain
+///     — "that they happened and how long they took" (counts, bot/human split,
+///     durations, statuses) — with the per-session analytic baggage (vectors,
+///     transition counts, timing entropy) retired with the sessions row.
+/// </summary>
+public sealed record DashboardSessionFoldSummary
+{
+    /// <summary>The fused detections row id (the hour-anchored summary row).</summary>
+    public required long Id { get; init; }
+
+    public required string Signature { get; init; }
+
+    /// <summary>The fold's hour anchor (bucket start, UTC).</summary>
+    public required DateTime StartedAt { get; init; }
+
+    /// <summary>Hour anchor end (bucket start + 1h).</summary>
+    public required DateTime EndedAt { get; init; }
+
+    public required int RequestCount { get; init; }
+
+    public required int BotCount { get; init; }
+
+    public bool IsBot => BotCount > 0;
+
+    /// <summary>Representative row's bot probability (the highest-importance member).</summary>
+    public required double BotProbability { get; init; }
+
+    /// <summary>Representative row's confidence.</summary>
+    public required double Confidence { get; init; }
+
+    public string? RiskBand { get; init; }
+    public string? Action { get; init; }
+    public string? BotName { get; init; }
+    public string? BotType { get; init; }
+    public string? CountryCode { get; init; }
+
+    /// <summary>Latency sum over the fold's members (ms).</summary>
+    public required double MsSum { get; init; }
+
+    /// <summary>Latency max over the fold's members (ms).</summary>
+    public required double MsMax { get; init; }
+}
+
+/// <summary>
 ///     View model for the session detail panel (loaded via HTMX).
 ///     Shows behavioral radar chart, Markov chain transitions, paths, timing.
 /// </summary>

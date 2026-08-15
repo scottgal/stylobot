@@ -972,22 +972,16 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<SessionsListModel> BuildSessionsModelAsync(HttpContext context, int page, int pageSize, string? filter)
     {
-        var sessionStore = context.RequestServices.GetService<IDetectionArchive>();
-        if (sessionStore == null)
-        {
-            return new SessionsListModel
-            {
-                Sessions = [],
-                BasePath = _options.BasePath.TrimEnd('/'),
-                Filter = filter
-            };
-        }
-
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
         const int maxFetch = 500;
         var fetchCount = Math.Min(page * pageSize + pageSize, maxFetch);
         var since = DateTime.UtcNow - _options.DetectionRetention;
-        var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot, since);
+
+        // Phase B (write-path grain redesign): the sessions read surface re-points at the
+        // window folds (the archived sessions rows retired with the session grain). The
+        // fold summaries ARE the persisted session summaries at the hour grain; the
+        // per-session analytic baggage degrades to null/0.
+        var sessions = await _eventStore.GetSessionFoldSummariesAsync(fetchCount, isBot, since);
         var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
 
         var sigLookup = await _eventStore.LoadSignatureLookupAsync();
@@ -1003,20 +997,20 @@ public sealed class SbWidgetBatchMiddleware
             StartedAt = s.StartedAt,
             EndedAt = s.EndedAt,
             RequestCount = s.RequestCount,
-            DominantState = s.DominantState,
+            DominantState = "unknown",
             IsBot = s.IsBot,
-            AvgBotProbability = s.AvgBotProbability,
-            RiskBand = s.RiskBand,
+            AvgBotProbability = s.BotProbability,
+            RiskBand = s.RiskBand ?? "Unknown",
             Action = s.Action,
             BotName = sigLookup.ResolveBotName(_signatureCache, s.Signature, s.BotName),
             CountryCode = s.CountryCode,
             UserAgent = uaLookup.ResolveUserAgent(_signatureCache, s.Signature),
-            ErrorCount = s.ErrorCount,
-            TimingEntropy = s.TimingEntropy,
-            Maturity = s.Maturity,
-            TransitionCounts = s.TransitionCountsJson != null
-                ? JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                : null
+            ErrorCount = 0,
+            TimingEntropy = 0,
+            // Retired with the sessions row — the fold summary carries the operator's
+            // grain, not the analytic baggage.
+            Maturity = 0,
+            TransitionCounts = null
         }).ToList();
 
         return new SessionsListModel

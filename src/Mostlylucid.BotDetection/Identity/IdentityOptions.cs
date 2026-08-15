@@ -476,6 +476,34 @@ public sealed class IdentityDriftOptions
     ///     history in one observation. Default 0.9.
     /// </summary>
     public double GraduatedCeilingAlpha { get; set; } = 0.9;
+
+    // ── Fold-time evaluation (write-path grain redesign, Phase B) ─────────────
+
+    /// <summary>
+    ///     The fingerprint state's fold-time composer (Phase B of the write-path grain
+    ///     redesign, docs/architecture/write-path-grain-design.md §3.2): a bounded
+    ///     periodic pass over the LFU's recently-active fingerprints that compares the
+    ///     CURRENT derived state against the fingerprint's last mutation and emits
+    ///     <c>centroid_drift</c> / <c>verdict_flip</c> mutations. Mirrors the commercial
+    ///     evaluator's thresholds (this <c>DriftWarningThreshold</c> above) and payload
+    ///     shapes. Age-priority (most recent activity first) per the sweep's principle;
+    ///     bounded per pass by <see cref="FoldTimeEvaluationBatchSize"/>.
+    /// </summary>
+    public int FoldTimeEvaluationBatchSize { get; set; } = 2000;
+
+    /// <summary>
+    ///     Recency window for the fold-time pass: only fingerprints whose LastSeen is
+    ///     inside this window are evaluated. Mirrors the commercial
+    ///     <c>FoldTimeEvaluationWindow</c> default (1h).
+    /// </summary>
+    public TimeSpan FoldTimeEvaluationWindow { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>
+    ///     Cadence of the fold-time pass. Mirrors the commercial store's write-behind
+    ///     drain interval (500 ms). The evaluator rides the state's evolution: it
+    ///     lazy-starts on the first state-changing write and then runs on this interval.
+    /// </summary>
+    public int FoldTimeEvaluationIntervalMs { get; set; } = 500;
 }
 
 public sealed class IdentityCalibrationOptions

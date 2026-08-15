@@ -271,4 +271,24 @@ public interface IDashboardEventStore
     /// </summary>
     Task<IReadOnlyList<DegradationSnapshot>> GetDegradationHistoryAsync(
         DateTime startTime, DateTime endTime, CancellationToken ct = default);
+
+    /// <summary>
+    ///     The sessions read surface at the window-fold grain (write-path grain
+    ///     redesign, Phase B — docs/architecture/write-path-grain-design.md §3.2/§7.5):
+    ///     one fold summary per fused (signature, hour) detection row over
+    ///     <paramref name="since"/>, newest hour first, capped by
+    ///     <paramref name="limit"/>. Optional <paramref name="signature"/> scopes the
+    ///     read to one identity (the visitor-detail "Hit history" panel);
+    ///     <paramref name="isBot"/> filters on the fold's bot/human split
+    ///     (<c>true</c> = any bot traffic in the hour, <c>false</c> = none).
+    ///     <para>
+    ///     The per-session analytic baggage (vectors, transition counts, timing
+    ///     entropy) retired with the sessions row; the surviving DTO shapes
+    ///     degrade gracefully on those fields. Stores without a fold surface
+    ///     (remote viewers proxying a store that hasn't re-pointed) return empty.
+    ///     </para>
+    /// </summary>
+    Task<IReadOnlyList<DashboardSessionFoldSummary>> GetSessionFoldSummariesAsync(
+        int limit, bool? isBot, DateTime since, string? signature = null, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<DashboardSessionFoldSummary>>(Array.Empty<DashboardSessionFoldSummary>());
 }

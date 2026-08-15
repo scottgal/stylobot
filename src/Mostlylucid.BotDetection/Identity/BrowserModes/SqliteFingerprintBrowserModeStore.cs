@@ -33,11 +33,6 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         = new(StringComparer.Ordinal);
     private long _epoch;
 
-    // Test instrumentation: mode observations that adaptive sampling summarised
-    // (mode count + maturity advanced, no detail row). Mirrors
-    // SqliteFingerprintStore.SummarisedObservationCount.
-    internal long SummarisedModeObservationCount;
-
     public SqliteFingerprintBrowserModeStore(
         SqliteFingerprintStore parent,
         IOptions<BotDetectionOptions> options,
@@ -148,84 +143,15 @@ public sealed class SqliteFingerprintBrowserModeStore : IFingerprintBrowserModeS
         CancellationToken ct = default)
     {
         if (string.IsNullOrEmpty(fingerprintId) || string.IsNullOrEmpty(modeId)) return;
-        await _parent.EnsureInitialisedAsync(ct);
 
-        if (!await ShouldPersistModeObservationAsync(fingerprintId, modeId, vector, ct))
-        {
-            await SummariseModeObservationAsync(fingerprintId, modeId, ct);
-            return;
-        }
-
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO fingerprint_mode_observations
-                (fingerprint_id, mode_id, vector, observed_at, absorbed_at, ua_family, domain, host)
-            VALUES (@fp, @mode, @vec, @ts, NULL, @ua, @domain, @host)
-            """;
-        cmd.Parameters.AddWithValue("@fp", fingerprintId);
-        cmd.Parameters.AddWithValue("@mode", modeId);
-        cmd.Parameters.AddWithValue("@vec", SqliteFingerprintStore.FloatsToBlob(vector));
-        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("@ua", (object?)uaFamily ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@domain", (object?)scope.Domain ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@host", (object?)scope.Host ?? DBNull.Value);
-        await cmd.ExecuteNonQueryAsync(ct);
-    }
-
-    /// <summary>
-    ///     Adaptive-forgetting decision for a mode observation. Keeps detail for novel
-    ///     observations, for every observation while the mode is still maturing, and whenever
-    ///     sampling is disabled or the mode / centroid is not yet comparable. Summarises only a
-    ///     confirmatory observation on a matured mode.
-    /// </summary>
-    private async Task<bool> ShouldPersistModeObservationAsync(
-        string fingerprintId, string modeId, float[] vector, CancellationToken ct)
-    {
-        var opts = _parent.VectorOptions;
-        if (!opts.AdaptiveObservationSampling)
-            return true;
-
-        var mode = await GetModeAsync(fingerprintId, modeId, ct); // cached, warm from the matcher
-        if (mode is null)
-            return true; // new mode: bootstrap
-
-        if (mode.CentroidMaturity < opts.AbsorptionMaturityThreshold)
-            return true; // still learning the mode shape
-
-        if (mode.Centroid.Length != vector.Length || vector.Length == 0)
-            return true;
-
-        var novelty = Math.Clamp(1.0 - BruteForceIdentityAnchorIndex.Cosine(vector, mode.Centroid), 0.0, 2.0);
-        return novelty >= opts.ObservationNoveltyKeepThreshold;
-    }
-
-    /// <summary>
-    ///     Summarise a confirmatory mode observation: advance the mode's aggregate counters
-    ///     without writing a detail row or waking the drainer. Must NOT touch the centroid or
-    ///     centroid_maturity: the mode drainer is the sole owner of the fold, and a second
-    ///     writer here desyncs the maturity-weighted mean (same corruption as the parent store).
-    ///     centroid_maturity counts folded (novel) observations only.
-    /// </summary>
-    private async Task SummariseModeObservationAsync(string fingerprintId, string modeId, CancellationToken ct)
-    {
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            UPDATE fingerprint_modes
-               SET observation_count = observation_count + 1,
-                   last_seen = @ts
-             WHERE fingerprint_id = @fp AND mode_id = @mode
-            """;
-        cmd.Parameters.AddWithValue("@fp", fingerprintId);
-        cmd.Parameters.AddWithValue("@mode", modeId);
-        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        await cmd.ExecuteNonQueryAsync(ct);
-
-        InvalidateModes(fingerprintId);
-        System.Threading.Interlocked.Increment(ref SummarisedModeObservationCount);
+        // Phase B (write-path grain redesign, operator directive 2026-08-15): the mode
+        // observation feed is MEMORY-ONLY — no durable row, ever. The mode's per-request
+        // RESOLUTION continues in the matcher (the sink signals); the mode centroid's
+        // durable evolution ends with the observation feed (its role was the mode
+        // absorption's DB input, which now finds no rows and no-ops). Mode TRANSITIONS
+        // become fold-time mutations at the sweep (fingerprint_mutations.mode_transition).
+        // Extra traffic folds in memory — the DB never sees per-request writes.
+        _ = (scope, uaFamily, vector, ct);
     }
 
     public async Task<IReadOnlyList<UnabsorbedModeObservation>> ListUnabsorbedModeObservationsAsync(

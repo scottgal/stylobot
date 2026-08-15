@@ -62,7 +62,7 @@ public class SignatureUpsertEwmaTests : IAsyncLifetime
     [Fact]
     public async Task UpsertSignature_FirstObservation_StoresLiteralValue()
     {
-        await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-A", botProbability: 0.8));
+        await LegacySessionSeeder.SeedSignatureAsync(_store, MakeSignature("sig-A", botProbability: 0.8));
 
         var stored = await _store.GetSignatureAsync("sig-A");
         Assert.NotNull(stored);
@@ -74,9 +74,9 @@ public class SignatureUpsertEwmaTests : IAsyncLifetime
     {
         // EWMA must replace MAX. A 0.95 prior followed by ten 0.05 observations
         // must NOT remain at 0.95.
-        await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-B", botProbability: 0.95));
+        await LegacySessionSeeder.SeedSignatureAsync(_store, MakeSignature("sig-B", botProbability: 0.95));
         for (var i = 0; i < 10; i++)
-            await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-B", botProbability: 0.05));
+            await LegacySessionSeeder.SeedSignatureAsync(_store, MakeSignature("sig-B", botProbability: 0.05));
 
         var stored = await _store.GetSignatureAsync("sig-B");
         Assert.NotNull(stored);
@@ -88,7 +88,7 @@ public class SignatureUpsertEwmaTests : IAsyncLifetime
     public async Task UpsertSignature_RecordsLastUpdatedUtc()
     {
         var before = DateTime.UtcNow.AddSeconds(-1);
-        await _store.UpsertSignatureAsync(RequestScope.Unknown, MakeSignature("sig-C", botProbability: 0.5));
+        await LegacySessionSeeder.SeedSignatureAsync(_store, MakeSignature("sig-C", botProbability: 0.5));
         var after = DateTime.UtcNow.AddSeconds(1);
 
         var stored = await _store.GetSignatureAsync("sig-C");

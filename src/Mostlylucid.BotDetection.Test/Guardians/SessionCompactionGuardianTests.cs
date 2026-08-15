@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Test.Data;
 using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Guardians;
 using Mostlylucid.BotDetection.Models;
@@ -233,7 +234,7 @@ public sealed class SessionCompactionGuardianTests : IAsyncLifetime
 
     private async Task SeedSignatureAsync(string sig)
     {
-        await _store.UpsertSignatureAsync(RequestScope.Unknown, new PersistedSignature
+        await LegacySessionSeeder.SeedSignatureAsync(_store, new PersistedSignature
         {
             SignatureId = sig,
             SessionCount = 1,
@@ -255,7 +256,7 @@ public sealed class SessionCompactionGuardianTests : IAsyncLifetime
         var vec = new float[VecDims];
         vec[0] = vectorValue;
 
-        await _store.AddSessionAsync(RequestScope.Unknown, new PersistedSession
+        await LegacySessionSeeder.SeedSessionAsync(_store, new PersistedSession
         {
             Signature = sig,
             StartedAt = DateTime.UtcNow.AddMinutes(-120 + seq),

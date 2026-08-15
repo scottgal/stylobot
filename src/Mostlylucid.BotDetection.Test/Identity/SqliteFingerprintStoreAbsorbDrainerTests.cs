@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Domains;
@@ -89,6 +90,31 @@ public sealed class SqliteFingerprintStoreAbsorbDrainerTests : IDisposable
     }
 
     /// <summary>
+    ///     Phase B note: <see cref="SqliteFingerprintStore.RecordObservationAsync"/> no
+    ///     longer writes observation rows (the feed is memory-only), so these tests seed
+    ///     LEGACY observation rows directly to exercise the absorb write-behind mechanism
+    ///     that still serves them.
+    /// </summary>
+    private async Task<long> SeedObservationRowAsync(SqliteFingerprintStore store, string fpId)
+    {
+        var dim = store.Layout.Dimension;
+        var blob = SqliteFingerprintStore.FloatsToBlob(new float[dim]);
+        await using var conn = new SqliteConnection(
+            $"Data Source={Path.Combine(_tempDir, "fingerprints.db")};Pooling=true");
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at)
+            VALUES (@fp, @vec, @ts, NULL);
+            SELECT last_insert_rowid();
+            """;
+        cmd.Parameters.AddWithValue("@fp", fpId);
+        cmd.Parameters.AddWithValue("@vec", blob);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>
     ///     RED test: before the fix, <see cref="SqliteFingerprintStore.AbsorbObservationAsync"/>
     ///     performs an async SQLite transaction and returns a non-completed task.
     ///     After the fix it enqueues to the drainer channel and returns
@@ -102,9 +128,9 @@ public sealed class SqliteFingerprintStoreAbsorbDrainerTests : IDisposable
         const string fpId = "fp-drain-1";
         await SeedFingerprintAsync(store, fpId);
 
-        // Record one observation and get its id via ListAbsorbableObservations.
-        await store.RecordObservationAsync(
-            RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
+        // Seed one LEGACY observation row directly (Phase B: RecordObservationAsync is
+        // memory-only; the absorb mechanism serves legacy rows).
+        var observationId = await SeedObservationRowAsync(store, fpId);
         var absorbable = await store.ListAbsorbableObservationsAsync(
             maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, maxFingerprints: 0, CancellationToken.None);
         var obs = Assert.Single(absorbable, o => o.FingerprintId == fpId);
@@ -124,6 +150,7 @@ public sealed class SqliteFingerprintStoreAbsorbDrainerTests : IDisposable
         task.IsCompleted.Should().BeTrue(
             "AbsorbObservationAsync must enqueue to the single-writer drainer channel " +
             "and return synchronously, not perform a direct SQLite write");
+        _ = observationId;
     }
 
     /// <summary>
@@ -138,13 +165,12 @@ public sealed class SqliteFingerprintStoreAbsorbDrainerTests : IDisposable
         var dim = store.Layout.Dimension;
         const int n = 20;
 
-        // Seed N fingerprints each with one observation.
+        // Seed N fingerprints each with one legacy observation row.
         for (var i = 0; i < n; i++)
             await SeedFingerprintAsync(store, $"fp-concurrent-{i}");
 
         for (var i = 0; i < n; i++)
-            await store.RecordObservationAsync(
-                RequestScope.Unknown, $"fp-concurrent-{i}", new float[dim], ct: CancellationToken.None);
+            await SeedObservationRowAsync(store, $"fp-concurrent-{i}");
 
         // Retrieve all absorbable observations.
         var absorbable = await store.ListAbsorbableObservationsAsync(

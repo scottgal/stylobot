@@ -131,8 +131,12 @@ public sealed class FingerprintDriftServiceTests : IDisposable
     {
         var dim = _store.Layout.Dimension;
         var vec = IdentityTestHelpers.MakeUnitVector(dim, seed: 4);
-        await _store.InsertFingerprintAsync(MakeFingerprint("orphan-fp", vec), "sig-orphan");
-        // No RecordObservationAsync call — observation_count stays 0; drift service skips it.
+        await _store.InsertFingerprintAsync(
+            IdentityTestHelpers.MakeFingerprint(
+                "orphan-fp", vec, inferredClientType: "test-client", observationCount: 0),
+            "sig-orphan");
+        // No RecordObservationAsync call — DB observation_count stays 0 (Phase B: the
+        // memory fold no longer bumps the DB row); drift service skips it.
 
         var (checks, _) = await _service.TickOnceAsync(CancellationToken.None);
         Assert.Equal(0, checks);
@@ -142,5 +146,9 @@ public sealed class FingerprintDriftServiceTests : IDisposable
     // observations explicitly via RecordObservationAsync after insert.
     private static Fingerprint MakeFingerprint(string id, float[] centroid) =>
         IdentityTestHelpers.MakeFingerprint(
-            id, centroid, inferredClientType: "test-client", observationCount: 0);
+            // Phase B (write-path grain redesign): RecordObservationAsync is memory-only —
+            // the DB observation_count no longer advances per observation. Production
+            // allocations seed 1 (FingerprintMatchAtom), which is what the drift service's
+            // DB eligibility gate reads; the test seeds the same.
+            id, centroid, inferredClientType: "test-client", observationCount: 1);
 }

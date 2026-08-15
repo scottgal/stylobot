@@ -189,39 +189,45 @@ internal static class DashboardRowRawFetchers
         DateTime? startTime = null,
         CancellationToken ct = default)
     {
-        if (archive is null) return (Array.Empty<SessionListEntry>(), 0);
-
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
         var since = startTime ?? (DateTime.UtcNow - retention);
         const int maxFetch = 500;
         var fetchCount = Math.Min(page * pageSize + pageSize, maxFetch);
-        var sessions = await archive.GetRecentSessionsAsync(fetchCount, isBot, since, ct);
-        var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
+
+        // Phase B (write-path grain redesign): the sessions read surface re-points at the
+        // window folds — the archived sessions rows retired with the session grain. The
+        // fold summaries ARE the persisted session summaries (counts, bot/human split,
+        // durations) at the hour grain; the per-session analytic baggage (vectors,
+        // transitions, timing entropy) degrades to null/0. The archive parameter is kept
+        // for back-compat; the backing read moves to the dashboard store's folds.
+        var folds = await store.GetSessionFoldSummariesAsync(fetchCount, isBot, since, ct: ct);
+        var totalCount = folds.Count < maxFetch ? folds.Count : maxFetch;
 
         var sigLookup = await store.LoadSignatureLookupAsync();
         var uaLookup = await store.LoadUserAgentLookupAsync();
 
-        var entries = sessions.Select(s => new SessionListEntry
+        var entries = folds.Select(s => new SessionListEntry
         {
             Id = s.Id,
             Signature = s.Signature,
             StartedAt = s.StartedAt,
             EndedAt = s.EndedAt,
             RequestCount = s.RequestCount,
-            DominantState = s.DominantState,
+            DominantState = "unknown",
             IsBot = s.IsBot,
-            AvgBotProbability = s.AvgBotProbability,
-            RiskBand = s.RiskBand,
+            AvgBotProbability = s.BotProbability,
+            RiskBand = s.RiskBand ?? "Unknown",
             Action = s.Action,
             BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
             CountryCode = s.CountryCode,
             UserAgent = uaLookup.ResolveUserAgent(signatureCache, s.Signature),
-            ErrorCount = s.ErrorCount,
-            TimingEntropy = s.TimingEntropy,
-            Maturity = s.Maturity,
-            TransitionCounts = s.TransitionCountsJson != null
-                ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                : null
+            // Retired with the sessions row — the fold summary carries the operator's
+            // grain ("that they happened and how long they took"), not the analytic
+            // baggage. The UI degrades gracefully on these fields.
+            ErrorCount = 0,
+            TimingEntropy = 0,
+            Maturity = 0,
+            TransitionCounts = null
         }).ToList();
 
         return (entries, totalCount);

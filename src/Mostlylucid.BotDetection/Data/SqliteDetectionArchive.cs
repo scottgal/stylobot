@@ -153,84 +153,22 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
 
     // === Write path ===
 
-    public async Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
+    public Task<long> AddSessionAsync(RequestScope scope, PersistedSession session, CancellationToken ct = default)
     {
-        await EnsureInitializedAsync(ct);
-        await _writeLock.WaitAsync(ct);
-        try
-        {
-            await using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync(ct);
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO sessions (
-                    domain, host,
-                    signature, started_at, ended_at, request_count, vector, maturity,
-                    dominant_state, is_bot, avg_bot_probability, avg_confidence, risk_band,
-                    action, bot_name, bot_type, country_code, top_reasons_json,
-                    transition_counts_json, paths_json, avg_processing_time_ms,
-                    error_count, timing_entropy, narrative,
-                    header_hashes_json, user_agent_raw,
-                    frequency_fingerprint, drift_vector
-                ) VALUES (
-                    @domain, @host,
-                    @sig, @started, @ended, @reqCount, @vector, @maturity,
-                    @domState, @isBot, @avgProb, @avgConf, @risk,
-                    @action, @botName, @botType, @country, @reasons,
-                    @transitions, @paths, @avgTime,
-                    @errors, @entropy, @narrative,
-                    @headerHashes, @uaRaw,
-                    @freqFp, @driftVec
-                )
-            """;
-            // Per-row values on the payload win over the scope fallback so a
-            // background caller that pre-stamped the payload still lands its
-            // own (domain, host); scope only fills the gap when the payload
-            // has null values.
-            cmd.Parameters.AddWithValue("@domain", (object?)(session.Domain ?? scope.Domain) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@host", (object?)(session.Host ?? scope.Host) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@sig", session.Signature);
-            cmd.Parameters.AddWithValue("@started", session.StartedAt.ToString("O"));
-            cmd.Parameters.AddWithValue("@ended", session.EndedAt.ToString("O"));
-            cmd.Parameters.AddWithValue("@reqCount", session.RequestCount);
-            cmd.Parameters.AddWithValue("@vector", session.Vector);
-            cmd.Parameters.AddWithValue("@maturity", session.Maturity);
-            cmd.Parameters.AddWithValue("@domState", session.DominantState);
-            cmd.Parameters.AddWithValue("@isBot", session.IsBot ? 1 : 0);
-            cmd.Parameters.AddWithValue("@avgProb", session.AvgBotProbability);
-            cmd.Parameters.AddWithValue("@avgConf", session.AvgConfidence);
-            cmd.Parameters.AddWithValue("@risk", session.RiskBand);
-            cmd.Parameters.AddWithValue("@action", (object?)session.Action ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@botName", (object?)session.BotName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@botType", (object?)session.BotType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@country", (object?)session.CountryCode ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@reasons", (object?)session.TopReasonsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@transitions", (object?)session.TransitionCountsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@paths", (object?)session.PathsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@avgTime", session.AvgProcessingTimeMs);
-            cmd.Parameters.AddWithValue("@errors", session.ErrorCount);
-            cmd.Parameters.AddWithValue("@entropy", session.TimingEntropy);
-            cmd.Parameters.AddWithValue("@narrative", (object?)session.Narrative ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@headerHashes", (object?)session.HeaderHashesJson ?? DBNull.Value);
-            // Strip at the storage boundary too: every current writer already runs
-            // UaPiiStripper, but this column is the zero-PII promise's weak point
-            // and a future writer must not be able to bypass it.
-            cmd.Parameters.AddWithValue("@uaRaw", session.UserAgentRaw is { Length: > 0 } uaRaw
-                ? Privacy.UaPiiStripper.Strip(uaRaw)
-                : DBNull.Value);
-            cmd.Parameters.AddWithValue("@freqFp", (object?)session.FrequencyFingerprintBlob ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@driftVec", (object?)session.DriftVectorBlob ?? DBNull.Value);
-
-            await cmd.ExecuteNonQueryAsync(ct);
-            cmd.CommandText = "SELECT last_insert_rowid()";
-            var newId = (long)(await cmd.ExecuteScalarAsync(ct))!;
-            return newId;
-        }
-        finally
-        {
-            _writeLock.Release();
-            FeedSessionVectorToHnsw(session);
-        }
+        // Phase B (write-path grain redesign, operator directive 2026-08-15): the session
+        // is the FOLDING unit, not the row unit (settled ruling §1.1). The session's data
+        // — "that they happened and how long they took" — already lands in the window
+        // aggregates via the dashboard store's in-memory fold at the sweep (the same
+        // requests at signature/hour-epoch grain with endpoint lists). Persisting a
+        // heavyweight sessions row (vectors, transitions, narratives) per session is the
+        // per-session logging class the design retires. FOSS keeps firing finalize events
+        // (the session pipeline shape stays); the archive FOLDS them — which here means
+        // dropping the row: the data is already folded, nothing is lost.
+        _logger.LogTrace(
+            "SqliteDetectionArchive.AddSessionAsync: sessions row retired (Phase B) — " +
+            "session for fp={FingerprintId} folded into the window aggregates by the sweep; no session row",
+            session.Signature[..Math.Min(8, session.Signature.Length)]);
+        return Task.FromResult(0L);
     }
 
     public async Task<long> AddEchoAsync(
@@ -294,86 +232,18 @@ public sealed class SqliteDetectionArchive : IDetectionArchive, IAsyncDisposable
                 session.FrequencyFingerprintBlob, session.DriftVectorBlob);
     }
 
-    public async Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
+    public Task UpsertSignatureAsync(RequestScope scope, PersistedSignature signature, CancellationToken ct = default)
     {
-        await EnsureInitializedAsync(ct);
-        await _writeLock.WaitAsync(ct);
-        try
-        {
-            await using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync(ct);
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                INSERT INTO signatures (
-                    domain, host,
-                    signature_id, session_count, total_request_count, first_seen, last_seen,
-                    is_bot, bot_probability, confidence, risk_band,
-                    bot_name, bot_type, action, country_code,
-                    root_vector, root_vector_maturity, narrative, top_reasons_json,
-                    last_updated_utc
-                ) VALUES (
-                    @domain, @host,
-                    @id, @sessions, @requests, @first, @last,
-                    @isBot, @prob, @conf, @risk,
-                    @botName, @botType, @action, @country,
-                    @rootVec, @rootMat, @narrative, @reasons,
-                    @lastUpdatedUtc
-                )
-                ON CONFLICT(signature_id) DO UPDATE SET
-                    -- Refresh scope on merge: same-signature writes from a new host
-                    -- pick up the current owner. COALESCE keeps the last known scope
-                    -- when the current write has no scope information.
-                    domain = COALESCE(@domain, domain),
-                    host = COALESCE(@host, host),
-                    session_count = session_count + @sessions,
-                    total_request_count = total_request_count + @requests,
-                    last_seen = @last,
-                    -- EWMA: blend prior with new observation so a high score from one observation
-                    -- decays over time rather than pinning the signature at its all-time peak.
-                    -- is_bot, risk_band, bot_name, bot_type, action all flip when the new
-                    -- observation exceeds the prior EWMA (bot_probability on the right-hand
-                    -- side reads the pre-update row value; @prob > old is algebraically the
-                    -- same test as @prob > the blended value for any alpha < 1).
-                    is_bot = CASE WHEN @prob > bot_probability THEN @isBot ELSE is_bot END,
-                    bot_probability = (1.0 - @alpha) * bot_probability + @alpha * @prob,
-                    confidence = MAX(confidence, @conf),
-                    risk_band = CASE WHEN @prob > bot_probability THEN @risk ELSE risk_band END,
-                    bot_name = COALESCE(CASE WHEN @prob > bot_probability THEN @botName ELSE NULL END, bot_name),
-                    bot_type = COALESCE(CASE WHEN @prob > bot_probability THEN @botType ELSE NULL END, bot_type),
-                    action = COALESCE(CASE WHEN @prob > bot_probability THEN @action ELSE NULL END, action),
-                    country_code = COALESCE(@country, country_code),
-                    root_vector = COALESCE(@rootVec, root_vector),
-                    root_vector_maturity = CASE WHEN @rootMat > root_vector_maturity THEN @rootMat ELSE root_vector_maturity END,
-                    narrative = COALESCE(@narrative, narrative),
-                    top_reasons_json = COALESCE(@reasons, top_reasons_json),
-                    last_updated_utc = @lastUpdatedUtc
-            """;
-            cmd.Parameters.AddWithValue("@domain", (object?)(signature.Domain ?? scope.Domain) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@host", (object?)(signature.Host ?? scope.Host) ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@id", signature.SignatureId);
-            cmd.Parameters.AddWithValue("@sessions", signature.SessionCount);
-            cmd.Parameters.AddWithValue("@requests", signature.TotalRequestCount);
-            cmd.Parameters.AddWithValue("@first", signature.FirstSeen.ToString("O"));
-            cmd.Parameters.AddWithValue("@last", signature.LastSeen.ToString("O"));
-            cmd.Parameters.AddWithValue("@isBot", signature.IsBot ? 1 : 0);
-            cmd.Parameters.AddWithValue("@prob", signature.BotProbability);
-            cmd.Parameters.AddWithValue("@conf", signature.Confidence);
-            cmd.Parameters.AddWithValue("@risk", signature.RiskBand);
-            cmd.Parameters.AddWithValue("@botName", (object?)signature.BotName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@botType", (object?)signature.BotType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@action", (object?)signature.Action ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@country", (object?)signature.CountryCode ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rootVec", (object?)signature.RootVector ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@rootMat", signature.RootVectorMaturity);
-            cmd.Parameters.AddWithValue("@narrative", (object?)signature.Narrative ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@reasons", (object?)signature.TopReasonsJson ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@alpha", _options.SignatureEwmaAlpha);
-            cmd.Parameters.AddWithValue("@lastUpdatedUtc",
-                (signature.LastUpdatedUtc ?? DateTime.UtcNow).ToString("O"));
-
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
-        finally { _writeLock.Release(); }
+        // Phase B: session_signatures retires with the sessions table — the signature's
+        // aggregates (session_count, total_request_count, first_seen/last_seen, verdict
+        // columns) are superseded by the window folds (dashboard_detections per
+        // (fingerprint,hour) + endpoint_stats_rollup), which the sweep writes from the
+        // in-memory fold. FOSS keeps calling; the archive folds (drops).
+        _logger.LogTrace(
+            "SqliteDetectionArchive.UpsertSignatureAsync: session_signatures retired (Phase B) — " +
+            "signature {Sig} folded into the window aggregates; no signature row",
+            signature.SignatureId[..Math.Min(8, signature.SignatureId.Length)]);
+        return Task.CompletedTask;
     }
 
     public async Task AddRequestAsync(RequestScope scope, PersistedRequest request, CancellationToken ct = default)

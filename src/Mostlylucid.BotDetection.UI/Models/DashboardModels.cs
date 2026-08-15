@@ -148,6 +148,18 @@ public sealed record DashboardDetectionEvent
     public long? ResponseBytes { get; init; }
 
     /// <summary>
+    ///     Cache status of the response, captured post-_next by
+    ///     <c>DetectionBroadcastMiddleware.ResolveCacheStatus</c> — the operator's minimal
+    ///     endpoint trace ("endpoint, response times, bytes delivered, cache status",
+    ///     write-path grain redesign §3.2). Resolution order: an in-process cache marker on
+    ///     <c>HttpContext.Items["sb.cache_status"]</c> (the seam for cache-serving
+    ///     middleware), then the <c>X-Cache</c> response header, then
+    ///     <c>CF-Cache-Status</c>. Null when no cache layer answered. Persisted to the
+    ///     detections row and folded into <c>endpoint_stats.cache_status_tally</c>.
+    /// </summary>
+    public string? CacheStatus { get; set; }
+
+    /// <summary>
     ///     16-dimensional radar shape vector for visual fingerprint display.
     ///     Derived from detector contributions and signal dimensions at detection time.
     /// </summary>

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Test.Data;
 using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Guardians;
 using Mostlylucid.BotDetection.Models;
@@ -205,7 +206,7 @@ public sealed class SignatureCapGuardianTests : IAsyncLifetime
         bool isBot = false,
         DateTime? lastSeen = null)
     {
-        await _store.UpsertSignatureAsync(RequestScope.Unknown, new PersistedSignature
+        await LegacySessionSeeder.SeedSignatureAsync(_store, new PersistedSignature
         {
             SignatureId = sig,
             SessionCount = 1,

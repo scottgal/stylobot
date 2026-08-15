@@ -371,16 +371,16 @@ public sealed class ViewComponentFromResultTests
     }
 
     [Fact]
-    public async Task Sessions_falls_back_to_store_when_no_page_result()
+    public async Task Sessions_falls_back_to_fold_read_when_no_page_result()
     {
+        // Phase B (write-path grain redesign): the sessions surface reads the window
+        // folds via IDashboardEventStore.GetSessionFoldSummariesAsync — the archived
+        // sessions rows retired with the session grain.
         var archive = new Mock<IDetectionArchive>();
-        archive.Setup(a => a.GetRecentSessionsAsync(It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()))
-               .ReturnsAsync(new List<PersistedSession>());
         var eventStore = new Mock<IDashboardEventStore>();
-        eventStore.Setup(s => s.GetSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool?>()))
-                   .ReturnsAsync(new List<DashboardSignatureEvent>());
-        eventStore.Setup(s => s.GetTopBotsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()))
-                   .ReturnsAsync(new List<DashboardTopBotEntry>());
+        eventStore.Setup(s => s.GetSessionFoldSummariesAsync(
+                       It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(new List<DashboardSessionFoldSummary>());
 
         var httpContext = new DefaultHttpContext();
 
@@ -390,7 +390,8 @@ public sealed class ViewComponentFromResultTests
         var result = await vc.InvokeAsync() as ViewViewComponentResult;
 
         Assert.NotNull(result);
-        archive.Verify(a => a.GetRecentSessionsAsync(It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime?>(), It.IsAny<CancellationToken>()), Times.Once);
+        eventStore.Verify(s => s.GetSessionFoldSummariesAsync(
+            It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -398,7 +399,8 @@ public sealed class ViewComponentFromResultTests
     {
         // A visitor-detail "Hit history" embed always self-fetches -- the composed
         // Sessions slice is the UNSCOPED global timeline and does not answer a
-        // per-signature query.
+        // per-signature query. The scoped self-fetch reads the folds filtered by
+        // signature.
         var entries = new List<SessionListEntry>
         {
             new() { Id = 1, Signature = "sig-a", StartedAt = DateTime.UtcNow.AddMinutes(-10), EndedAt = DateTime.UtcNow, RequestCount = 3, DominantState = "PageView", IsBot = true, AvgBotProbability = 0.9, RiskBand = "High" },
@@ -409,13 +411,10 @@ public sealed class ViewComponentFromResultTests
         httpContext.Items["sb.dashboard.pageresult"] = pageResult;
 
         var archive = new Mock<IDetectionArchive>();
-        archive.Setup(a => a.GetSessionsAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-               .ReturnsAsync(new List<PersistedSession>());
         var eventStore = new Mock<IDashboardEventStore>();
-        eventStore.Setup(s => s.GetSignaturesAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<bool?>()))
-                   .ReturnsAsync(new List<DashboardSignatureEvent>());
-        eventStore.Setup(s => s.GetTopBotsAsync(It.IsAny<int>(), It.IsAny<DateTime?>(), It.IsAny<DateTime?>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>?>()))
-                   .ReturnsAsync(new List<DashboardTopBotEntry>());
+        eventStore.Setup(s => s.GetSessionFoldSummariesAsync(
+                       It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(new List<DashboardSessionFoldSummary>());
 
         var vc = new SbSessionsListViewComponent(archive.Object, eventStore.Object, DefaultOptions());
         SetHttpContext(vc, httpContext);
@@ -423,7 +422,8 @@ public sealed class ViewComponentFromResultTests
         var result = await vc.InvokeAsync(primarySignature: "sig-scoped") as ViewViewComponentResult;
 
         Assert.NotNull(result);
-        archive.Verify(a => a.GetSessionsAsync("sig-scoped", It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+        eventStore.Verify(s => s.GetSessionFoldSummariesAsync(
+            It.IsAny<int>(), It.IsAny<bool?>(), It.IsAny<DateTime>(), "sig-scoped", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     // ---------- SbThreatsList (window-threading Task 1) ----------

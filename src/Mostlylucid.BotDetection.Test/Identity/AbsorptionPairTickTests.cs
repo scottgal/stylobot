@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Domains;
@@ -167,8 +168,9 @@ public sealed class AbsorptionPairTickTests : IDisposable
             env.Store, env.Archetypes, env.Options, coord);
 
         await SeedFingerprintAsync(env.Store, "fp-tick-1");
-        await env.Store.RecordObservationAsync(
-            RequestScope.Unknown, "fp-tick-1", new float[env.Store.Layout.Dimension], ct: CancellationToken.None);
+        // Phase B: RecordObservationAsync is memory-only; seed a LEGACY row directly
+        // so the backstop sweep's absorb mechanism has input.
+        await SeedObservationRowAsync(env.Store, "fp-tick-1");
 
         var pendingBefore = await env.Store.GetUnabsorbedObservationCountAsync(
             "fp-tick-1", CancellationToken.None);
@@ -252,11 +254,10 @@ public sealed class AbsorptionPairTickTests : IDisposable
             NullLogger<FingerprintModeAbsorptionService>.Instance,
             env.ModeStore, env.Options, coord);
 
-        // Seed a fingerprint + an unabsorbed mode observation.
+        // Seed a fingerprint + an unabsorbed mode observation (direct SQL — Phase B:
+        // RecordModeObservationAsync is memory-only; the mode drainer serves legacy rows).
         await SeedFingerprintAsync(env.Store, "fp-mode-1");
-        var dim = env.Store.Layout.Dimension;
-        await env.ModeStore.RecordModeObservationAsync(
-            RequestScope.Unknown, "fp-mode-1", "navigation", new float[dim], ct: CancellationToken.None);
+        await SeedModeObservationRowAsync(env.Store, "fp-mode-1", "navigation");
 
         var before = await env.ModeStore.ListUnabsorbedModeObservationsAsync(1000, CancellationToken.None);
         before.Count.Should().Be(1);
@@ -267,6 +268,55 @@ public sealed class AbsorptionPairTickTests : IDisposable
         var after = await env.ModeStore.ListUnabsorbedModeObservationsAsync(1000, CancellationToken.None);
         after.Count.Should().Be(0, "tick-driven drain absorbed the row");
     }
+
+    // ── Phase B seeding (write-path grain redesign): RecordObservationAsync /
+    // RecordModeObservationAsync are memory-only; the backstop-sweep mechanisms these
+    // tests pin serve LEGACY rows, so observations are seeded directly. ──────────
+
+    private async Task<long> SeedObservationRowAsync(SqliteFingerprintStore store, string fpId)
+    {
+        var dim = store.Layout.Dimension;
+        var blob = SqliteFingerprintStore.FloatsToBlob(new float[dim]);
+        await using var conn = new SqliteConnection(FpDbPath(store));
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at)
+            VALUES (@fp, @vec, @ts, NULL);
+            UPDATE fingerprints
+               SET observation_count = observation_count + 1,
+                   last_seen = @ts
+             WHERE fingerprint_id = @fp;
+            SELECT last_insert_rowid();
+            """;
+        cmd.Parameters.AddWithValue("@fp", fpId);
+        cmd.Parameters.AddWithValue("@vec", blob);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    private async Task SeedModeObservationRowAsync(
+        SqliteFingerprintStore store, string fpId, string modeId)
+    {
+        var dim = store.Layout.Dimension;
+        var blob = SqliteFingerprintStore.FloatsToBlob(new float[dim]);
+        await using var conn = new SqliteConnection(FpDbPath(store));
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO fingerprint_mode_observations (fingerprint_id, mode_id, vector, observed_at, absorbed_at)
+            VALUES (@fp, @mode, @vec, @ts, NULL)
+            """;
+        cmd.Parameters.AddWithValue("@fp", fpId);
+        cmd.Parameters.AddWithValue("@mode", modeId);
+        cmd.Parameters.AddWithValue("@vec", blob);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private string FpDbPath(SqliteFingerprintStore store)
+        => $"Data Source={Path.Combine(_tempDir, "fingerprints.db")};Pooling=true";
+
 
     // -- Paired-window invariant (the load-bearing assertion) -------------
 

@@ -411,6 +411,7 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
             seedWeights, _options.Weights.MinWeight, _options.Weights.MaxWeight);
 
         sink.Raise($"{SignalKeys.IdentityFingerprintId}:{newId}", sessionId);
+
         sink.Raise($"{SignalKeys.IdentityIsNewFingerprint}:true", sessionId);
         sink.Raise($"{SignalKeys.IdentityFingerprintFirstSeen}:true", sessionId);
         sink.Raise($"{SignalKeys.IdentityMatchScore}:0", sessionId);
@@ -609,6 +610,7 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
     {
         sink.Raise($"{SignalKeys.IdentityFingerprintId}:{matched.FingerprintId}", sessionId);
         sink.Raise($"{SignalKeys.IdentityMatchScore}:{matchScore.ToString("F4", CultureInfo.InvariantCulture)}", sessionId);
+
         sink.Raise($"{SignalKeys.IdentityIsNewFingerprint}:false", sessionId);
         sink.Raise($"{SignalKeys.IdentityIsCorrection}:{(isCorrection ? "true" : "false")}", sessionId);
         sink.Raise($"{SignalKeys.IdentityRotationCandidate}:{(rotationCandidate ? "true" : "false")}", sessionId);

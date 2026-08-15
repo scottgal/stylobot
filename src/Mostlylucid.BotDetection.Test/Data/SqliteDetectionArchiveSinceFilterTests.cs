@@ -38,23 +38,54 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
         try { Directory.Delete(_dbDir, recursive: true); } catch { /* best effort */ }
     }
 
-    private static PersistedSession MakeSession(
-        string signature,
-        DateTime endedAt,
-        bool isBot = false) => new()
+    /// <summary>
+    ///     Seed a legacy sessions row directly (Phase B of the write-path grain
+    ///     redesign: <c>AddSessionAsync</c> now FOLDS the session summary into the
+    ///     window aggregates instead of writing a sessions row — the dashboard reads
+    ///     re-pointed at the folds. The archive's sessions read surface remains for
+    ///     legacy rows, so these tests seed the table directly to pin its semantics).
+    /// </summary>
+    private async Task SeedSessionAsync(
+        string signature, DateTime endedAt, bool isBot = false, RequestScope? scope = null)
     {
-        Signature = signature,
-        StartedAt = endedAt.AddMinutes(-5),
-        EndedAt = endedAt,
-        RequestCount = 3,
-        Vector = new byte[516],
-        Maturity = 0.5f,
-        DominantState = "PageView",
-        IsBot = isBot,
-        AvgBotProbability = isBot ? 0.9 : 0.1,
-        AvgConfidence = 0.7,
-        RiskBand = isBot ? "High" : "Low",
-    };
+        var now = endedAt;
+        var started = now.AddMinutes(-5);
+        await using var conn = new SqliteConnection(StoreConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO sessions (
+                domain, host, signature, started_at, ended_at, request_count, vector, maturity,
+                dominant_state, is_bot, avg_bot_probability, avg_confidence, risk_band,
+                action, bot_name, bot_type, country_code, top_reasons_json,
+                transition_counts_json, paths_json, avg_processing_time_ms,
+                error_count, timing_entropy, narrative,
+                header_hashes_json, user_agent_raw,
+                frequency_fingerprint, drift_vector
+            ) VALUES (
+                @domain, @host, @sig, @started, @ended, 3, @vector, 0.5,
+                'PageView', @isBot, @prob, 0.7, @risk,
+                NULL, NULL, NULL, NULL, NULL,
+                NULL, NULL, 0,
+                0, 0, NULL,
+                NULL, NULL,
+                NULL, NULL
+            )
+            """;
+        cmd.Parameters.AddWithValue("@domain", (object?)(scope?.Domain) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@host", (object?)(scope?.Host) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@sig", signature);
+        cmd.Parameters.AddWithValue("@started", started.ToString("O"));
+        cmd.Parameters.AddWithValue("@ended", now.ToString("O"));
+        cmd.Parameters.AddWithValue("@vector", new byte[516]);
+        cmd.Parameters.AddWithValue("@isBot", isBot ? 1 : 0);
+        cmd.Parameters.AddWithValue("@prob", isBot ? 0.9 : 0.1);
+        cmd.Parameters.AddWithValue("@risk", isBot ? "High" : "Low");
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private string StoreConnectionString
+        => _store.PersistenceConnectionString!;
 
     // ── Baseline: no since filter ────────────────────────────────────────────
 
@@ -62,9 +93,9 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
     public async Task Returns_all_sessions_when_since_is_null()
     {
         var now = DateTime.UtcNow;
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("sig-a", now.AddDays(-10)));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("sig-b", now.AddDays(-1)));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("sig-c", now));
+        await SeedSessionAsync("sig-a", now.AddDays(-10));
+        await SeedSessionAsync("sig-b", now.AddDays(-1));
+        await SeedSessionAsync("sig-c", now);
 
         var results = await _store.GetRecentSessionsAsync(limit: 50, since: null);
 
@@ -79,8 +110,8 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
         var now = DateTime.UtcNow;
         var cutoff = now.AddDays(-7);
 
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("old", now.AddDays(-8)));    // before cutoff
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("recent", now.AddDays(-1))); // after cutoff
+        await SeedSessionAsync("old", now.AddDays(-8));    // before cutoff
+        await SeedSessionAsync("recent", now.AddDays(-1)); // after cutoff
 
         var results = await _store.GetRecentSessionsAsync(limit: 50, since: cutoff);
 
@@ -92,8 +123,8 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
     public async Task Returns_empty_when_all_sessions_are_older_than_cutoff()
     {
         var now = DateTime.UtcNow;
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("old-a", now.AddDays(-10)));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("old-b", now.AddDays(-15)));
+        await SeedSessionAsync("old-a", now.AddDays(-10));
+        await SeedSessionAsync("old-b", now.AddDays(-15));
 
         var results = await _store.GetRecentSessionsAsync(since: now.AddDays(-7));
 
@@ -104,7 +135,7 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
     public async Task Includes_session_at_exact_since_boundary()
     {
         var cutoff = DateTime.UtcNow.AddDays(-7);
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("boundary", cutoff));
+        await SeedSessionAsync("boundary", cutoff);
 
         var results = await _store.GetRecentSessionsAsync(since: cutoff);
 
@@ -121,9 +152,9 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
         var now = DateTime.UtcNow;
         var cutoff = now.AddDays(-7);
 
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("bot-old",    now.AddDays(-10), isBot: true));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("bot-recent", now.AddDays(-1),  isBot: true));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("human-recent", now,            isBot: false));
+        await SeedSessionAsync("bot-old",    now.AddDays(-10), isBot: true);
+        await SeedSessionAsync("bot-recent", now.AddDays(-1),  isBot: true);
+        await SeedSessionAsync("human-recent", now,            isBot: false);
 
         var results = await _store.GetRecentSessionsAsync(isBot: true, since: cutoff);
 
@@ -137,9 +168,9 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
         var now = DateTime.UtcNow;
         var cutoff = now.AddDays(-3);
 
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("human-old",    now.AddDays(-5), isBot: false));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("human-recent", now.AddDays(-1), isBot: false));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("bot-recent",   now,             isBot: true));
+        await SeedSessionAsync("human-old",    now.AddDays(-5), isBot: false);
+        await SeedSessionAsync("human-recent", now.AddDays(-1), isBot: false);
+        await SeedSessionAsync("bot-recent",   now,             isBot: true);
 
         var results = await _store.GetRecentSessionsAsync(isBot: false, since: cutoff);
 
@@ -153,9 +184,9 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
     public async Task Results_are_ordered_by_ended_at_descending()
     {
         var now = DateTime.UtcNow;
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("oldest", now.AddHours(-3)));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("newest", now));
-        await _store.AddSessionAsync(RequestScope.Unknown, MakeSession("middle", now.AddHours(-1)));
+        await SeedSessionAsync("oldest", now.AddHours(-3));
+        await SeedSessionAsync("newest", now);
+        await SeedSessionAsync("middle", now.AddHours(-1));
 
         var results = await _store.GetRecentSessionsAsync(since: now.AddDays(-1));
 
@@ -170,7 +201,7 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
     {
         var now = DateTime.UtcNow;
         for (var i = 0; i < 5; i++)
-            await _store.AddSessionAsync(RequestScope.Unknown, MakeSession($"sig-{i}", now.AddMinutes(-i)));
+            await SeedSessionAsync($"sig-{i}", now.AddMinutes(-i));
 
         var results = await _store.GetRecentSessionsAsync(limit: 3, since: now.AddDays(-1));
 
@@ -180,11 +211,11 @@ public sealed class SqliteDetectionArchiveSinceFilterTests : IAsyncLifetime
     // ── Multi-domain: scope is persisted + hydrated ──────────────────────────
 
     [Fact]
-    public async Task AddSessionAsync_persists_scope_and_read_path_hydrates_it()
+    public async Task LegacyRow_scope_is_persisted_and_read_path_hydrates_it()
     {
         var scope = new RequestScope("acme.com", "www.acme.com");
 
-        await _store.AddSessionAsync(scope, MakeSession("sig-acme", DateTime.UtcNow));
+        await SeedSessionAsync("sig-acme", DateTime.UtcNow, scope: scope);
 
         var results = await _store.GetRecentSessionsAsync();
 

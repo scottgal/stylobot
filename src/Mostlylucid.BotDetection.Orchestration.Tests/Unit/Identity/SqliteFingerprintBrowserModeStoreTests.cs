@@ -125,12 +125,12 @@ public sealed class SqliteFingerprintBrowserModeStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task ModeObservation_persists_scope_and_read_path_hydrates_it()
+    public async Task ModeObservation_is_memory_only_no_rows_no_scope_persistence()
     {
-        // Multi-domain contract: RecordModeObservationAsync(RequestScope, ...)
-        // tags the row with (domain, host); ListUnabsorbedModeObservationsAsync
-        // hydrates them back onto UnabsorbedModeObservation so the drainer can
-        // partition per-site during absorb.
+        // Phase B (write-path grain redesign): the mode observation feed is MEMORY-ONLY —
+        // no durable row, ever; the scope (domain/host) had the row as its home and
+        // retires with it. Mode resolution continues in the matcher; mode transitions
+        // become fold-time mutations.
         await _parent.EnsureInitialisedAsync();
         var dim = _parent.Layout.Dimension;
         await _parent.InsertFingerprintAsync(
@@ -143,9 +143,7 @@ public sealed class SqliteFingerprintBrowserModeStoreTests : IDisposable
 
         var rows = await _modeStore.ListUnabsorbedModeObservationsAsync(
             maxRows: 100, CancellationToken.None);
-        var row = Assert.Single(rows, r => r.FingerprintId == "fp-mode-scope" && r.ModeId == "navigation");
-        Assert.Equal("acme.com", row.Domain);
-        Assert.Equal("www.acme.com", row.Host);
+        Assert.DoesNotContain(rows, r => r.FingerprintId == "fp-mode-scope" && r.ModeId == "navigation");
     }
 
     private async Task SeedAgainAsync()

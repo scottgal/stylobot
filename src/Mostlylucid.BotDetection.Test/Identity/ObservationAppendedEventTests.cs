@@ -84,58 +84,58 @@ public class ObservationAppendedEventTests : IDisposable
     }
 
     [Fact]
-    public async Task Observation_persists_scope_and_read_path_hydrates_it()
+    public async Task Observation_is_memory_only_no_rows_no_scope_persistence()
     {
-        // Multi-domain contract: RecordObservationAsync(RequestScope, ...) tags the
-        // row with (domain, host); the ListAbsorbableObservationsAsync read path
-        // must hydrate them back onto AbsorbableObservation so downstream
-        // per-site aggregators can partition by owner.
+        // Phase B (write-path grain redesign): the observation feed is MEMORY-ONLY — no
+        // durable row, no scope persistence (the row was the scope's home). The
+        // fingerprint's evolution folds in memory on the request thread.
         var store = await NewStoreAsync();
         const string fpId = "fp-scope";
         var dim = store.Layout.Dimension;
-        // Insert with observation_count meeting the maturity threshold so the
-        // absorb picker returns the row on first pass.
         var fp = NewFingerprint(fpId, dim) with { ObservationCount = 100 };
         await store.InsertFingerprintAsync(fp, "sig-scope", CancellationToken.None);
+        await store.GetFingerprintAsync(fpId, CancellationToken.None); // warm LFU (the fold needs a resident entry)
 
         var scope = new RequestScope("acme.com", "www.acme.com");
         await store.RecordObservationAsync(scope, fpId, new float[dim], ct: CancellationToken.None);
 
-        // Materialise the read path -- absorb picker returns all rows on active
-        // fingerprints past the maturity threshold.
+        // The absorb picker finds nothing — there are no rows to absorb.
         var rows = await store.ListAbsorbableObservationsAsync(
             maturityThreshold: 1, ageDays: 30, activeWindowDays: 365, maxFingerprints: 0, CancellationToken.None);
-        var row = Assert.Single(rows, r => r.FingerprintId == fpId);
-        Assert.Equal("acme.com", row.Domain);
-        Assert.Equal("www.acme.com", row.Host);
+        Assert.Empty(rows);
+
+        // But the observation still folded: the in-memory count advanced.
+        var evolved = await store.GetFingerprintAsync(fpId, CancellationToken.None);
+        Assert.True(evolved!.ObservationCount >= 101, "the memory fold advances the observation count");
     }
 
     [Fact]
-    public async Task ObservationAppended_FiresAfterDurableWriteCommits()
+    public async Task ObservationAppended_FiresAfterTheMemoryFoldCompletes()
     {
-        // Verify the event fires AFTER the SQL commit: inside the handler the row
-        // must already be visible via GetUnabsorbedObservationCountAsync.
+        // Phase B: the event fires AFTER the in-memory fold — inside the handler the
+        // fingerprint's evolution (observation count) must already be visible in the LFU.
         var store = await NewStoreAsync();
         const string fpId = "fp-2";
         var dim = store.Layout.Dimension;
         await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), "sig-2", CancellationToken.None);
+        await store.GetFingerprintAsync(fpId, CancellationToken.None); // warm LFU
 
-        int? countInsideHandler = null;
+        long? countInsideHandler = null;
         store.ObservationAppended += id =>
         {
-            // GetUnabsorbedObservationCountAsync is async; block synchronously because
-            // the handler contract requires sync invocation on the call-site thread.
+            // The LFU read is synchronous; block on it because the handler contract
+            // requires sync invocation on the call-site thread.
             countInsideHandler = store
-                .GetUnabsorbedObservationCountAsync(id, CancellationToken.None)
+                .GetFingerprintAsync(id, CancellationToken.None)
                 .GetAwaiter()
-                .GetResult();
+                .GetResult()?.ObservationCount;
         };
 
         await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
 
-        // The observation row must already exist (count >= 1) when the handler ran.
+        // The fold (count advance) must already be visible when the handler ran.
         Assert.True(countInsideHandler.HasValue, "handler was never invoked");
-        Assert.True(countInsideHandler!.Value >= 1,
-            "observation row must be durable before ObservationAppended fires");
+        Assert.True(countInsideHandler!.Value >= 2,
+            "the in-memory fold must complete before ObservationAppended fires");
     }
 }

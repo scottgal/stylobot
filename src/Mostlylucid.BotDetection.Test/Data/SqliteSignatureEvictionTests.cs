@@ -120,7 +120,8 @@ public class SqliteSignatureEvictionTests : IAsyncLifetime
         bool isBot = false,
         DateTime? lastSeen = null)
     {
-        await _store.UpsertSignatureAsync(RequestScope.Unknown, new PersistedSignature
+        // Phase B: UpsertSignatureAsync folds; the legacy table is seeded directly.
+        await LegacySessionSeeder.SeedSignatureAsync(_store, new PersistedSignature
         {
             SignatureId = sig,
             SessionCount = 1,
@@ -142,7 +143,8 @@ public class SqliteSignatureEvictionTests : IAsyncLifetime
         var vec = new float[VecDims];
         vec[0] = 1.0f;
 
-        await _store.AddSessionAsync(RequestScope.Unknown, new PersistedSession
+        // Phase B: AddSessionAsync folds; the legacy table is seeded directly.
+        await LegacySessionSeeder.SeedSessionAsync(_store, new PersistedSession
         {
             Signature = sig,
             StartedAt = DateTime.UtcNow.AddMinutes(-60 + seq),

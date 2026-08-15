@@ -115,7 +115,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ("detections", "bot_count", "INTEGER NOT NULL DEFAULT 0"),
                 ("detections", "bytes_sum", "INTEGER NOT NULL DEFAULT 0"),
                 ("detections", "ms_sum", "REAL NOT NULL DEFAULT 0"),
-                ("detections", "ms_max", "REAL NOT NULL DEFAULT 0")
+                ("detections", "ms_max", "REAL NOT NULL DEFAULT 0"),
+                // Cache status of the response (write-path grain redesign §3.2 — the
+                // minimal endpoint trace: "endpoint, response times, bytes delivered,
+                // cache status"). Captured post-_next from the Items marker / X-Cache /
+                // CF-Cache-Status; folded into endpoint_stats.cache_status_tally.
+                ("detections", "cache_status", "TEXT")
             })
             {
                 var colExists = false;
@@ -229,6 +234,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                         hit_count INTEGER NOT NULL DEFAULT 0,
                         bytes_sum INTEGER NOT NULL DEFAULT 0,
                         ms_sum    REAL    NOT NULL DEFAULT 0,
+                        ms_min    REAL    NOT NULL DEFAULT 0,
                         ms_max    REAL    NOT NULL DEFAULT 0,
                         threat_sum REAL   NOT NULL DEFAULT 0,
                         last_seen TEXT    NOT NULL DEFAULT '',
@@ -241,10 +247,43 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                         us4xx     INTEGER NOT NULL DEFAULT 0,
                         us5xx     INTEGER NOT NULL DEFAULT 0,
                         us_none   INTEGER NOT NULL DEFAULT 0,
+                        -- Cache-status tally per endpoint (write-path grain redesign §3.2 —
+                        -- the minimal endpoint trace): JSON object {"HIT": 5, "MISS": 2}.
+                        -- Legacy rows read as the empty tally.
+                        cache_status_tally TEXT NOT NULL DEFAULT '{}',
                         PRIMARY KEY (method, path, domain, is_bot)
                     )
                     """;
                 await epCmd.ExecuteNonQueryAsync(ct);
+
+                // The minimal-trace fold columns (ms_min + cache_status_tally) must exist
+                // on PRE-EXISTING endpoint_stats tables too. Runs AFTER the CREATE above —
+                // the table may predate this code. Same PRAGMA-guarded ALTER pattern as the
+                // detections migrations.
+                foreach (var (column, colDef) in new (string, string)[]
+                         {
+                             ("ms_min", "REAL NOT NULL DEFAULT 0"),
+                             ("cache_status_tally", "TEXT NOT NULL DEFAULT '{}'"),
+                         })
+                {
+                    var colExists = false;
+                    await using var pragmaEp = conn.CreateCommand();
+                    pragmaEp.CommandText = "PRAGMA table_info(endpoint_stats)";
+                    await using (var pr = await pragmaEp.ExecuteReaderAsync(ct))
+                    {
+                        while (await pr.ReadAsync(ct))
+                        {
+                            if (string.Equals(pr.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                            { colExists = true; break; }
+                        }
+                    }
+                    if (!colExists)
+                    {
+                        await using var mc = conn.CreateCommand();
+                        mc.CommandText = $"ALTER TABLE endpoint_stats ADD COLUMN {column} {colDef}";
+                        await mc.ExecuteNonQueryAsync(ct);
+                    }
+                }
             }
 
             _initialized = true;
@@ -270,10 +309,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
                     status_code, user_agent_raw, risk_justification, domain, host, referrer_host, ua_device_class, response_bytes,
-                    is_verified_bot, upstream_status_code, importance_weight)
+                    is_verified_bot, upstream_status_code, importance_weight, cache_status)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
                     @threat, @band, @status, @uaRaw, @justification, @domain, @host, @refHost, @deviceClass, @responseBytes,
-                    @verifiedBot, @upstreamStatus, @importance)
+                    @verifiedBot, @upstreamStatus, @importance, @cacheStatus)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -310,6 +349,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     detection.ThreatScore,
                     detection.Action,
                     _temporalStore));
+            cmd.Parameters.AddWithValue("@cacheStatus", (object?)detection.CacheStatus ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -334,7 +374,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     detection.ProcessingTimeMs,
                     detection.StatusCode,
                     detection.UpstreamStatusCode,
-                    detection.Timestamp);
+                    detection.Timestamp,
+                    detection.CacheStatus);
             }
         }
         finally
@@ -1410,28 +1451,37 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         int statusCode,
         int? upstreamStatusCode,
         DateTime timestamp,
+        string? cacheStatus = null,
         CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
+        // Cache-status tally path for SQLite's json_insert/json_extract: the status
+        // string is the JSON object key, so '$."HIT"' / '$."MISS"' etc. (a null
+        // cache status means no cache layer answered — the tally stays untouched).
+        var tallyPath = cacheStatus is null ? null : "$.\"" + cacheStatus.Replace("\"", "\\\"") + "\"";
+
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO endpoint_stats
                 (method, path, domain, is_bot, hit_count,
-                 bytes_sum, ms_sum, ms_max, threat_sum, last_seen,
+                 bytes_sum, ms_sum, ms_min, ms_max, threat_sum, last_seen,
                  s2xx, s3xx, s4xx, s5xx,
-                 us2xx, us3xx, us4xx, us5xx, us_none)
+                 us2xx, us3xx, us4xx, us5xx, us_none,
+                 cache_status_tally)
             VALUES
                 (@method, @path, @domain, @isBot, 1,
-                 @bytes, @ms, @ms, @threat, @lastSeen,
+                 @bytes, @ms, @ms, @ms, @threat, @lastSeen,
                  @s2xx, @s3xx, @s4xx, @s5xx,
-                 @us2xx, @us3xx, @us4xx, @us5xx, @usNone)
+                 @us2xx, @us3xx, @us4xx, @us5xx, @usNone,
+                 @initialTally)
             ON CONFLICT(method, path, domain, is_bot) DO UPDATE SET
                 hit_count = hit_count + 1,
                 bytes_sum = bytes_sum + @bytes,
                 ms_sum    = ms_sum + @ms,
+                ms_min    = CASE WHEN ms_min = 0 THEN @ms WHEN @ms < ms_min THEN @ms ELSE ms_min END,
                 ms_max    = MAX(ms_max, @ms),
                 threat_sum = threat_sum + @threat,
                 last_seen = MAX(last_seen, @lastSeen),
@@ -1443,7 +1493,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 us3xx     = us3xx + @us3xx,
                 us4xx     = us4xx + @us4xx,
                 us5xx     = us5xx + @us5xx,
-                us_none   = us_none + @usNone
+                us_none   = us_none + @usNone,
+                cache_status_tally = CASE WHEN @tallyPath IS NULL THEN cache_status_tally
+                    ELSE json_insert(cache_status_tally, @tallyPath,
+                        COALESCE(json_extract(cache_status_tally, @tallyPath), 0) + 1) END
             """;
         var dom = domain ?? string.Empty;
         cmd.Parameters.AddWithValue("@method", method);
@@ -1465,6 +1518,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.Parameters.AddWithValue("@us4xx", us is >= 400 and <= 499 ? 1 : 0);
         cmd.Parameters.AddWithValue("@us5xx", us is >= 500 and <= 599 ? 1 : 0);
         cmd.Parameters.AddWithValue("@usNone", us is null ? 1 : 0);
+        // Initial tally for a brand-new row: the single status, or the empty object
+        // when no cache layer answered. The DO UPDATE branch increments instead.
+        cmd.Parameters.AddWithValue("@initialTally",
+            tallyPath is null ? "{}" : "{\"" + cacheStatus!.Replace("\"", "\\\"") + "\": 1}");
+        cmd.Parameters.AddWithValue("@tallyPath", (object?)tallyPath ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -1691,6 +1749,68 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 UpstreamStatus5xx   = reader.IsDBNull(18) ? 0 : reader.GetInt32(18),
                 UpstreamNoneCount   = reader.IsDBNull(19) ? 0 : reader.GetInt32(19),
                 IsHoneypot          = isHoneypot,
+            });
+        }
+        return results;
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<DashboardSessionFoldSummary>> GetSessionFoldSummariesAsync(
+        int limit, bool? isBot, DateTime since, string? signature = null, CancellationToken ct = default)
+    {
+        if (limit <= 0) return Array.Empty<DashboardSessionFoldSummary>();
+
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // The sessions read surface at the window-fold grain (Phase B): one summary per
+        // fused (signature, hour) detection row. The fused row's timestamp IS the hour
+        // anchor (bucket start); hit_count/bot_count/ms_sum/ms_max are the fold counters;
+        // the representative's other columns carry the headline values.
+        var where = new System.Text.StringBuilder("WHERE fused = 1 AND timestamp >= @since");
+        if (signature is { Length: > 0 })
+            where.Append(" AND signature = @sig");
+        if (isBot.HasValue)
+            where.Append(isBot.Value ? " AND bot_count > 0" : " AND bot_count = 0");
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT id, timestamp, signature, bot_probability, confidence, risk_band,
+                   bot_name, bot_type, action, country_code,
+                   hit_count, bot_count, ms_sum, ms_max
+            FROM detections
+            {where}
+            ORDER BY timestamp DESC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@since", since.ToString("O"));
+        if (signature is { Length: > 0 })
+            cmd.Parameters.AddWithValue("@sig", signature);
+        cmd.Parameters.AddWithValue("@limit", limit);
+
+        var results = new List<DashboardSessionFoldSummary>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var started = DateTime.Parse(reader.GetString(1));
+            results.Add(new DashboardSessionFoldSummary
+            {
+                Id           = reader.GetInt64(0),
+                Signature    = reader.GetString(2),
+                StartedAt    = started,
+                EndedAt      = started.AddHours(1),
+                RequestCount = reader.GetInt32(10),
+                BotCount     = reader.GetInt32(11),
+                BotProbability = reader.IsDBNull(3) ? 0 : reader.GetDouble(3),
+                Confidence   = reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
+                RiskBand     = reader.IsDBNull(5) ? null : reader.GetString(5),
+                BotName      = reader.IsDBNull(6) ? null : reader.GetString(6),
+                BotType      = reader.IsDBNull(7) ? null : reader.GetString(7),
+                Action       = reader.IsDBNull(8) ? null : reader.GetString(8),
+                CountryCode  = reader.IsDBNull(9) ? null : reader.GetString(9),
+                MsSum        = reader.IsDBNull(12) ? 0 : reader.GetDouble(12),
+                MsMax        = reader.IsDBNull(13) ? 0 : reader.GetDouble(13),
             });
         }
         return results;

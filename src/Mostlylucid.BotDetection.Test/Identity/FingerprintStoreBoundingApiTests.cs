@@ -129,12 +129,12 @@ public class FingerprintStoreBoundingApiTests : IDisposable
         var store = await NewStoreAsync();
 
         await SeedFingerprintAsync(store, "keep");
-        await store.RecordObservationAsync(RequestScope.Unknown, "keep", UnitVector(), "chrome");
+        await SeedObservationRowAsync(store, "keep");
         await store.UpsertKeyAsync("sig-keep", "keep");
 
         await SeedFingerprintAsync(store, "drop");
-        await store.RecordObservationAsync(RequestScope.Unknown, "drop", UnitVector(), "chrome");
-        await store.RecordObservationAsync(RequestScope.Unknown, "drop", UnitVector(), "chrome");
+        await SeedObservationRowAsync(store, "drop");
+        await SeedObservationRowAsync(store, "drop");
         await store.UpsertKeyAsync("sig-drop", "drop");
         await store.RecordCorrectionAsync(
             "req-1", "sig-drop", null, "drop", UnitVector(), UnitVector());
@@ -180,11 +180,11 @@ public class FingerprintStoreBoundingApiTests : IDisposable
 
         // 5 absorbed observations (older), then 2 unabsorbed (newest).
         for (var i = 0; i < 5; i++)
-            await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, "fp");
         await MarkAllObservationsAbsorbedAsync("fp");
 
-        await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
-        await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+        await SeedObservationRowAsync(store, "fp");
+        await SeedObservationRowAsync(store, "fp");
 
         // Keep newest-2 absorbed + all unabsorbed.
         var pruned = await store.PruneAbsorbedObservationsAsync(keepPerFingerprint: 2);
@@ -209,7 +209,7 @@ public class FingerprintStoreBoundingApiTests : IDisposable
         await SeedFingerprintAsync(store, "fp");
 
         for (var i = 0; i < 10; i++)
-            await store.RecordObservationAsync(RequestScope.Unknown, "fp", UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, "fp");
         // All unabsorbed.
 
         var pruned = await store.PruneAbsorbedObservationsAsync(keepPerFingerprint: 2);
@@ -229,13 +229,13 @@ public class FingerprintStoreBoundingApiTests : IDisposable
         var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
         // 5 fingerprints, each with one unabsorbed observation, at distinct last_seen
-        // (fp-0 newest ... fp-4 oldest). RecordObservationAsync bumps last_seen to now,
-        // so stamp the controlled value AFTER recording.
+        // (fp-0 newest ... fp-4 oldest). Seed observations, then stamp the controlled
+        // last_seen AFTER seeding.
         for (var i = 0; i < 5; i++)
         {
             var id = $"fp-{i}";
             await SeedFingerprintAsync(store, id);
-            await store.RecordObservationAsync(RequestScope.Unknown, id, UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, id);
             await StampLastSeenAsync(id, baseTime.AddMinutes(-i));
         }
 
@@ -256,13 +256,42 @@ public class FingerprintStoreBoundingApiTests : IDisposable
         {
             var id = $"fp-{i}";
             await SeedFingerprintAsync(store, id);
-            await store.RecordObservationAsync(RequestScope.Unknown, id, UnitVector(), "chrome");
+            await SeedObservationRowAsync(store, id);
         }
 
         var all = await store.ListAbsorbableObservationsAsync(
             maturityThreshold: 1, ageDays: 3650, activeWindowDays: 3650, maxFingerprints: 0);
 
         Assert.Equal(5, all.Select(o => o.FingerprintId).Distinct().Count());
+    }
+
+    // ── Phase B seeding (write-path grain redesign): RecordObservationAsync is
+    // memory-only; the prune/absorb-picker mechanisms these tests pin serve LEGACY
+    // rows, so observations are seeded directly into fingerprint_observations. ──
+
+    private async Task<long> SeedObservationRowAsync(
+        SqliteFingerprintStore store, string fpId, DateTime? observedAt = null)
+    {
+        var blob = SqliteFingerprintStore.FloatsToBlob(UnitVector());
+        await using var conn = new SqliteConnection($"Data Source={_fpDb}");
+        await conn.OpenAsync();
+        await using var cmd = conn.CreateCommand();
+        // Mirror the retired write path's per-observation side effects: the observation
+        // row + the fingerprint's observation_count / last_seen bump (the picker's
+        // maturity gate reads observation_count).
+        cmd.CommandText = """
+            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at, ua_family)
+            VALUES (@fp, @vec, @ts, NULL, 'chrome');
+            UPDATE fingerprints
+               SET observation_count = observation_count + 1,
+                   last_seen = @ts
+             WHERE fingerprint_id = @fp;
+            SELECT last_insert_rowid();
+            """;
+        cmd.Parameters.AddWithValue("@fp", fpId);
+        cmd.Parameters.AddWithValue("@vec", blob);
+        cmd.Parameters.AddWithValue("@ts", (observedAt ?? DateTime.UtcNow).ToString("O"));
+        return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
     // ============================================================

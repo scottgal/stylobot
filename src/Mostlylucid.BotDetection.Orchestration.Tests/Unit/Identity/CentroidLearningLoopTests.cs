@@ -46,10 +46,13 @@ public sealed class CentroidLearningLoopTests : IDisposable
     {
         // Pin: feed N observations of the same vector at a fingerprint that starts
         // at the origin. The maturity-weighted-mean fold MUST move the centroid
-        // toward the observation each absorption, and the L2 distance to the
-        // observation MUST decrease monotonically. If absorption silently no-ops,
-        // or the centroid update is dropped, this test goes red.
-        var (store, absorption, _) = await BuildAsync();
+        // toward the observation each request, and the L2 distance to the
+        // observation MUST decrease monotonically. If the memory fold silently
+        // no-ops, or the centroid update is dropped, this test goes red.
+        // Phase B (write-path grain redesign): the fold happens on the request
+        // thread inside RecordObservationAsync — the absorption service's DB role
+        // ended, so there is no tick to drive.
+        var (store, _, _) = await BuildAsync();
         try
         {
             var dim = store.Layout.Dimension;
@@ -57,6 +60,7 @@ public sealed class CentroidLearningLoopTests : IDisposable
 
             var fpId = "fp-drift-target";
             await SeedFingerprintAtOriginAsync(store, fpId, dim);
+            await store.GetFingerprintAsync(fpId); // warm the LFU (the fold needs a resident entry)
 
             var distances = new List<double>();
             distances.Add(L2Distance(new float[dim], observed)); // origin -> observed
@@ -64,18 +68,15 @@ public sealed class CentroidLearningLoopTests : IDisposable
             for (var i = 0; i < 10; i++)
             {
                 await store.RecordObservationAsync(RequestScope.Unknown, fpId, observed, uaFamily: "chrome");
-                var absorbed = await absorption.TickOnceAsync(CancellationToken.None);
-                Assert.True(absorbed >= 1,
-                    $"absorption tick #{i} should have absorbed at least one observation");
 
                 var fp = await store.GetFingerprintAsync(fpId);
                 Assert.NotNull(fp);
                 distances.Add(L2Distance(fp!.Centroid, observed));
             }
 
-            // The first absorbed step must move the centroid off the origin.
+            // The first folded step must move the centroid off the origin.
             Assert.True(distances[1] < distances[0],
-                $"first absorption did not move centroid: origin->obs distance {distances[0]:F4} -> after-first {distances[1]:F4}");
+                $"first fold did not move centroid: origin->obs distance {distances[0]:F4} -> after-first {distances[1]:F4}");
 
             // Monotonic non-increase: every subsequent step must close the gap
             // (or hold it; floating point can stall at the asymptote). This is
@@ -87,13 +88,12 @@ public sealed class CentroidLearningLoopTests : IDisposable
             }
 
             // And the gap actually shrank meaningfully end-to-end, not just by
-            // an epsilon -- catches "absorption ran but barely moved anything".
+            // an epsilon -- catches "the fold ran but barely moved anything".
             Assert.True(distances[^1] < distances[0] * 0.5,
-                $"centroid only moved {distances[0] - distances[^1]:F4} of {distances[0]:F4} after 10 absorbed observations");
+                $"centroid only moved {distances[0] - distances[^1]:F4} of {distances[0]:F4} after 10 folded observations");
         }
         finally
         {
-            absorption.Dispose();
         }
     }
 

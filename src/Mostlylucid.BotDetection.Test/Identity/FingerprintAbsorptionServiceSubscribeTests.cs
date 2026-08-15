@@ -103,31 +103,25 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
     }
 
     [Fact]
-    public async Task ObservationAppended_TriggersAbsorptionWithinDebounce()
+    public async Task ObservationAppended_FiresAndTheMemoryFoldAppliesOnTheRequestThread()
     {
-        // debounce = 200ms, so absorption should fire within 200ms + buffer.
+        // Phase B (write-path grain redesign): the observation feed is MEMORY-ONLY —
+        // the fold happens on the request thread inside RecordObservationAsync; the
+        // absorption service finds no rows and no-ops. The event still fires; the
+        // fingerprint's evolution is immediately visible (no DB round-trip to wait for).
         var (store, service) = await BuildAsync(debounceMs: 200);
         try
         {
             var fpId = await SeedFingerprintAsync(store, "fp-absorb-1");
 
-            // Record one observation; this fires ObservationAppended.
             await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
 
-            // Poll until absorbed rather than sleeping a fixed duration.
-            // The debounce fires after ~200ms then the Task.Run worker must be
-            // scheduled; under heavy parallel test load that can take well over
-            // the old 300ms buffer. 10 s is the hard ceiling.
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            int pending;
-            do
-            {
-                await Task.Delay(50, CancellationToken.None);
-                pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
-            }
-            while (pending > 0 && DateTime.UtcNow < deadline);
+            // Zero rows exist (memory-only) — the absorb pipeline's input is gone.
+            Assert.Equal(0, await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None));
 
-            Assert.Equal(0, pending);
+            // The in-memory fold already applied: observation count advanced.
+            var fp = await store.GetFingerprintAsync(fpId, CancellationToken.None);
+            Assert.True(fp!.ObservationCount >= 2, "the memory fold advanced the observation count");
         }
         finally
         {
@@ -136,79 +130,52 @@ public class FingerprintAbsorptionServiceSubscribeTests : IDisposable
     }
 
     [Fact]
-    public async Task ObservationAppended_WithSlowPathCoordinator_FoldsViaSequencedQueue()
+    public async Task ObservationAppended_EventFiresRegardlessOfAbsorptionPipeline()
     {
-        // When a slow-path coordinator is present the debounced fold is enqueued through it
-        // (one-at-a-time via the coordinator's worker loops) instead of a fire-and-forget
-        // Task.Run per observation. Prove the fold still completes AND that it went through
-        // the coordinator's queue (TotalEnqueued incremented).
-        var coord = new IdentityProcessingCoordinator(
-            NullLogger<IdentityProcessingCoordinator>.Instance,
-            Options.Create(new BotDetectionOptions()));
-        await coord.StartAsync(CancellationToken.None);
-
-        var (store, service) = await BuildAsync(debounceMs: 200, slowPathCoordinator: coord);
+        // The event contract survives the Phase B fold: ObservationAppended fires on
+        // every observation even though the absorption service's DB role ended (the
+        // subscribers — the calibration trigger, the dashboard — still ride the event).
+        var (store, service) = await BuildAsync(debounceMs: 200);
         try
         {
             var fpId = await SeedFingerprintAsync(store, "fp-seq-1");
 
+            int fired = 0;
+            store.ObservationAppended += _ => Interlocked.Increment(ref fired);
+
+            await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
             await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[store.Layout.Dimension], ct: CancellationToken.None);
 
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            int pending;
-            do
-            {
-                await Task.Delay(50, CancellationToken.None);
-                pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
-            }
-            while (pending > 0 && DateTime.UtcNow < deadline);
-
-            Assert.Equal(0, pending); // the fold completed -- via the sequenced coordinator
-            Assert.True(coord.GetDiagnostics().TotalEnqueued >= 1,
-                "the debounced fold must route through the slow-path coordinator, not fire-and-forget");
+            Assert.Equal(2, fired);
+            Assert.Equal(0, await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None));
         }
         finally
         {
             service.Dispose();
-            await coord.StopAsync(CancellationToken.None);
-            coord.Dispose();
         }
     }
 
     [Fact]
-    public async Task RapidObservations_CollapseToSingleAbsorptionWithinDebounce()
+    public async Task ObservationBurst_FoldsEveryObservationInMemory_NoDBWrites()
     {
-        // Debounce = 200ms. 10 rapid observations for the same fp must coalesce to one absorption run.
+        // Phase B: the DB never sees per-request writes (the adaptive property). A 10-
+        // observation burst folds all 10 into the LFU; zero rows land; the absorption
+        // service's debounce counters stay at their no-op baseline.
         var (store, service) = await BuildAsync(debounceMs: 200);
         try
         {
             var fpId = await SeedFingerprintAsync(store, "fp-burst-1");
             var dim = store.Layout.Dimension;
+            var before = await store.GetFingerprintAsync(fpId, CancellationToken.None);
 
-            // Record 10 observations in quick succession.
             for (var i = 0; i < 10; i++)
                 await store.RecordObservationAsync(RequestScope.Unknown, fpId, new float[dim], ct: CancellationToken.None);
 
-            // Poll until absorbed rather than a fixed sleep: the debounced run fires
-            // ~200ms after the last observation, then the drainer must persist all 10
-            // writes. Under heavy parallel CI load that exceeds a fixed 600ms budget
-            // (the poll-not-sleep deflake pattern, mirroring
-            // ObservationAppended_TriggersAbsorptionWithinDebounce). 10 s hard ceiling.
-            var deadline = DateTime.UtcNow.AddSeconds(10);
-            int pending;
-            do
-            {
-                await Task.Delay(50, CancellationToken.None);
-                pending = await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None);
-            }
-            while (pending > 0 && DateTime.UtcNow < deadline);
+            Assert.Equal(0, await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None));
 
-            Assert.Equal(0, pending);
-
-            // The per-fp absorption counter must be exactly 1, not 10.
-            // This is the key contract: debounce collapses the burst (unaffected by
-            // how long the async persist takes, so polling does not weaken it).
-            Assert.Equal(1, service.EventDrivenAbsorptionCount);
+            var after = await store.GetFingerprintAsync(fpId, CancellationToken.None);
+            Assert.Equal(before!.ObservationCount + 10, after!.ObservationCount);
+            Assert.Equal(before.CentroidMaturity + 10, after.CentroidMaturity);
         }
         finally
         {

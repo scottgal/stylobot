@@ -8,6 +8,7 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Xunit;
@@ -127,6 +128,63 @@ public sealed class SqliteFingerprintMutationTests : IDisposable
 
         var version = await GetStateVersionAsync(fpId);
         version.Should().Be(3, "the materialized state_version tracks the delta chain head");
+    }
+
+    [Fact]
+    public async Task Positive_control_drift_crossing_emits_centroid_drift_mutation()
+    {
+        // §7(3) positive control: a KNOWN drift event must still register after the feeds
+        // go quiet — the fold-time evaluator's memory-first comparison is the drift gate.
+        var store = await NewStoreAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        const string fpId = "sig-mut-drift";
+        await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), fpId, CancellationToken.None);
+        await store.UpsertGlobalWeightsAsync(Enumerable.Repeat(1.0f, dim).ToArray(), 1, 1, 1, CancellationToken.None);
+
+        // Warm the LFU so the memory fold applies (the fold needs a resident entry).
+        await store.GetFingerprintAsync(fpId, CancellationToken.None);
+
+        // Converge the centroid on vector A, then diverge with vector B: the latest
+        // observation (B) vs the centroid (≈A) must score below the drift threshold.
+        var a = new float[dim];
+        for (var i = 0; i < dim; i++) a[i] = 0.5f;
+        var b = new float[dim];
+        for (var i = 0; i < dim; i++) b[i] = -0.5f;
+        for (var i = 0; i < 3; i++)
+            await store.RecordObservationAsync(RequestScope.Unknown, fpId, a, "chrome-desktop", CancellationToken.None);
+        await store.RecordObservationAsync(RequestScope.Unknown, fpId, b, "chrome-desktop", CancellationToken.None);
+
+        // The fold-time evaluator runs on its own cadence (500 ms default) — wait for it.
+        await WaitForAsync(async () =>
+        {
+            var mutations = await GetMutationsAsync(fpId);
+            return mutations.Any(m => m.MutationType == "centroid_drift");
+        }, timeoutMs: 10_000);
+    }
+
+    [Fact]
+    public async Task Positive_control_verdict_flip_emits_verdict_flip_mutation()
+    {
+        // §7(3) positive control (flip arm): a verdict 0 → 0.99 changes the derived
+        // risk band; the fold-time evaluator's band comparison must register it.
+        var store = await NewStoreAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        const string fpId = "sig-mut-flip";
+        await store.InsertFingerprintAsync(NewFingerprint(fpId, dim), fpId, CancellationToken.None);
+        await store.GetFingerprintAsync(fpId, CancellationToken.None); // warm LFU
+
+        // The birth payload carries the band at allocation (probability 0) — flip the
+        // score hard to the confirmed-bot band.
+        store.RecordVerdictWriteBehindWithPower(fpId, 0.99, 1.0, isDefinitive: true, botType: "AiBot");
+
+        await WaitForAsync(async () =>
+        {
+            var mutations = await GetMutationsAsync(fpId);
+            return mutations.Any(m => m.MutationType == "verdict_flip");
+        }, timeoutMs: 10_000);
+
+        var flip = (await GetMutationsAsync(fpId)).Single(m => m.MutationType == "verdict_flip");
+        flip.PayloadJson.Should().Contain("band", "the flip payload carries the new band");
     }
 
     private async Task<SqliteFingerprintStore> NewStoreAsync()

@@ -370,6 +370,12 @@ public partial class DetectionBroadcastMiddleware
         // response transform (which stamps this) runs as part of _next.
         detection.UpstreamStatusCode = BotDetectionMiddleware.ResolveUpstreamStatusCode(context);
 
+        // Cache status of the actual response -- the minimal endpoint trace's fourth
+        // element (write-path grain redesign, docs/architecture/write-path-grain-design.md
+        // §3.2: "endpoint, response times, bytes delivered, cache status"). Read
+        // post-_next because cache-serving middleware answers during _next.
+        detection.CacheStatus = ResolveCacheStatus(context);
+
         // Capture everything we need by value BEFORE spawning the task; context may
         // be disposed before the task runs.
         var detectionCapture = detection;
@@ -1403,5 +1409,30 @@ public partial class DetectionBroadcastMiddleware
         {
             _logger.LogDebug(ex, "Detection event publisher {Name} threw - dropping event", publisher.Name);
         }
+    }
+
+    /// <summary>
+    ///     Resolve the response's cache status for the endpoint fold (write-path grain
+    ///     redesign §3.2 — the minimal endpoint trace: "endpoint, response times, bytes
+    ///     delivered, cache status"). Resolution order:
+    ///     <list type="number">
+    ///     <item>an in-process cache-serving middleware's marker on
+    ///     <c>HttpContext.Items["sb.cache_status"]</c> (the seam for content caches that
+    ///     answer inside the pipeline — StyloExtract etc.),</item>
+    ///     <item>the <c>X-Cache</c> response header (CDN / proxy edge),</item>
+    ///     <item>the <c>CF-Cache-Status</c> response header (Cloudflare).</item>
+    ///     </list>
+    ///     Null when no cache layer answered. Values pass through verbatim ("HIT",
+    ///     "MISS", "HIT, MISS", "DYNAMIC", ...) so the fold's tally is source-agnostic.
+    /// </summary>
+    internal static string? ResolveCacheStatus(HttpContext context)
+    {
+        if (context.Items.TryGetValue("sb.cache_status", out var marker) && marker is string m && !string.IsNullOrWhiteSpace(m))
+            return m;
+        if (context.Response.Headers.TryGetValue("X-Cache", out var xCache) && !string.IsNullOrWhiteSpace(xCache))
+            return xCache.ToString();
+        if (context.Response.Headers.TryGetValue("CF-Cache-Status", out var cf) && !string.IsNullOrWhiteSpace(cf))
+            return cf.ToString();
+        return null;
     }
 }

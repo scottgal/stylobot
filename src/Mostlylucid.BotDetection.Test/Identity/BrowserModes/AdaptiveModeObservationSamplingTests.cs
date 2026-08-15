@@ -10,11 +10,18 @@ using Xunit;
 namespace Mostlylucid.BotDetection.Test.Identity.BrowserModes;
 
 /// <summary>
-///     Adaptive forgetting on the browser-mode write path: a confirmatory observation on an
-///     already-matured mode is summarised (mode count + maturity advance, no detail row) while
-///     novel observations and observations on still-maturing modes keep a full detail row. This
-///     bounds fingerprint_mode_observations by novelty rather than volume: the mode-observation
-///     table was the largest under a high-cardinality flood.
+///     The memory-only mode-observation contract (write-path grain redesign, Phase B —
+///     docs/architecture/write-path-grain-design.md §3.2/§7.5): the per-request mode
+///     observation feed is MEMORY-ONLY — no durable row, ever. Mode RESOLUTION continues
+///     in the matcher; the mode centroid's durable evolution ends with the observation
+///     feed (its role was the mode absorption's DB input, which now finds no rows and
+///     no-ops). Mode TRANSITIONS become fold-time mutations at the sweep
+///     (fingerprint_mutations.mode_transition). Extra traffic folds in memory — the DB
+///     never sees per-request writes.
+///     <para>
+///     The adaptive-forgetting detail-row mechanism retired with the feed; the knobs stay
+///     on the options classes for config back-compat.
+///     </para>
 /// </summary>
 public sealed class AdaptiveModeObservationSamplingTests : IDisposable
 {
@@ -110,70 +117,34 @@ public sealed class AdaptiveModeObservationSamplingTests : IDisposable
         return v;
     }
 
-    private static async Task<int> UnabsorbedCountAsync(
-        SqliteFingerprintBrowserModeStore modeStore, string fpId, string modeId)
-    {
-        var rows = await modeStore.ListUnabsorbedModeObservationsAsync(10_000, CancellationToken.None);
-        return rows.Count(r => r.FingerprintId == fpId && r.ModeId == modeId);
-    }
-
     [Fact]
-    public async Task ConfirmatoryModeObservation_OnMaturedMode_IsSummarisedNotPersisted()
+    public async Task RecordModeObservationAsync_is_memory_only_zero_rows_always()
     {
+        // Phase B: no durable mode-observation rows, ever — for confirmatory, novel,
+        // immature and unseen-mode observations alike. The mode feed's DB role ends.
         var (store, modeStore, dim) = await NewStoresAsync();
-        const string fpId = "fp-mode-confirmatory";
+        const string fpId = "fp-mode-memory-only";
         const string modeId = "navigation";
         await SeedParentFingerprintAsync(store, fpId, dim);
         await SeedModeAsync(modeStore, fpId, modeId, UnitVector(dim, 0), maturity: 10);
 
         await modeStore.RecordModeObservationAsync(RequestScope.Unknown, fpId, modeId, UnitVector(dim, 0));
-
-        (await UnabsorbedCountAsync(modeStore, fpId, modeId))
-            .Should().Be(0, "a confirmatory mode observation must not write a detail row");
-        modeStore.SummarisedModeObservationCount.Should().Be(1);
-
-        var after = await modeStore.GetModeAsync(fpId, modeId, CancellationToken.None);
-        after!.CentroidMaturity.Should().Be(10,
-            "summarise must NOT touch mode maturity: the drainer owns the fold; a second writer desyncs it");
-        after.ObservationCount.Should().Be(101);
-    }
-
-    [Fact]
-    public async Task NovelModeObservation_OnMaturedMode_KeepsDetailRow()
-    {
-        var (store, modeStore, dim) = await NewStoresAsync();
-        const string fpId = "fp-mode-novel";
-        const string modeId = "navigation";
-        await SeedParentFingerprintAsync(store, fpId, dim);
-        await SeedModeAsync(modeStore, fpId, modeId, UnitVector(dim, 0), maturity: 10);
-
         await modeStore.RecordModeObservationAsync(RequestScope.Unknown, fpId, modeId, UnitVector(dim, 1));
 
-        (await UnabsorbedCountAsync(modeStore, fpId, modeId))
-            .Should().Be(1, "a novel mode observation must keep a full detail row");
-        modeStore.SummarisedModeObservationCount.Should().Be(0);
+        var rows = await modeStore.ListUnabsorbedModeObservationsAsync(10_000, CancellationToken.None);
+        rows.Should().BeEmpty("the mode observation feed is memory-only — no durable rows exist");
+
+        // Mode state itself is untouched by the observation (the mode centroid's durable
+        // evolution ended with the feed; mode resolution continues in the matcher).
+        var after = await modeStore.GetModeAsync(fpId, modeId, CancellationToken.None);
+        after!.CentroidMaturity.Should().Be(10, "mode observations no longer evolve the durable mode centroid");
+        after.ObservationCount.Should().Be(100);
     }
 
     [Fact]
-    public async Task ImmatureMode_AlwaysKeepsDetail()
+    public async Task UnseenMode_Observation_Writes_Nothing()
     {
-        var (store, modeStore, dim) = await NewStoresAsync(maturityThreshold: 5);
-        const string fpId = "fp-mode-immature";
-        const string modeId = "navigation";
-        await SeedParentFingerprintAsync(store, fpId, dim);
-        await SeedModeAsync(modeStore, fpId, modeId, UnitVector(dim, 0), maturity: 2);
-
-        await modeStore.RecordModeObservationAsync(RequestScope.Unknown, fpId, modeId, UnitVector(dim, 0));
-
-        (await UnabsorbedCountAsync(modeStore, fpId, modeId))
-            .Should().Be(1, "a still-maturing mode keeps every observation");
-        modeStore.SummarisedModeObservationCount.Should().Be(0);
-    }
-
-    [Fact]
-    public async Task NewMode_AlwaysKeepsDetail()
-    {
-        // No fingerprint_modes row yet: the observation is the mode's first, so keep detail.
+        // Even a mode with no fingerprint_modes row yet: the observation is memory-only.
         var (store, modeStore, dim) = await NewStoresAsync();
         const string fpId = "fp-mode-new";
         const string modeId = "navigation";
@@ -181,8 +152,7 @@ public sealed class AdaptiveModeObservationSamplingTests : IDisposable
 
         await modeStore.RecordModeObservationAsync(RequestScope.Unknown, fpId, modeId, UnitVector(dim, 0));
 
-        (await UnabsorbedCountAsync(modeStore, fpId, modeId))
-            .Should().Be(1, "the first observation of an unseen mode always persists");
-        modeStore.SummarisedModeObservationCount.Should().Be(0);
+        var rows = await modeStore.ListUnabsorbedModeObservationsAsync(10_000, CancellationToken.None);
+        rows.Should().BeEmpty("the first observation of an unseen mode is memory-only like every other");
     }
 }

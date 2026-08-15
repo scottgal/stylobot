@@ -9,14 +9,19 @@ using Xunit;
 namespace Mostlylucid.BotDetection.Test.Identity;
 
 /// <summary>
-///     Adaptive forgetting on the identity write path: a confirmatory observation on an
-///     already-matured fingerprint is SUMMARISED (count + maturity advance, no detail row),
-///     while novel observations and observations on still-maturing fingerprints keep a full
-///     detail row. This bounds fingerprint_observations by behavioural novelty rather than
-///     request volume, so a high-cardinality look-alike flood cannot balloon the identity store.
-///
-///     Critical invariant (FOSS never loses detection sensitivity): a real drift observation
-///     (novelty at or above the keep threshold) is NEVER sampled away.
+///     The memory-only observation contract (write-path grain redesign, Phase B —
+///     docs/architecture/write-path-grain-design.md §3.2/§7.5): the per-request
+///     observation feed is MEMORY-ONLY — no durable row, no detail-row sampling. The
+///     in-memory absorption fold (centroid EMA + maturity + weights) applies EVERY
+///     observation on the request thread; the fingerprint's durable feed is the
+///     fingerprint_mutations delta chain (needle-movers), not observation rows.
+///     <para>
+///     The adaptive-forgetting detail-row mechanism (novel vs confirmatory sampling)
+///     retired with the feed: with no durable rows, the novelty gate had nothing to
+///     bound. The knobs stay on the options classes for config back-compat; the
+///     sampling decision itself no longer exists. Matcher quality is unchanged — the
+///     centroid evolution math is identical, only the durable destination moved.
+///     </para>
 /// </summary>
 public sealed class AdaptiveObservationSamplingTests : IDisposable
 {
@@ -97,8 +102,11 @@ public sealed class AdaptiveObservationSamplingTests : IDisposable
     }
 
     [Fact]
-    public async Task ConfirmatoryObservation_OnMaturedFingerprint_IsSummarisedNotPersisted()
+    public async Task RecordObservationAsync_is_memory_only_zero_rows_every_observation_folds()
     {
+        // Phase B: no durable observation rows, ever — the DB never sees per-request
+        // writes (the adaptive property). Both confirmatory AND novel observations fold
+        // in memory on the request thread.
         var store = await NewStoreAsync();
         var dim = store.Layout.Dimension;
         const string fpId = "fp-confirmatory";
@@ -106,60 +114,36 @@ public sealed class AdaptiveObservationSamplingTests : IDisposable
         await SeedFingerprintAsync(store, fpId, centroid, maturity: 10);
         var before = await store.GetFingerprintAsync(fpId);
 
-        // Same shape as the centroid: novelty 0, well below the 0.05 keep threshold.
+        // Same shape as the centroid (the old "confirmatory" case) AND an orthogonal
+        // shape (the old "novel" case) — both are memory-only now.
         await store.RecordObservationAsync(RequestScope.Unknown, fpId, UnitVector(dim, 0));
-
-        (await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None))
-            .Should().Be(0, "a confirmatory observation must not write a detail row");
-        store.SummarisedObservationCount.Should().Be(1, "it was summarised instead");
-
-        var after = await store.GetFingerprintAsync(fpId);
-        after!.ObservationCount.Should().Be(before!.ObservationCount + 1,
-            "the summarised entry still advances the observation count");
-        after.CentroidMaturity.Should().Be(before.CentroidMaturity,
-            "summarise must NOT touch centroid maturity: the absorber is its sole owner, and a second " +
-            "writer here desyncs the maturity-weighted fold (proven by CentroidLearningLoopTests). " +
-            "Maturity counts folded (novel) observations only.");
-    }
-
-    [Fact]
-    public async Task NovelObservation_OnMaturedFingerprint_KeepsDetailRow()
-    {
-        var store = await NewStoreAsync();
-        var dim = store.Layout.Dimension;
-        const string fpId = "fp-novel";
-        await SeedFingerprintAsync(store, fpId, UnitVector(dim, 0), maturity: 10);
-
-        // Orthogonal shape: novelty 1.0, far above the keep threshold.
         await store.RecordObservationAsync(RequestScope.Unknown, fpId, UnitVector(dim, 1));
 
         (await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None))
-            .Should().Be(1, "a novel observation must keep a full detail row");
-        store.SummarisedObservationCount.Should().Be(0);
+            .Should().Be(0, "the observation feed is memory-only — no detail rows exist");
+
+        var after = await store.GetFingerprintAsync(fpId);
+        after!.ObservationCount.Should().Be(before!.ObservationCount + 2,
+            "every observation advances the in-memory observation count");
+        after.CentroidMaturity.Should().Be(before.CentroidMaturity + 2,
+            "the in-memory fold bumps maturity per observation — the fold is the sole owner on the request thread");
+
+        // The latest observation vector is retained memory-first (the drift audit's
+        // input — §7(3) memory-first verification).
+        var latest = await store.GetLatestObservationVectorAsync(fpId, CancellationToken.None);
+        latest.Should().NotBeNull();
+        latest![1].Should().BeApproximately(1.0f, 1e-6f,
+            "the latest observation (the orthogonal vector) is the retained one");
     }
 
     [Fact]
-    public async Task ImmatureFingerprint_AlwaysKeepsDetail_EvenWhenConfirmatory()
+    public async Task RealDrift_StillRegisters_memory_first_latest_vector_served()
     {
-        // Below the maturity threshold the fingerprint is still building its identity,
-        // so every observation earns detail regardless of novelty.
-        var store = await NewStoreAsync(maturityThreshold: 5);
-        var dim = store.Layout.Dimension;
-        const string fpId = "fp-immature";
-        await SeedFingerprintAsync(store, fpId, UnitVector(dim, 0), maturity: 2);
-
-        await store.RecordObservationAsync(RequestScope.Unknown, fpId, UnitVector(dim, 0));
-
-        (await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None))
-            .Should().Be(1, "an immature (identity-building) fingerprint keeps every observation");
-        store.SummarisedObservationCount.Should().Be(0);
-    }
-
-    [Fact]
-    public async Task RealDrift_JustAboveKeepThreshold_IsNeverSampledAway()
-    {
-        // feedback_foss_never_degraded: a 10% shape change (novelty 0.1 > threshold 0.05)
-        // is genuine drift and MUST persist detail so the drift reader can see it.
+        // feedback_foss_never_degraded, carried into the memory-only contract: a real
+        // drift observation must still be VISIBLE to the drift readers. The fold-time
+        // evaluator's positive control (SqliteFingerprintMutationTests) pins that a
+        // known drift crossing emits a centroid_drift mutation; here we pin the input
+        // side: the retained latest vector IS the drifted observation.
         var store = await NewStoreAsync(noveltyKeepThreshold: 0.05);
         var dim = store.Layout.Dimension;
         const string fpId = "fp-drift";
@@ -171,24 +155,31 @@ public sealed class AdaptiveObservationSamplingTests : IDisposable
         drift[1] = (float)Math.Sqrt(1.0 - 0.81); // ~0.4359, keeps unit norm
         await store.RecordObservationAsync(RequestScope.Unknown, fpId, drift);
 
+        var latest = await store.GetLatestObservationVectorAsync(fpId, CancellationToken.None);
+        latest.Should().NotBeNull();
+        latest![0].Should().BeApproximately(0.9f, 1e-6f,
+            "the drifted observation is the retained latest vector — the drift audit reads the live evolution");
         (await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None))
-            .Should().Be(1, "real drift above the keep threshold is never forgotten");
-        store.SummarisedObservationCount.Should().Be(0);
+            .Should().Be(0, "still memory-only: no durable row, but nothing is forgotten by the readers");
     }
 
     [Fact]
-    public async Task SamplingDisabled_PersistsEveryObservation()
+    public async Task SamplingDisabled_ConfigKnob_Is_Retired_But_Parses()
     {
+        // The adaptive-sampling knobs stay on the options classes for config
+        // back-compat; with no detail rows the sampling decision no longer exists.
+        // Legacy config that disabled sampling must still construct and behave the
+        // same (memory-only).
         var store = await NewStoreAsync(adaptiveSampling: false);
         var dim = store.Layout.Dimension;
         const string fpId = "fp-legacy";
         await SeedFingerprintAsync(store, fpId, UnitVector(dim, 0), maturity: 10);
 
-        // Even a perfectly confirmatory observation persists when sampling is off.
         await store.RecordObservationAsync(RequestScope.Unknown, fpId, UnitVector(dim, 0));
 
         (await store.GetUnabsorbedObservationCountAsync(fpId, CancellationToken.None))
-            .Should().Be(1, "legacy behaviour: every observation keeps a detail row");
-        store.SummarisedObservationCount.Should().Be(0);
+            .Should().Be(0, "memory-only regardless of the retired sampling knob");
+        var fp = await store.GetFingerprintAsync(fpId);
+        fp!.ObservationCount.Should().Be(101, "the observation still folds in memory");
     }
 }

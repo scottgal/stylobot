@@ -3013,14 +3013,17 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     Serves recent sessions from the session store.
-    ///     Sessions are the unit of storage - each contains a compressed behavioral vector,
-    ///     Markov transition counts, and summary stats.
+    ///     Serves recent sessions from the window folds (Phase B of the write-path grain
+    ///     redesign — docs/architecture/write-path-grain-design.md §7.5). The sessions
+    ///     rows retired with the session grain; the fold summaries ARE the persisted
+    ///     session summaries (counts, bot/human split, durations) at the hour grain.
+    ///     The JSON contract is unchanged; the per-session analytic baggage (vectors,
+    ///     transitions, timing entropy) degrades to null/0.
     /// </summary>
     private async Task ServeSessionsApiAsync(HttpContext context)
     {
-        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
-        if (sessionStore == null)
+        var eventStore = context.RequestServices.GetService<IDashboardEventStore>();
+        if (eventStore == null)
         {
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync("[]");
@@ -3032,7 +3035,7 @@ public class StyloBotDashboardMiddleware
         bool? isBot = botFilter switch { "true" => true, "false" => false, _ => null };
 
         var since = DateTime.UtcNow - _options.DetectionRetention;
-        var sessions = await sessionStore.GetRecentSessionsAsync(limit, isBot, since);
+        var sessions = await eventStore.GetSessionFoldSummariesAsync(limit, isBot, since);
 
         var result = sessions.Select(s => new
         {
@@ -3041,29 +3044,26 @@ public class StyloBotDashboardMiddleware
             s.StartedAt,
             s.EndedAt,
             durationMinutes = (s.EndedAt - s.StartedAt).TotalMinutes,
-            s.RequestCount,
-            s.DominantState,
-            s.IsBot,
-            avgBotProbability = Math.Round(s.AvgBotProbability, 3),
-            avgConfidence = Math.Round(s.AvgConfidence, 3),
-            s.RiskBand,
-            s.Action,
-            s.BotName,
-            s.BotType,
-            s.CountryCode,
-            s.ErrorCount,
-            timingEntropy = Math.Round(s.TimingEntropy, 3),
-            topReasons = s.TopReasonsJson != null
-                ? JsonSerializer.Deserialize<List<string>>(s.TopReasonsJson)
-                : null,
-            transitionCounts = s.TransitionCountsJson != null
-                ? JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                : null,
-            paths = s.PathsJson != null
-                ? JsonSerializer.Deserialize<List<string>>(s.PathsJson)
-                : null,
-            s.Maturity,
-            s.Narrative
+            RequestCount = s.RequestCount,
+            DominantState = (string?)null,
+            IsBot = s.IsBot,
+            avgBotProbability = Math.Round(s.BotProbability, 3),
+            avgConfidence = Math.Round(s.Confidence, 3),
+            RiskBand = s.RiskBand,
+            Action = s.Action,
+            BotName = s.BotName,
+            BotType = s.BotType,
+            CountryCode = s.CountryCode,
+            // Retired with the sessions row — the fold summary carries the operator's
+            // grain ("that they happened and how long they took"), not the analytic
+            // baggage. The UI degrades gracefully on these fields.
+            ErrorCount = 0,
+            timingEntropy = (double?)null,
+            topReasons = (List<string>?)null,
+            transitionCounts = (Dictionary<string, int>?)null,
+            paths = (List<string>?)null,
+            Maturity = 0,
+            Narrative = (string?)null
         }).ToList();
 
         context.Response.ContentType = "application/json";
@@ -3084,8 +3084,8 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.IDetectionArchive>();
-        if (sessionStore == null)
+        var eventStore = context.RequestServices.GetService<IDashboardEventStore>();
+        if (eventStore == null)
         {
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync("[]");
@@ -3095,60 +3095,34 @@ public class StyloBotDashboardMiddleware
         var decodedSignature = Uri.UnescapeDataString(signature);
         var limit = int.TryParse(context.Request.Query["limit"], out var l) ? Math.Min(l, 50) : 20;
 
-        // Unified signature: PrimarySignature is used by both dashboard and session store
-        var sessions = await sessionStore.GetSessionsAsync(decodedSignature, limit);
+        // Phase B (write-path grain redesign): the sessions read surface re-points at the
+        // window folds — the archived sessions rows retired with the session grain. The
+        // fold summaries ARE the persisted session summaries at the hour grain; the
+        // per-session analytic baggage (vectors, velocity, transitions, timing entropy)
+        // degrades to null in the JSON contract (the UI renders the fold summary + the
+        // fingerprint's mutation history as the drill-in's replacement).
+        var sessions = await eventStore.GetSessionFoldSummariesAsync(limit, null, DateTime.UtcNow - _options.DetectionRetention, signature: decodedSignature);
 
-        // Compute inter-session velocity (behavioral drift between consecutive sessions)
-        var sessionVectors = sessions
-            .Select(s => s.Vector is { Length: > 0 }
-                ? BotDetection.Data.SqliteDetectionArchive.DeserializeVector(s.Vector)
-                : null)
-            .ToList();
-
-        var result = sessions.Select((s, idx) =>
+        var result = sessions.Select(s => new
         {
-            var vec = sessionVectors[idx];
-            var radarAxes = vec is { Length: > 0 }
-                ? BotDetection.Analysis.VectorRadarProjection.Project(vec)
-                : null;
-            // 12-axis clock via the shared resolver -- same helper the Your Detection
-            // card on the marketing site calls, so one signature's polygon renders
-            // identically across both surfaces.
-            var clockAxes = Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromSessionVector(vec);
-
-            return new
-            {
-                s.Id,
-                s.StartedAt,
-                s.EndedAt,
-                durationMinutes = Math.Round((s.EndedAt - s.StartedAt).TotalMinutes, 1),
-                s.RequestCount,
-                s.DominantState,
-                s.IsBot,
-                avgBotProbability = Math.Round(s.AvgBotProbability, 3),
-                s.RiskBand,
-                s.ErrorCount,
-                timingEntropy = Math.Round(s.TimingEntropy, 3),
-                s.Maturity,
-                live = false,
-                // Inter-session velocity: L2 magnitude of the delta vector from previous session.
-                // High velocity = sudden behavioral shift (bot rotation, account takeover, LLM-driven drift)
-                velocity = (idx < sessions.Count - 1 && sessionVectors[idx] != null && sessionVectors[idx + 1] != null)
-                    ? (double?)Math.Round(BotDetection.Analysis.SessionVectorizer.VelocityMagnitude(
-                        BotDetection.Analysis.SessionVectorizer.ComputeVelocity(sessionVectors[idx]!, sessionVectors[idx + 1]!)), 3)
-                    : null,
-                // Markov chain for drill-in visualization
-                transitionCounts = s.TransitionCountsJson != null
-                    ? JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                    : null,
-                paths = s.PathsJson != null
-                    ? JsonSerializer.Deserialize<List<string>>(s.PathsJson)
-                    : null,
-                // Radar projection for behavioral shape visualization
-                radarAxes,
-                // 12-axis clock, ready for direct ApexCharts series consumption
-                clockAxes
-            };
+            s.Id,
+            s.StartedAt,
+            s.EndedAt,
+            durationMinutes = Math.Round((s.EndedAt - s.StartedAt).TotalMinutes, 1),
+            RequestCount = s.RequestCount,
+            DominantState = (string?)null,
+            IsBot = s.IsBot,
+            avgBotProbability = Math.Round(s.BotProbability, 3),
+            RiskBand = s.RiskBand,
+            ErrorCount = 0,
+            timingEntropy = (double?)null,
+            Maturity = 0,
+            live = false,
+            velocity = (double?)null,
+            transitionCounts = (Dictionary<string, int>?)null,
+            paths = (List<string>?)null,
+            radarAxes = (double[]?)null,
+            clockAxes = (double[]?)null
         }).ToList<object>();
 
         // Live in-progress session: prefer the in-memory accumulator (has a real session
@@ -3196,10 +3170,8 @@ public class StyloBotDashboardMiddleware
         // in-flight portion of the radar. When no finalised sessions exist either, the
         // fallback also fills in past activity periods so a low-traffic signature still
         // has a behavioral shape to render.
-        if (!liveAdded)
+        if (!liveAdded && eventStore is not null)
         {
-            var eventStore = context.RequestServices.GetService<IDashboardEventStore>();
-            if (eventStore != null)
             {
                 var detections = await eventStore.GetDetectionsAsync(new DashboardFilter
                 {

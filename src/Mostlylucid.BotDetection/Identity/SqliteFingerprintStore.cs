@@ -25,6 +25,17 @@ public class SqliteFingerprintStore : IFingerprintStore
     private readonly IdentityEngineOptions _engineOptions;
     private readonly IdentityVectorOptions _vectorOptions;
     private readonly IdentityDriftOptions _driftOptions;
+    private readonly IdentityWeightsOptions _weightsOptions;
+
+    /// <summary>
+    ///     Latest observation vector per fingerprint — the memory-first read the drift
+    ///     audit + the fold-time drift evaluator consume (§7(3) drift-input verification:
+    ///     the live evolution, not stale rows). Bounded by the fingerprint cache cap;
+    ///     evicted oldest-first like the other in-memory stores.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, float[]> _latestObservationVector
+        = new(StringComparer.Ordinal);
+    private readonly IdentityArchetypeRegistry? _archetypes;
 
     /// <summary>
     ///     The identity vector options, shared with the browser-mode store so both write
@@ -285,6 +296,14 @@ public class SqliteFingerprintStore : IFingerprintStore
     private sealed record VerdictWrite(
         string FingerprintId, double Probability, string? BotType, DateTime At)
         : NameWrite(FingerprintId, At);
+    // Phase B (write-path grain redesign): the memory fold's archetype RECLASSIFICATION
+    // persist. The classification change is a coalesced per-fingerprint write (only fires
+    // on an actual type flip, never per request) so the materialized fingerprints row's
+    // inferred_client_type stays current — an LFU invalidation + reload (drift service,
+    // eviction) must not resurrect the stale allocation type.
+    private sealed record InferredTypeWrite(
+        string FingerprintId, string? NewType, double NewConfidence, DateTime At)
+        : NameWrite(FingerprintId, At);
 
     private const int NameWriteQueueCapacity = 4096;
     private readonly Channel<NameWrite> _nameWriteChannel =
@@ -302,23 +321,24 @@ public class SqliteFingerprintStore : IFingerprintStore
     // without leaking to callers.
     internal int AbsorbWriteCount;
 
-    // Test instrumentation: counts observations that adaptive sampling summarised
-    // (count + maturity advanced, no detail row written). internal so the flood
-    // tests can assert confirmatory observations were forgotten, not persisted.
-    internal long SummarisedObservationCount;
-
     public SqliteFingerprintStore(
         ILogger<SqliteFingerprintStore> logger,
         IOptions<BotDetectionOptions> options,
         IdentityVectorLayout layout,
-        Triggers.IAdaptiveTriggerSignalSource? triggerSignals = null)
+        Triggers.IAdaptiveTriggerSignalSource? triggerSignals = null,
+        IdentityArchetypeRegistry? archetypes = null)
     {
         _logger = logger;
         _layout = layout;
         _engineOptions = options.Value.Identity.Engine;
         _vectorOptions = options.Value.Identity.Vector;
         _driftOptions = options.Value.Identity.Drift;
+        _weightsOptions = options.Value.Identity.Weights;
         _triggerSignals = triggerSignals;
+        // The in-memory fold reclassifies the fingerprint against the archetype
+        // registry (Phase B — the absorption service's family-gated reclassification
+        // moved into the memory fold). Null in minimal/test hosts.
+        _archetypes = archetypes;
         var dbPath = options.Value.DatabasePath
             ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
         _dataDir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
@@ -1094,6 +1114,176 @@ public class SqliteFingerprintStore : IFingerprintStore
         }
     }
 
+    // ── Fold-time evaluator (Phase B) ────────────────────────────────────────
+
+    private Task? _foldTimeEvaluatorTask;
+    private readonly object _foldTimeEvaluatorInitLock = new();
+
+    /// <summary>
+    ///     Lazy-start the fold-time evaluator (Phase B): the fingerprint state's
+    ///     drift/flip comparison pass, on its own cadence
+    ///     (<see cref="IdentityDriftOptions.FoldTimeEvaluationIntervalMs"/>). Runs for
+    ///     the process lifetime (the store is a singleton and not disposable — same
+    ///     lifetime as the write-behind name drainer).
+    /// </summary>
+    private void EnsureFoldTimeEvaluatorStarted()
+    {
+        if (_foldTimeEvaluatorTask is not null) return;
+        lock (_foldTimeEvaluatorInitLock)
+        {
+            _foldTimeEvaluatorTask ??= Task.Run(() => RunFoldTimeEvaluatorAsync());
+        }
+    }
+
+    private async Task RunFoldTimeEvaluatorAsync()
+    {
+        var interval = TimeSpan.FromMilliseconds(_driftOptions.FoldTimeEvaluationIntervalMs);
+        if (interval <= TimeSpan.Zero) interval = TimeSpan.FromMilliseconds(500);
+        while (true)
+        {
+            try
+            {
+                await EvaluateFoldTimeAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Fold-time evaluation pass failed; retrying next pass");
+            }
+            await Task.Delay(interval);
+        }
+    }
+
+    /// <summary>
+    ///     One fold-time pass: for the LFU's recently-active fingerprints (LastSeen inside
+    ///     <see cref="IdentityDriftOptions.FoldTimeEvaluationWindow"/>, capped by
+    ///     <see cref="IdentityDriftOptions.FoldTimeEvaluationBatchSize"/>, age-priority —
+    ///     the sweep's principle), compare the CURRENT derived state against the
+    ///     fingerprint's last mutation and emit:
+    ///     <list type="bullet">
+    ///     <item><c>centroid_drift</c> — the memory-first weighted cosine (latest observation
+    ///     vector vs centroid, composed weights) crossed below
+    ///     <see cref="IdentityDriftOptions.DriftWarningThreshold"/>, unless the last
+    ///     mutation is already a drift (no re-emit spam).</item>
+    ///     <item><c>verdict_flip</c> — the read-derived risk band (FingerprintRiskProjection
+    ///     on the materialized facts) differs from the band in the last mutation.</item>
+    ///     </list>
+    ///     Mirrors the commercial evaluator (same thresholds, same payload shapes).
+    ///     The pass is the fold-time composer for the fingerprint state — bounded by the
+    ///     LFU cap and the batch knob; no per-request work.
+    /// </summary>
+    private async Task EvaluateFoldTimeAsync()
+    {
+        if (_fingerprintById.IsEmpty) return;
+
+        // Age-priority candidates: most recent activity first, capped by the batch knob.
+        var cutoff = DateTime.UtcNow - _driftOptions.FoldTimeEvaluationWindow;
+        var candidates = _fingerprintById.Values
+            .Where(fp => fp.Fingerprint.LastSeen >= cutoff)
+            .OrderByDescending(fp => fp.Fingerprint.LastSeen)
+            .Take(_driftOptions.FoldTimeEvaluationBatchSize)
+            .ToList();
+        if (candidates.Count == 0) return;
+
+        // Global weights for the composed cosine (one row, per pass).
+        float[]? globalWeights = null;
+        var global = await GetGlobalWeightsAsync();
+        if (global is not null) globalWeights = global.Value.Weights;
+
+        // Last-mutation lookup for the batch (ONE bounded query, chunked IN — SQLite's
+        // default parameter cap is 999, so 500-id chunks stay well under it).
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+        var lastMutations = new Dictionary<string, (string MutationType, string? Payload)>(StringComparer.Ordinal);
+        foreach (var chunk in candidates.Chunk(500))
+        {
+            var paramNames = new string[chunk.Length];
+            for (var i = 0; i < chunk.Length; i++) paramNames[i] = "@fp" + i;
+            var inClause = string.Join(",", paramNames);
+
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"""
+                SELECT m.fingerprint_id, m.mutation_type, m.payload_json
+                FROM fingerprint_mutations m
+                JOIN (SELECT fingerprint_id, MAX(state_version) AS maxv
+                      FROM fingerprint_mutations
+                      WHERE fingerprint_id IN ({inClause})
+                      GROUP BY fingerprint_id) latest
+                  ON latest.fingerprint_id = m.fingerprint_id AND latest.maxv = m.state_version
+                """;
+            for (var i = 0; i < chunk.Length; i++)
+                cmd.Parameters.AddWithValue(paramNames[i], chunk[i].Fingerprint.FingerprintId);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                lastMutations[reader.GetString(0)] = (
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2));
+            }
+        }
+
+        foreach (var cached in candidates)
+        {
+            var fp = cached.Fingerprint;
+            if (!lastMutations.TryGetValue(fp.FingerprintId, out var last)) continue; // no baseline yet
+
+            // centroid_drift — memory-first: the retained latest observation vector IS the
+            // current state (no DB hit on hot fingerprints).
+            if (!string.Equals(last.MutationType, "centroid_drift", StringComparison.Ordinal)
+                && _latestObservationVector.TryGetValue(fp.FingerprintId, out var latest)
+                && globalWeights is not null
+                && latest.Length == fp.Centroid.Length)
+            {
+                var composed = new float[fp.Weights.Length];
+                for (var i = 0; i < composed.Length; i++)
+                    composed[i] = fp.Weights[i] * globalWeights[i];
+                var score = BruteForceIdentityAnchorIndex.WeightedCosine(latest, fp.Centroid, composed);
+                if (score < _driftOptions.DriftWarningThreshold)
+                {
+                    _logger.LogWarning(
+                        "Fold-time drift: fingerprint {Id} score={Score:F3} below {Threshold:F3} — emitting centroid_drift mutation",
+                        fp.FingerprintId, score, _driftOptions.DriftWarningThreshold);
+                    await RecordMutationAsync(conn, fp.FingerprintId, "centroid_drift",
+                        new { score, observedAt = DateTime.UtcNow }, DateTime.UtcNow, CancellationToken.None);
+                }
+            }
+
+            // verdict_flip — the read-derived band vs the last mutation's band. The band
+            // baseline comes from the created (birth band) or a prior verdict_flip payload.
+            var band = FingerprintRiskProjection.Compose(fp).RiskBand.ToString();
+            if (!string.Equals(last.MutationType, "verdict_flip", StringComparison.Ordinal)
+                && TryReadBand(last.Payload, out var lastBand)
+                && !string.Equals(lastBand, band, StringComparison.Ordinal))
+            {
+                _logger.LogInformation(
+                    "Fold-time verdict flip: fingerprint {Id} band {From} → {To} — emitting verdict_flip mutation",
+                    fp.FingerprintId, lastBand, band);
+                await RecordMutationAsync(conn, fp.FingerprintId, "verdict_flip",
+                    new { band, botProbability = fp.CachedBotProbability }, DateTime.UtcNow, CancellationToken.None);
+            }
+        }
+    }
+
+    /// <summary>Read the <c>band</c> field from a mutation payload (created / verdict_flip).</summary>
+    private static bool TryReadBand(string? payloadJson, out string band)
+    {
+        band = string.Empty;
+        if (string.IsNullOrEmpty(payloadJson)) return false;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(payloadJson);
+            if (doc.RootElement.TryGetProperty("band", out var bandEl) && bandEl.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                band = bandEl.GetString() ?? string.Empty;
+                return band.Length > 0;
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // malformed legacy payload — no baseline
+        }
+        return false;
+    }
+
     /// <summary>
     ///     Idempotent drainer-task start. Lazy on first write so tests that
     ///     instantiate the store but never write a name don't pay for a
@@ -1178,6 +1368,26 @@ public class SqliteFingerprintStore : IFingerprintStore
                 cmd.Parameters.AddWithValue("@bottype", (object?)verdict.BotType ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ts", verdict.At.ToString("O"));
                 cmd.Parameters.AddWithValue("@id", verdict.FingerprintId);
+                await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                break;
+            }
+            case InferredTypeWrite typeWrite:
+            {
+                // Coalesced reclassification persist (Phase B) — keeps the materialized
+                // row's inferred_client_type current so an LFU invalidation + reload
+                // serves the live classification, not the stale allocation value.
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = """
+                    UPDATE fingerprints
+                       SET inferred_client_type     = @type,
+                           inferred_type_confidence = @conf,
+                           inferred_type_changed_at = @ts
+                     WHERE fingerprint_id = @id
+                    """;
+                cmd.Parameters.AddWithValue("@type", (object?)typeWrite.NewType ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@conf", typeWrite.NewConfidence);
+                cmd.Parameters.AddWithValue("@ts", typeWrite.At.ToString("O"));
+                cmd.Parameters.AddWithValue("@id", typeWrite.FingerprintId);
                 await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
                 break;
             }
@@ -1327,6 +1537,10 @@ public class SqliteFingerprintStore : IFingerprintStore
             (object?)verifiedAt?.ToString("O") ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
+
+        // A claim-status change can move the derived band (the verified friendly-pin) —
+        // the fold-time evaluator must be running.
+        EnsureFoldTimeEvaluatorStarted();
     }
 
     /// <summary>
@@ -1426,51 +1640,62 @@ public class SqliteFingerprintStore : IFingerprintStore
         string? uaFamily = null,
         CancellationToken ct = default)
     {
-        await EnsureInitialisedAsync(ct);
+        if (string.IsNullOrEmpty(fingerprintId)) return;
 
-        if (!await ShouldPersistObservationDetailAsync(fingerprintId, vector, ct))
+        // Write-boundary contract gate before the vector enters the memory fold.
+        // Capture-once: single snapshot validated (no second read of the source).
+        var vec = vector;
+        if (vec is null || vec.Length == 0) return;
+
+        // Phase B (write-path grain redesign, operator directive 2026-08-15): the
+        // observation feed is MEMORY-ONLY — no durable row, no buffer, no flush. The
+        // in-memory absorption fold (centroid EMA + maturity + stability weights +
+        // latest-vector retention + the count/last_seen bump) happens on the request
+        // thread in the LFU; the FOSS absorption service finds no rows and no-ops. The
+        // fingerprint's evolution IS this fold — extra traffic folds in memory, the DB
+        // never sees per-request writes (the adaptive property).
+        var observedAt = DateTime.UtcNow;
+        if (!_fingerprintById.TryGetValue(fingerprintId, out var seedEntry))
         {
-            await SummariseObservationAsync(fingerprintId, ct);
-            return;
+            var cold = await GetFingerprintAsync(fingerprintId, ct);
+            if (cold is not null)
+                seedEntry = new CachedFingerprint(cold);
+        }
+        if (seedEntry is not null)
+        {
+            var priorType = seedEntry.Fingerprint.InferredClientType;
+            var updated = _fingerprintById.AddOrUpdate(
+                fingerprintId,
+                _ => new CachedFingerprint(AbsorbInMemory(seedEntry.Fingerprint, vec, observedAt, uaFamily)),
+                (_, old) => old.WithFingerprint(AbsorbInMemory(old.Fingerprint, vec, observedAt, uaFamily)));
+
+            // The inferred archetype flipped (e.g. bot -> human): persist the new
+            // classification at the coalesced per-change grain (Phase B — the memory
+            // fold's reclassification replaces the absorption service's) so the
+            // materialized row never resurrects the stale allocation type on an LFU
+            // invalidation + reload, and clear the now-stale induced name slot (the
+            // matcher re-derives the name from the new archetype on the next request;
+            // the drainer no-ops when the slot is already empty).
+            if (!string.Equals(updated.Fingerprint.InferredClientType, priorType, StringComparison.OrdinalIgnoreCase))
+            {
+                EnsureNameDrainerStarted();
+                _nameWriteChannel.Writer.TryWrite(new InferredTypeWrite(
+                    fingerprintId, updated.Fingerprint.InferredClientType,
+                    updated.Fingerprint.InferredTypeConfidence, observedAt));
+                _ = UpdateInducedNameAsync(fingerprintId, string.Empty, observedAt, CancellationToken.None);
+            }
         }
 
-        await using var conn = await OpenConnectionWithVecAsync(ct);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at, ua_family, domain, host)
-            VALUES (@id, @vec, @ts, NULL, @ua, @domain, @host);
-            SELECT last_insert_rowid();
-            """;
-        cmd.Parameters.AddWithValue("@id", fingerprintId);
-        cmd.Parameters.AddWithValue("@vec", FloatsToBlob(vector));
-        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("@ua", (object?)uaFamily ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@domain", (object?)scope.Domain ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@host", (object?)scope.Host ?? DBNull.Value);
-        var observationId = (long)(await cmd.ExecuteScalarAsync(ct))!;
 
-        await using var bump = conn.CreateCommand();
-        bump.CommandText = """
-            UPDATE fingerprints
-               SET observation_count = observation_count + 1,
-                   last_seen = @ts
-             WHERE fingerprint_id = @id
-            """;
-        bump.Parameters.AddWithValue("@id", fingerprintId);
-        bump.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        await bump.ExecuteNonQueryAsync(ct);
+        // Retain the latest observation vector for the drift audit + the fold-time
+        // drift evaluator (memory-first read; bounded by the fingerprint cap).
+        _latestObservationVector[fingerprintId] = vec;
+        if (_latestObservationVector.Count > FingerprintCacheMaxEntries)
+            EvictOldest(_latestObservationVector, FingerprintCacheMaxEntries);
 
-        if (_vecAvailable)
-        {
-            await using var vec = conn.CreateCommand();
-            vec.CommandText = "INSERT INTO observations_vec(observation_id, fingerprint_id, vector) VALUES (@oid, @fid, @v)";
-            vec.Parameters.AddWithValue("@oid", observationId);
-            vec.Parameters.AddWithValue("@fid", fingerprintId);
-            vec.Parameters.AddWithValue("@v", FloatsToBlob(vector));
-            await vec.ExecuteNonQueryAsync(ct);
-        }
-
-        InvalidateFingerprintCache(fingerprintId);
+        // The fold-time evaluator (drift/flip comparison) rides the state's evolution —
+        // first observation starts the pass; it then runs on its own cadence.
+        EnsureFoldTimeEvaluatorStarted();
 
         // Adaptive trigger signal: one obs arrived. Cast-to-CalibrationSignalSource
         // would be tighter, but the interface keeps this seam testable with the
@@ -1489,68 +1714,69 @@ public class SqliteFingerprintStore : IFingerprintStore
     }
 
     /// <summary>
-    ///     Adaptive-forgetting decision: does this observation earn a detail row? True for
-    ///     novel observations, for every observation while a fingerprint is still maturing
-    ///     (the identity-building phase, below <see cref="IdentityVectorOptions.AbsorptionMaturityThreshold"/>),
-    ///     and always when sampling is disabled or the fingerprint / centroid is not yet
-    ///     comparable. False only for a confirmatory observation on a matured fingerprint.
+    ///     The in-memory absorption fold (Phase B): the observation's contribution to the
+    ///     fingerprint's evolution, applied per request in the LFU — the same
+    ///     maturity-weighted mean the absorption service applied to DB rows, moved into
+    ///     the memory path (no durable row, no scheduled batch — the adaptive property:
+    ///     extra traffic folds in memory, the DB never sees per-request writes).
+    ///     centroid_new = (centroid * maturity + obs) / (maturity + 1); stability
+    ///     learning on the per-dim weights (<see cref="IdentityWeightMath"/>); the
+    ///     centroid-movement drift signal reports to the adaptive trigger exactly like
+    ///     the absorption boundary did.
     /// </summary>
-    private async Task<bool> ShouldPersistObservationDetailAsync(string fingerprintId, float[] vector, CancellationToken ct)
+    private Fingerprint AbsorbInMemory(Fingerprint fp, float[] vec, DateTime observedAt, string? uaFamily)
     {
-        if (!_vectorOptions.AdaptiveObservationSampling)
-            return true;
+        var dim = fp.Centroid.Length;
+        var newCentroid = new float[dim];
+        var maturity = fp.CentroidMaturity;
+        double driftSqSum = 0;
+        for (var i = 0; i < dim; i++)
+        {
+            newCentroid[i] = (fp.Centroid[i] * maturity + vec[i]) / (maturity + 1);
+            var delta = newCentroid[i] - fp.Centroid[i];
+            driftSqSum += delta * delta;
+        }
 
-        // L0-cached read; the matcher just loaded this fingerprint, so it is warm.
-        var fp = await GetFingerprintAsync(fingerprintId, ct);
-        if (fp is null)
-            return true; // brand-new fingerprint: keep detail (bootstrap).
+        if (_triggerSignals is Triggers.CalibrationSignalSource calSignals)
+            calSignals.OnAbsorption(Math.Sqrt(driftSqSum));
 
-        // Still learning the shape: every observation is identity-building, keep it.
-        if (fp.CentroidMaturity < _vectorOptions.AbsorptionMaturityThreshold)
-            return true;
+        var newWeights = (float[])fp.Weights.Clone();
+        IdentityWeightMath.ApplyStability(newWeights, vec, fp.Centroid, _weightsOptions.StabilityLearningRate);
+        IdentityWeightMath.RenormaliseAndClamp(newWeights, _weightsOptions.MinWeight, _weightsOptions.MaxWeight);
 
-        // Layout mismatch (versioned relayout, degenerate centroid): cannot judge
-        // novelty, so keep detail rather than risk forgetting a real change.
-        if (fp.Centroid.Length != vector.Length || vector.Length == 0)
-            return true;
+        // Reclassify against the archetype registry on the folded centroid — the
+        // absorption service's family-gated reclassification moved into the memory
+        // fold (Phase B: with no durable observation rows the service finds nothing
+        // to absorb). The UA-family gate is the point: the matcher's allocation runs
+        // before the UA family is resolved (Priority 6 vs 10), so a fresh fingerprint
+        // can be seeded onto a broad umbrella archetype (curl / python-requests); the
+        // family-gated reclassification corrects it once the family is known. No
+        // registry (minimal hosts) → classification stays as-is.
+        var newType = fp.InferredClientType;
+        var newConfidence = fp.InferredTypeConfidence;
+        if (_archetypes is not null)
+        {
+            var nearest = _archetypes.FindNearest(newCentroid, uaFamily);
+            if (nearest is not null)
+            {
+                newType = nearest.Archetype.ArchetypeId;
+                newConfidence = nearest.Score;
+            }
+        }
 
-        // Novelty = distance from the established centroid = "does this change the score".
-        // Cosine treats the composed vectors as L2-normalised (dot product); clamp guards a
-        // slightly denormalised centroid from producing an out-of-range novelty.
-        var novelty = Math.Clamp(1.0 - BruteForceIdentityAnchorIndex.Cosine(vector, fp.Centroid), 0.0, 2.0);
-        return novelty >= _vectorOptions.ObservationNoveltyKeepThreshold;
-    }
-
-    /// <summary>
-    ///     Summarise a confirmatory observation: advance the aggregate counters
-    ///     (observation_count for crossing notifications, last_seen for recency) WITHOUT
-    ///     writing a detail row, a vec row, or waking the absorber. Critically it must NOT
-    ///     touch the centroid or centroid_maturity: the absorber is the sole owner of those,
-    ///     and a second writer here desyncs the maturity-weighted fold (a summarised bump
-    ///     followed by a real fold corrupts the centroid). centroid_maturity therefore counts
-    ///     folded (novel) observations only, which is also the more correct notion of
-    ///     confidence: confirmatory repetitions add no new information. This is the "still logs
-    ///     a summarised entry for the unimportant ones" half of adaptive forgetting.
-    /// </summary>
-    private async Task SummariseObservationAsync(string fingerprintId, CancellationToken ct)
-    {
-        // Plain connection: the summary path never touches vec0, and skipping the
-        // extension load keeps a confirmatory-observation flood cheap.
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
-        await using var bump = conn.CreateCommand();
-        bump.CommandText = """
-            UPDATE fingerprints
-               SET observation_count = observation_count + 1,
-                   last_seen = @ts
-             WHERE fingerprint_id = @id
-            """;
-        bump.Parameters.AddWithValue("@id", fingerprintId);
-        bump.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        await bump.ExecuteNonQueryAsync(ct);
-
-        InvalidateFingerprintCache(fingerprintId);
-        System.Threading.Interlocked.Increment(ref SummarisedObservationCount);
+        return fp with
+        {
+            Centroid = newCentroid,
+            CentroidMaturity = maturity + 1,
+            Weights = newWeights,
+            ObservationCount = fp.ObservationCount + 1,
+            LastSeen = observedAt,
+            InferredClientType = newType,
+            InferredTypeConfidence = newConfidence,
+            InferredTypeChangedAt = string.Equals(newType, fp.InferredClientType, StringComparison.OrdinalIgnoreCase)
+                ? fp.InferredTypeChangedAt
+                : observedAt,
+        };
     }
 
     /// <summary>Record a Pass-2-corrects-Pass-1 disagreement and persist Pass 2's updated weights.</summary>
@@ -2015,6 +2241,16 @@ public class SqliteFingerprintStore : IFingerprintStore
     public async Task<float[]?> GetLatestObservationVectorAsync(
         string fingerprintId, CancellationToken ct = default)
     {
+        // Memory-first (§7(3) drift-input verification, Phase B): the retained latest
+        // observation vector IS the current state — the drift audit reads the LIVE
+        // evolution, not stale rows. A known drift event must still register after the
+        // feeds go quiet (the positive control pins this).
+        if (_latestObservationVector.TryGetValue(fingerprintId, out var latest))
+            return latest;
+
+        // DB fallback for legacy rows only (rows absorbed before Phase B or written by
+        // a pre-Phase-B store). After the feeds went quiet this returns null for
+        // fingerprints that never had a durable row — the memory dict is the source.
         await EnsureInitialisedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -2161,6 +2397,10 @@ public class SqliteFingerprintStore : IFingerprintStore
 
         EnsureNameDrainerStarted();
         _nameWriteChannel.Writer.TryWrite(new VerdictWrite(fingerprintId, blended, botType, now));
+
+        // A verdict write can move the derived band — the fold-time evaluator (drift/flip)
+        // must be running.
+        EnsureFoldTimeEvaluatorStarted();
     }
 
     public async Task RecordVerdictAsync(
