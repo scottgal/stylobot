@@ -337,20 +337,27 @@ public sealed class BotDetectionModule : IStyloflowWebModule
             else if (int.TryParse(Environment.GetEnvironmentVariable("STYLOBOT_SESSION_STORE_MAX_SIGNATURES"), out var envMax) && envMax > 0)
                 max = envMax;
 
-            // Session-idle finalize (deploy- 2026-08-15): every session MUST leave a
-            // trace — under continuous load neither the gap boundary nor the TTL
-            // eviction ever fires, so a session would otherwise live forever without
-            // finalizing. The bound is a PERIOD SINCE THE LAST REQUEST, actively swept
-            // (FinalizeIdleSessionsAsync on a cadence). Minutes; 0 disables. Default 30.
+            // Session-idle finalize (deploy- 2026-08-15): the PERIOD SINCE THE LAST
+            // REQUEST, actively swept (FinalizeIdleSessionsAsync on a cadence).
+            // Minutes; 0 disables. Default 30.
             TimeSpan? maxIdle = TimeSpan.FromMinutes(30);
             if (cfg is not null && int.TryParse(cfg["BotDetection:SessionStore:MaxSessionIdleMinutes"], out var cfgIdle))
                 maxIdle = cfgIdle > 0 ? TimeSpan.FromMinutes(cfgIdle) : null;
 
+            // SessionMaxLifetime — the continuous-class chunk boundary (operator
+            // 2026-08-15: even continuous sessions chunk — the never-idle class the
+            // idle sweep can never catch because nothing idles). Config or env.
+            var maxLifetime = TimeSpan.FromMinutes(30);
+            if (cfg is not null && TimeSpan.TryParse(cfg["BotDetection:SessionStore:SessionMaxLifetime"], out var cfgLife) && cfgLife > TimeSpan.Zero)
+                maxLifetime = cfgLife;
+            else if (TimeSpan.TryParse(Environment.GetEnvironmentVariable("STYLOBOT_SESSION_STORE_MAX_LIFETIME"), out var envLife) && envLife > TimeSpan.Zero)
+                maxLifetime = envLife;
             return new Analysis.SessionStore(
                 sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(),
                 sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Analysis.SessionStore>>(),
                 activeSignaturesMaxEntries: max,
-                maxSessionIdle: maxIdle);
+                maxSessionIdle: maxIdle,
+                sessionMaxLifetime: maxLifetime);
         });
         // Client-side fingerprint population tracker (browser fingerprint
         // observed-value distribution).

@@ -726,6 +726,7 @@ public sealed class SessionStore
     private readonly ILogger<SessionStore> _logger;
     private readonly TimeSpan _sessionGapThreshold;
     private readonly TimeSpan? _maxSessionIdle;
+    private readonly TimeSpan _sessionMaxLifetime;
     private readonly int _maxSnapshotsPerSignature;
     private readonly int _maxRequestsPerSession;
     // Striped lock pool: a FIXED number of locks, chosen by hashing the signature.
@@ -785,6 +786,7 @@ public sealed class SessionStore
         IMemoryCache cache,
         ILogger<SessionStore> logger,
         TimeSpan? sessionGapThreshold = null,
+        TimeSpan? sessionMaxLifetime = null,
         int maxSnapshotsPerSignature = 10,
         int maxRequestsPerSession = 200,
         int activeSignaturesMaxEntries = 20_000,
@@ -793,6 +795,14 @@ public sealed class SessionStore
         _cache = cache;
         _logger = logger;
         _sessionGapThreshold = sessionGapThreshold ?? TimeSpan.FromMinutes(30);
+        // The max lifetime chunks the CONTINUOUS class (operator 2026-08-15): sessions
+        // that never gap (5-minute pings, always-on clients) would otherwise accumulate
+        // forever in memory without a boundary — the max lifetime chunks them into
+        // bounded epochs (default 30 min — the same cadence as the gap — configurable).
+        // MOST sessions still finalize by the gap; the continuous class reaches the age
+        // boundary. All thresholds are knobs (session length, gap, per-type gaps,
+        // bot-vs-human — the options surface per the project rule).
+        _sessionMaxLifetime = sessionMaxLifetime ?? TimeSpan.FromMinutes(30);
         _maxSnapshotsPerSignature = maxSnapshotsPerSignature;
         _maxRequestsPerSession = maxRequestsPerSession;
         _activeSignaturesMaxEntries = activeSignaturesMaxEntries > 0 ? activeSignaturesMaxEntries : 20_000;
@@ -834,7 +844,16 @@ public sealed class SessionStore
                 var gap = request.Timestamp - lastRequest.Timestamp;
 
                 // Retrogressive boundary: the gap tells us the PREVIOUS session is over.
-                if (gap >= _sessionGapThreshold)
+                // The MAX-LIFETIME chunk joins it for the CONTINUOUS class (operator
+                // 2026-08-15): sessions that never gap (5-minute pings, always-on
+                // clients, the rig's continuous driver — the idle sweep finds nothing
+                // because nothing idles) would otherwise accumulate forever with no
+                // boundary and never leave a trace. The chunk is configurable (default
+                // 30 min — the same cadence as the gap); MOST sessions still finalize
+                // by the gap or the idle sweep.
+                var age = request.Timestamp - currentSession[0].Timestamp;
+
+                if (gap >= _sessionGapThreshold || age >= _sessionMaxLifetime)
                 {
                     // Finalize the previous session into a snapshot
                     completedSnapshot = FinalizeSession(signature, currentSession, fingerprint);
