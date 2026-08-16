@@ -2349,6 +2349,19 @@ public static partial class SignalKeys
     public const string HealthEndpoint = "request.health_endpoint";
 
     /// <summary>
+    ///     Bool: <c>true</c> when the request path is one of the product's OWN plumbing
+    ///     endpoints — the SignalR dashboard hub (<c>/stylobot/hub</c>, <c>/_stylobot/hub</c>)
+    ///     and the client-side fingerprint beacon (<c>/bot-detection/fingerprint</c>).
+    ///     Raised by <c>InternalPlumbingAtom</c> (Wave 0, Priority 2). The ledger classifies
+    ///     these requests <see cref="BotType.Internal"/> (like LAN traffic) so the product's
+    ///     own live-update channel can never read as a high-threat visitor — and Internal
+    ///     verdicts are excluded from the visitor risk feed (the fingerprint score blend and
+    ///     the store's risk aggregates). Paths are configurable via
+    ///     <c>BotDetection:InternalPlumbing:Paths</c> (segment-boundary prefixes).
+    /// </summary>
+    public const string InternalPlumbing = "request.internal_plumbing";
+
+    /// <summary>
     ///     Bool: <c>true</c> when a health / readiness / liveness probe endpoint is hit by a
     ///     request that is NOT a legitimate expected probe (external source, or trusted source
     ///     with a browser-navigation shape). Raised by <c>HealthEndpointReconAtom</c>

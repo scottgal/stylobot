@@ -493,6 +493,21 @@ public sealed class BotDetectionModule : IStyloflowWebModule
                     opts.Paths.AddRange(HealthEndpoints.HealthEndpointOptions.DefaultPaths);
             });
         services.TryAddSingleton<HealthEndpoints.HealthEndpointCatalog>();
+        // Internal-plumbing catalog — built once from options; used by InternalPlumbingAtom.
+        // The product's OWN endpoints (the SignalR dashboard hub + the client-side
+        // fingerprint beacon) classify as BotType.Internal so the dashboard's live-update
+        // channel never reads as a high-threat visitor. Paths starts empty so that
+        // configuration binding replaces (not appends to) the defaults. PostConfigure
+        // fills the standard paths only when the operator has not supplied any — a host
+        // serving the hub at a custom path MUST list it here (e.g. via STYLOBOT_HUB_PATH).
+        services.AddOptions<InternalPlumbing.InternalPlumbingOptions>()
+            .BindConfiguration(InternalPlumbing.InternalPlumbingOptions.SectionName)
+            .PostConfigure(opts =>
+            {
+                if (opts.Paths.Count == 0)
+                    opts.Paths.AddRange(InternalPlumbing.InternalPlumbingOptions.DefaultPaths);
+            });
+        services.TryAddSingleton<InternalPlumbing.InternalPlumbingCatalog>();
         // PII hasher — FOSS default seeds with a fixed key so DI resolves;
         // operators override via their own AddSingleton<PiiHasher>(sp => ...).
         // Commercial (licensing pack) replaces with a JWT-derived key.
