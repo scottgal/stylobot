@@ -6613,6 +6613,28 @@ public class StyloBotDashboardMiddleware
 
         if (detections.Count == 0)
         {
+            // The id may be a FINGERPRINT id, not a signature (2026-08-16 gate-red: the
+            // Identities / looks-like surfaces expose fingerprint ids, and a fingerprint
+            // id is never a signature — the detail route only resolves signatures, so
+            // /dashboard/signature/{fingerprintId} 404'd while the fingerprint existed).
+            // Resolve the fingerprint_keys binding before giving up: a bound fingerprint
+            // 301-redirects to ITS signature's detail page, the merge-history pattern.
+            var fpReader = context.RequestServices
+                .GetService<BotDetection.Identity.IFingerprintReader>();
+            if (fpReader is not null)
+            {
+                var boundSignature = await fpReader.LookupSignatureForFingerprintAsync(
+                    decodedSignature, context.RequestAborted);
+                if (!string.IsNullOrEmpty(boundSignature)
+                    && !string.Equals(boundSignature, decodedSignature, StringComparison.Ordinal))
+                {
+                    context.Response.Redirect(
+                        $"{basePath}/signature/{Uri.EscapeDataString(boundSignature)}",
+                        permanent: true);
+                    return;
+                }
+            }
+
             // The signature exists in the aggregated `signatures` table (Top Bots links
             // here) but raw detections were pruned by retention. Don't 404 — render the
             // page with available data: signature lookup, sparkline, and visitor cache

@@ -23,6 +23,7 @@ public static class IdentityEndpoints
 
         group.MapGet("", HandleList).WithName("GetFingerprints");
         group.MapGet("/lookup/{primarySignature}", HandleLookup).WithName("LookupFingerprintId");
+        group.MapGet("/lookup-by-id/{fingerprintId}", HandleLookupByFingerprintId).WithName("LookupSignatureForFingerprint");
         group.MapGet("/nearest/{primarySignature}", HandleNearest).WithName("GetFingerprintNearest");
         group.MapGet("/unabsorbed-counts", HandleUnabsorbedCounts).WithName("GetFingerprintUnabsorbedCounts");
         group.MapGet("/{fingerprintId}", HandleGet).WithName("GetFingerprint");
@@ -105,6 +106,23 @@ public static class IdentityEndpoints
         var fpId = await store.LookupFingerprintIdAsync(primarySignature, ct);
         if (string.IsNullOrEmpty(fpId)) return TypedResults.NotFound();
         return ApiEndpointHelpers.Single(fpId);
+    }
+
+    /// <summary>
+    ///     Reverse binding lookup (2026-08-16, the signature-detail 404 gate-red): the
+    ///     primary signature bound to a fingerprint id — lets a remote-mode dashboard
+    ///     host resolve the Identities / looks-like surfaces' fingerprint ids to their
+    ///     signatures instead of 404ing the detail route.
+    /// </summary>
+    private static async Task<Results<Ok<SingleResponse<string>>, NotFound, ServiceUnavailableHttpResult>> HandleLookupByFingerprintId(
+        string fingerprintId,
+        [FromServices] IFingerprintReader? store,
+        CancellationToken ct = default)
+    {
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Identity layer");
+        var signature = await store.LookupSignatureForFingerprintAsync(fingerprintId, ct);
+        if (string.IsNullOrEmpty(signature)) return TypedResults.NotFound();
+        return ApiEndpointHelpers.Single(signature);
     }
 
     private static async Task<Results<Ok<PaginatedResponse<NearestFingerprint>>, ServiceUnavailableHttpResult>> HandleNearest(

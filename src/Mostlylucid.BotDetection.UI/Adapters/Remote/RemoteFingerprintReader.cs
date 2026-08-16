@@ -23,6 +23,10 @@ internal sealed class RemoteFingerprintReader : IFingerprintReader
         => await _api.GetEnvelopeAsync<string>(
             $"/api/v1/fingerprints/lookup/{Uri.EscapeDataString(primarySignature)}", ct);
 
+    public async Task<string?> LookupSignatureForFingerprintAsync(string fingerprintId, CancellationToken ct = default)
+        => await _api.GetEnvelopeAsync<string>(
+            $"/api/v1/fingerprints/lookup-by-id/{Uri.EscapeDataString(fingerprintId)}", ct);
+
     public async Task<IReadOnlyDictionary<string, int>> GetUnabsorbedObservationCountsAsync(CancellationToken ct = default)
     {
         var counts = await _api.GetEnvelopeAsync<Dictionary<string, int>>(

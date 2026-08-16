@@ -584,6 +584,28 @@ public class SqliteFingerprintStore : IFingerprintStore
         return Convert.ToInt32(result ?? 0);
     }
 
+    /// <summary>
+    ///     Reverse binding lookup (2026-08-16, the signature-detail 404 gate-red): the
+    ///     primary signature bound to a fingerprint id — <c>fingerprint_keys</c>'s reverse.
+    ///     A fingerprint id is never a signature; the signature-detail route resolves the
+    ///     binding so the Identities / looks-like surfaces' ids drill down to their
+    ///     signature's page instead of 404ing. Most-recent binding wins (the same
+    ///     append-once convention as the forward lookup; a re-bound fingerprint resolves
+    ///     to its current signature).
+    /// </summary>
+    public async Task<string?> LookupSignatureForFingerprintAsync(string fingerprintId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return null;
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT primary_signature FROM fingerprint_keys WHERE fingerprint_id = @id ORDER BY last_seen DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        return await cmd.ExecuteScalarAsync(ct) as string;
+    }
+
     /// <summary>L1 cache lookup by primary signature.</summary>
     public async Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default)
     {

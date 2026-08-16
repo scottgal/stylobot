@@ -62,6 +62,18 @@ public interface IFingerprintReader
     Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default);
 
     /// <summary>
+    ///     Reverse binding lookup: the primary signature bound to a fingerprint id (the
+    ///     <c>fingerprint_keys</c> binding's reverse of <see cref="LookupFingerprintIdAsync"/>).
+    ///     Used by the signature-detail route so a fingerprint id (the Identities list /
+    ///     looks-like surfaces expose fingerprint ids) drills down to ITS signature's detail
+    ///     page instead of 404ing — a fingerprint id is never a signature. Default:
+    ///     unresolved (null) — hosts without the binding (remote readers without the
+    ///     endpoint) degrade to the current 404 rather than a wrong redirect.
+    /// </summary>
+    async Task<string?> LookupSignatureForFingerprintAsync(string fingerprintId, CancellationToken ct = default)
+        => null;
+
+    /// <summary>
     ///     Per-fingerprint unabsorbed observation counts (drift candidates). Used to sort
     ///     the Identities tab so visitors with fresh data waiting float to the top.
     /// </summary>
