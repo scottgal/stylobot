@@ -85,6 +85,19 @@ public sealed class RateLimitActionPolicy : IActionPolicy
         AggregatedEvidence evidence,
         CancellationToken cancellationToken = default)
     {
+        // Internal-class exemption (2026-08-16, the compose-path 429 incident): the
+        // product's OWN traffic — LAN-trusted peers, health probes, the hub/beacon
+        // plumbing, the site's own data path (the compose key's requests classify
+        // Internal by peer trust) — is operator-owned, never a threat to rate-limit.
+        // An external caller can never reach this branch (Internal requires
+        // peer-verified trust or the internal-plumbing paths), so the exemption is
+        // precisely the operator's own surface — the prewarm burst of the site's
+        // compose key must not 429 the dashboard's own data path.
+        if (evidence.PrimaryBotType == BotType.Internal)
+        {
+            return ActionResult.Allowed($"rate-limit:{Name}:internal-exempt");
+        }
+
         var key = ExtractKey(context, evidence);
         if (key is null)
         {

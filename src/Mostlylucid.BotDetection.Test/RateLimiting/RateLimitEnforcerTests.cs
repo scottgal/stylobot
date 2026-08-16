@@ -201,6 +201,44 @@ public class RateLimitEnforcerTests
                ?? throw new InvalidOperationException($"no default for {type}");
     }
 
+    // ── Internal-class exemption (2026-08-16, the compose-path 429 incident) ──
+
+    [Fact]
+    public async Task Internal_classified_request_skips_the_rate_limit_rules()
+    {
+        var options = new RateLimitOptions
+        {
+            Limits =
+            {
+                ["sig-limited"] = new()
+                {
+                    Subjects =
+                    {
+                        new RateLimitSubjectSpec { Type = RateLimitSubjectKind.Fingerprint, Value = "sig" }
+                    },
+                    RequestRate = new() { RequestsPerMinute = 1, BurstSize = 1 },
+                    OverLimitAction = "block",
+                },
+            },
+        };
+        var enforcer = BuildEnforcer(options);
+        var registry = new RecordingRegistry();
+        var detection = new DetectionFacts(PrimarySignature: "sig", BotType: "Internal", BotName: null, CountryCode: null);
+        var normalEvidence = new AggregatedEvidence { BotProbability = 0, Confidence = 0, RiskBand = RiskBand.Unknown };
+
+        // Exhaust the fingerprint bucket with a normal request.
+        await enforcer.ApplyAsync(NewContext(), detection, registry, normalEvidence);
+        var second = await enforcer.ApplyAsync(NewContext(), detection, registry, normalEvidence);
+        Assert.False(second.Continue);
+
+        // Internal-classified (operator-owned) evidence skips the rules entirely —
+        // the empty bucket cannot 429 the product's own data path.
+        var internalOutcome = await enforcer.ApplyAsync(NewContext(), detection, registry,
+            normalEvidence with { PrimaryBotType = BotType.Internal });
+
+        Assert.True(internalOutcome.Continue);
+    }
+
     private sealed class RecordingActionPolicy : IActionPolicy
     {
         public RecordingActionPolicy(string name) { Name = name; }
