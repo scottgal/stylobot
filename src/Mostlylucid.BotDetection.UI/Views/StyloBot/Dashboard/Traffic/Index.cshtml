@@ -2,6 +2,8 @@
 @using Mostlylucid.BotDetection.UI.Configuration
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @model TrafficPageModel
+<sb-live-updates show-status="false" />
+
 @inject IOptions<StyloBotDashboardOptions> DashboardOpts
 @{
     ViewData["Title"] = "Traffic";
