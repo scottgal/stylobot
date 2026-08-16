@@ -7,6 +7,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.10.0] - 2026-08-16
+
+8.10.0 ships today's dashboard SSR-only rework and the Internal-class policy chain
+(the operator's 429 whole-page break), alongside the sessions write-path grain
+Phases A+B, the scheduling tick-death doctrine, and the peer-capture detection fix.
+The 8.9.4 patch tag (2026-08-16) was an intermediate snapshot of this window — the
+first 41 of these commits — cut to unblock the prod promotion; this minor release
+carries the complete set at `main`.
+
+### Dashboard — SSR-only render (operator 2026-08-16)
+
+- **The client update machinery is out.** `a62024fd` rips out the widgets' SignalR→HTMX
+  refresh hooks (`hx-get`/`hx-trigger` swap wiring), the `<sb-live-updates>` beacon
+  component, and the traffic-panels beacon contract (`data-sb-widget`/`data-sb-depends`).
+  The served page is the complete data — the client paints it and stops. The update
+  layer returns later as a separately gated step; `4fc31a8c` + `bc3f677d` kill every
+  SSR spinner branch ("Warming up" is never displayed — a cold cache renders the honest
+  empty state). The tests pin the new contract (`e70b949e`): real-data first paint, no
+  beacon attrs, no warming strip, no client batch fetch.
+- **The live-tier overlay (`88877eea`).** The serve composes the recent window's LIVE
+  data over the envelope's folds, so first paint shows fresh numbers instead of the last
+  warm snapshot; `59b7e83e` keeps the timeseries route serving the L1's warm envelope
+  (the frozen-fold `[]` class).
+- **The complete-cache serve + boot-completion gate (`3af055f5`)** and the L2 re-roll
+  decision (`11128e69`): content-change trigger instead of per-tick churn — the cache is
+  always-full and the materializer only re-composes when content actually changed.
+- **Render-performance deferrals**: the live-updates vendor scripts (`1fd16847`) and the
+  traffic page's signalR tag (`aa010519`) defer — the browser was cancelling them under
+  the connection queue. The SignalR beacon is restored but dormant (`b536c931`).
+- **Signature detail**: the route resolves fingerprint ids via the reverse
+  `fingerprint_keys` binding before 404ing (the gate-red 404, `f3fb525c`); the charts
+  render for live-only signatures (`efea9735`).
+- **Read-path fixes**: floor-agnostic pointer resolution + 2048 capacity (`d02fbbaa`),
+  content-cache capacity 64→512 (`d8abb326`), NaN detector delta fixed the top-reasons
+  sort comparer crash (`c9f14fbc`), the obsolete per-signature write throttle removed
+  (`c10a4775`), endpoint rows with an empty path no longer render method-as-id dead
+  links (`8ee205f3`).
+
+### Internal-class policy — the 429 whole-page break (operator 2026-08-16)
+
+- **Internal-class traffic is never rate-limited** (`b9dc02e2`) — the compose path's 429
+  on the site's own traffic.
+- **The Internal class's allow wins over endpoint rules** (`24dc7e79`) — the operator's
+  whole-page 429 break; an endpoint-specific rule can no longer 429 an Internal visitor.
+- **The tools-throttle refuses Internal-class traffic** (`69b56b9a`) — the
+  enforcement-layer invariant, so `throttle-tools` can't hit Internal either.
+- **The product's own hub/beacon plumbing classifies Internal** (`f864fd31`) and never
+  feeds the visitor risk — the gateway's own health probes and SignalR connections stay
+  out of the visitor-facing risk model.
+
+### Detection
+
+- **The original-peer capture (`e1d51ec8`)** — the peer-only trust (TransportTrust)
+  survives the forwarded-headers overwrite: the gateway records the original peer
+  before `X-Forwarded-*` reprocessing, so trusted-proxy decisions stay correct behind a
+  chain.
+
+### Sessions & write-path grain (Phases A+B)
+
+- **Phase A (`f93c412a`)** — the fingerprint mutation feed on SQLite; **Phase B
+  (`724cbcfa`)** — memory-only feeds, fold-time evaluators, the sessions fold. The
+  standalone FOSS write path now absorbs through the same grain design as the commercial
+  stack (ladder-on-sessions, `61a2bd31`).
+- **Every session leaves a trace**: the session-idle sweep (`7deb35de`), minimal traces
+  for below-maturity sessions (`4daf1431`), TTL/capacity eviction finalizes the session
+  (`82aea7af`), the max-lifetime chunk boundary (`34c53df1`), and rig-visible
+  chunk/gap boundary logs (`19b84815`).
+- **The dispatch-independent session feed** (`d29acb2c`) records into the legacy store
+  directly from the orchestrator; the feed's learning gate covers BOTH suppression arms
+  (`999d7239`); the finalize set ports into the signals-native `SessionStore`
+  (`e79141a1`, `23529b66`); active-session liveness probe on the idle sweep's cadence
+  (`72da3433`). The session-ROW path through SessionAtomizerService was attempted and
+  reverted on overview-'s ruling (`f135dff7`, `794fd525`).
+
+### Scheduling
+
+- **Tick-death doctrine (`37a65088`)** — the cadence loop self-heals; a dead tick is
+  detected and replaced instead of silently stopping, and the watchdog sees fault
+  storms rather than silence.
+
+### SQLite
+
+- **Two audit indices (`df2e7566`)** — `sessions(started_at)` + partial
+  `mutations(observed_at)` — mirroring the commercial stack's index set.
+
+### Endpoints
+
+- **The root endpoint's detail is reachable** (`ce5b3479`) — the `'/'` path's empty
+  catch-all segment 400'd (operator P0).
+
+### CI / tests
+
+- **The SSR-only contract pins (`e70b949e`)** — 3 dashboard tests asserted the
+  ripped-out client-update machinery and turned CI red; rewritten to the SSR-only
+  contract (see above) with the NeverTicking schedule-coordinator tick pin.
+- **The winget publish's version-check flag fixed (`544159ce`)** — `wingetcreate`
+  1.12+ dropped the `--version` flag (prints help + exits 1), which broke the winget
+  release on every tag since Jul 25; the `version` subcommand works.
+
 ## [8.9.3] - 2026-08-14
 
 8.9.3 ships the SQLite reliability + performance pass (dbreview- 2026-08-14) — index
