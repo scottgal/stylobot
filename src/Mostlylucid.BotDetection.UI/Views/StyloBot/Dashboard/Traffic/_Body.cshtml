@@ -69,12 +69,7 @@
     // nothing" defect, 2026-08-12).
     var refreshUrl = LinkWith(remove: "window") + (LinkWith(remove: "window").Contains("?") ? "&" : "?") + "partial=1";
 }
-<div id="sb-traffic-body"
-     hx-get="@refreshUrl"
-     hx-trigger="sb:signature-update from:body, sb:summary-update from:body"
-     hx-target="this"
-     hx-swap="outerHTML"
-     class="space-y-4">
+<div id="sb-traffic-body" class="space-y-4">
     <header class="flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-3">
             <h2 class="text-lg font-semibold">Traffic</h2>

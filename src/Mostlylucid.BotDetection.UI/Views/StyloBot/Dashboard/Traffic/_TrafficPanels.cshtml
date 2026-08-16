@@ -75,8 +75,7 @@
     a cold-miss first paint showed "Warming up" and nothing ever replaced it.
 *@
 <div id="traffic-panels" class="sb-widget-grid"
-     data-sb-widget="traffic-panels"
-     data-sb-depends="countries,signature,threats"
+
      data-sb-params="window=@Uri.EscapeDataString(Model.Filters.Window)&country=@Uri.EscapeDataString(Model.Filters.Country ?? "")&bot_type=@Uri.EscapeDataString(Model.Filters.BotType ?? "")&threat=@Uri.EscapeDataString(Model.Filters.Threat ?? "")">
     @if (showMap)
     {
