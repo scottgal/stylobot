@@ -775,7 +775,13 @@ else
     }
 
     <!-- Charts: Bot Probability & Confidence History + Processing Time -->
-    @if (Model.BotProbabilityHistory.Count > 1)
+    @* P0 2026-08-16 (the "charts totally broken" symptom): the >1 gate hid BOTH
+       charts for a live-only signature — its detail read returns a single
+       representative (no DB rows yet), so a 1-point history rendered nothing.
+       A 1-point chart is the honest "this is all the data so far" render, never
+       an empty panel (the operator's law). >= 1 keeps the section present for
+       every found signature; the JS gates below mirror it. *@
+    @if (Model.BotProbabilityHistory.Count >= 1)
     {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
             <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
@@ -1106,7 +1112,7 @@ else
     <sb-live-updates show-status="false" />
 
     <!-- ApexCharts rendering -->
-    @if (Model.Found && Model.BotProbabilityHistory.Count > 1)
+    @if (Model.Found && Model.BotProbabilityHistory.Count >= 1)
     {
         <script nonce="@Model.CspNonce">
         (function() {
@@ -1119,7 +1125,7 @@ else
 
             // Bot Probability & Confidence chart
             var pcData = JSON.parse(document.getElementById('prob-conf-data').textContent);
-            if (pcData.probability && pcData.probability.length > 1) {
+            if (pcData.probability && pcData.probability.length >= 1) {
                 new ApexCharts(document.getElementById('prob-conf-chart'), {
                     chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
                     series: [
@@ -1154,7 +1160,7 @@ else
             }
 
             var ptData = JSON.parse(document.getElementById('proc-time-data').textContent);
-            if (ptData && ptData.length > 1) {
+            if (ptData && ptData.length >= 1) {
                 new ApexCharts(document.getElementById('proc-time-chart'), {
                     chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
                     series: [{ name: 'Processing Time', data: ptData }],
