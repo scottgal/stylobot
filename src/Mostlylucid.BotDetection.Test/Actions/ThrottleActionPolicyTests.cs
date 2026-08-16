@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -118,6 +119,42 @@ public class ThrottleActionPolicyTests
         var ctx = new DefaultHttpContext();
         ctx.Request.Path = "/";
         return ctx;
+    }
+
+    // ── Internal-class exemption (2026-08-16, the compose-path 429 incident) ──
+
+    [Fact]
+    public async Task Internal_classified_request_is_never_throttled()
+    {
+        // The product's OWN traffic (peer-trusted / the hub-beacon plumbing paths)
+        // must never hit the tools-throttle — even a DIRECT dispatch (the enforcement-
+        // layer invariant; the resolver + rate-limit exemptions prevent the dispatch,
+        // this refuses the throttle itself). No 429, no throttle headers.
+        var policy = new ThrottleActionPolicy("throttle-tools", ThrottleActionOptions.Tools,
+            NullLogger<ThrottleActionPolicy>.Instance);
+        var ctx = NewContext();
+
+        var result = await policy.ExecuteAsync(ctx,
+            EvidenceAt(0.95, RiskBand.High) with { PrimaryBotType = BotType.Internal });
+
+        Assert.True(result.Continue);
+        Assert.Equal(string.Empty, ctx.Response.Headers["X-Throttle-Policy"].ToString());
+        Assert.Equal(string.Empty, ctx.Response.Headers["Retry-After"].ToString());
+    }
+
+    [Fact]
+    public async Task Non_internal_tool_verdict_is_still_throttled()
+    {
+        // Control: the exemption is specific to Internal — a genuine Tool-classified
+        // visitor still gets the tools-throttle.
+        var policy = new ThrottleActionPolicy("throttle-tools", ThrottleActionOptions.Tools,
+            NullLogger<ThrottleActionPolicy>.Instance);
+        var ctx = NewContext();
+
+        var result = await policy.ExecuteAsync(ctx,
+            EvidenceAt(0.95, RiskBand.High) with { PrimaryBotType = BotType.Tool });
+
+        Assert.False(result.Continue);
     }
 
     private static AggregatedEvidence EvidenceAt(double probability, RiskBand band) => new()

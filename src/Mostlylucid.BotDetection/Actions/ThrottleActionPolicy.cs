@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Actions;
@@ -102,6 +103,22 @@ public class ThrottleActionPolicy : IActionPolicy
         AggregatedEvidence evidence,
         CancellationToken cancellationToken = default)
     {
+        // Internal-class exemption (2026-08-16, the compose-path 429 incident): the
+        // product's OWN traffic — LAN-trusted peers, health probes, the hub/beacon
+        // plumbing, the site's own data path — is operator-owned, never threat-
+        // throttled (the operator's ruling: the internal class's policy = allow). The
+        // resolver (PostDetectionActionGate's class-first arm) and the rate-limit
+        // exemption prevent the dispatch for Internal traffic; this is the
+        // enforcement-layer invariant — even a DIRECT dispatch of this policy (a
+        // rule naming throttle-tools, or an over-limit fallback chain) can never 429
+        // an Internal-classified request. External callers cannot classify Internal
+        // (peer-verified trust or the internal-plumbing paths only), so the
+        // exemption is precisely the operator's own surface.
+        if (evidence.PrimaryBotType == BotType.Internal)
+        {
+            return ActionResult.Allowed($"throttle:{Name}:internal-exempt");
+        }
+
         // Calculate base delay
         var delay = CalculateDelay(context, evidence);
 
