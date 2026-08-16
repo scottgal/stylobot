@@ -1,0 +1,96 @@
+{
+  "scenarioName": "selfid-crawler-404-scan",
+  "description": "Regression for the operator's 'obvious bot showing as human' report (prod signature vJIV0yehw4pCYfvJNvs9zw). UA is a polite self-declaring research crawler (Name/Version (+contact-URL) convention, no bot/crawler/spider/scraper keyword) that fell through UserAgentAtom.IsSuspiciousUserAgent entirely (fixed: SelfDeclaredContactUrlRegex). Every request hits a distinct nonexistent path, so by request 4 ResponseCoordinator's exclusive-404 scan-pattern gate (Count404>=3, ratio>=0.8) should also be reinforcing the verdict -- ResponseCoordinator was never wired into DI/the pipeline before this fix, so that signal never fired for ANY signature, not just this one.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-1",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.4, "riskBand": "Medium" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-2",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.45, "riskBand": "Medium" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-3",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.5, "riskBand": "Medium" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-4",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-5",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.65, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-6",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.7, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-7",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.75, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-8",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.8, "riskBand": "VeryHigh" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-9",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.8, "riskBand": "VeryHigh" }
+    },
+    {
+      "method": "GET",
+      "path": "/probe/reverse-proxy-check-10",
+      "headers": {
+        "User-Agent": "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.8, "riskBand": "VeryHigh" }
+    }
+  ]
+}
