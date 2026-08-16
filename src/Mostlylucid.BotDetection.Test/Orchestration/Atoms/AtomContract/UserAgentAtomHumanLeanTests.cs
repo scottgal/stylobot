@@ -61,4 +61,23 @@ public class UserAgentAtomHumanLeanTests
         bot.ConfidenceDelta.Should().BeGreaterThan(0.0,
             "a bot marker yields a strong positive bot contribution, not a weak lean");
     }
+
+    [Fact]
+    public async Task Self_declaring_contact_url_UA_with_no_bot_keyword_still_emits_a_bot_signal()
+    {
+        // Polite-crawler self-identification convention: "Name/Version (+URL)" with no
+        // "Mozilla/" prefix and no literal bot/crawler/spider/scraper keyword. Regression for
+        // the operator's "obvious bot showing as human" report (vJIV0yehw4pCYfvJNvs9zw) -- the
+        // UA carried no keyword the old checks recognised, so it decayed toward human on every
+        // repeat hit instead of registering as a declared tool.
+        var atom = NewAtom(WithUa(
+            "Software Security Research/1.0 (+https://reverse-proxies-measurements.softsec.ruhr-uni-bochum.de)"));
+        var sink = new SignalSink(maxCapacity: 64, maxAge: TimeSpan.FromMinutes(5));
+
+        var contributions = await atom.DetectAsync(sink, "test");
+
+        var bot = contributions.Should().ContainSingle().Subject;
+        bot.ConfidenceDelta.Should().BeGreaterThan(0.0,
+            "a self-declaring contact-URL UA is a bot marker, not a weak human lean");
+    }
 }

@@ -286,6 +286,18 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
             reason = "Bare Mozilla version without details";
             return true;
         }
+        // The "(+URL)" contact annotation is the well-known polite-crawler self-identification
+        // convention (Googlebot/Bingbot use it inside a "compatible; ..." token, which the
+        // BotKeywordRegex/whitelist paths already catch; this branch is for tools that self-
+        // declare with the SAME convention but no "bot/crawler/spider/scraper" keyword -- e.g.
+        // "Software Security Research/1.0 (+https://...)"). No real browser UA embeds a "+"-
+        // prefixed URL in a parenthetical, so this is a generic, low-false-positive class
+        // signal, not a per-fingerprint or per-name rule.
+        if (SelfDeclaredContactUrlRegex().IsMatch(userAgent))
+        {
+            reason = "Self-declaring contact URL in User-Agent (polite-crawler convention)";
+            return true;
+        }
         reason = string.Empty;
         return false;
     }
@@ -370,4 +382,7 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
 
     [GeneratedRegex(@"^([A-Za-z][A-Za-z0-9_.-]+)/")]
     private static partial Regex SimpleToolRegex();
+
+    [GeneratedRegex(@"\(\+https?://", RegexOptions.IgnoreCase)]
+    private static partial Regex SelfDeclaredContactUrlRegex();
 }
