@@ -153,8 +153,8 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // tags carry the same nonce as the rest of the live-update stack.
         if (IncludeVendorScripts)
         {
-            output.Content.AppendHtml($@"<script src=""{HtmxScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
-            output.Content.AppendHtml($@"<script src=""{SignalRScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
+            output.Content.AppendHtml($@"<script defer src=""{HtmxScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
+            output.Content.AppendHtml($@"<script defer src=""{SignalRScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
         }
 
         // Idiomorph -- official htmx extension that swaps DOM in place via a morph
@@ -162,14 +162,14 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // with hx-swap-oob="morph:innerHTML" on the server-side OOB fragments this
         // is the "mutate on update, don't replace" half of the live-updates design.
         // Self-hosted from the package's vendor/js so no CDN dependency.
-        output.Content.AppendHtml($@"<script src=""{IdiomorphScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
+        output.Content.AppendHtml($@"<script defer src=""{IdiomorphScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
 
         // Tooltip portal: clones .tooltip[data-tip] hovers into a body-level
         // fixed-position layer so daisyUI tooltips escape any clip ancestor
         // (overflow-x-auto on table wrappers, overflow:hidden on card chrome).
         // Without this the cell tooltips were chopped at table edges across
         // the dashboard.
-        output.Content.AppendHtml($@"<script src=""{TooltipPortalPath}?v={AssetVersion}""{nonceAttr}></script>");
+        output.Content.AppendHtml($@"<script defer src=""{TooltipPortalPath}?v={AssetVersion}""{nonceAttr}></script>");
 
         if (ShowStatus)
         {
@@ -201,7 +201,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
         var basePathAttr = System.Web.HttpUtility.HtmlAttributeEncode(basePath);
         var hubUrlAttr   = System.Web.HttpUtility.HtmlAttributeEncode(hubUrl);
         output.Content.AppendHtml(
-            $@"<script src=""{AssetJsPath}?v={AssetVersion}""" +
+            $@"<script defer src=""{AssetJsPath}?v={AssetVersion}""" +
             $@" data-base-path=""{basePathAttr}""" +
             $@" data-hub-url=""{hubUrlAttr}""" +
             $@" data-debounce=""{DebounceMs}""" +
@@ -213,7 +213,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // beacon even without the broader BroadcastInvalidation coordinator
         // (and vice versa). Self-hosted under the same /_content/ root.
         output.Content.AppendHtml(
-            $@"<script src=""{PolicyStackRealtimePath}?v={AssetVersion}""" +
+            $@"<script defer src=""{PolicyStackRealtimePath}?v={AssetVersion}""" +
             $@" data-hub-url=""{hubUrlAttr}""{nonceAttr}></script>");
 
         // C6 -- Policy Stack expression editor. The script is a no-op when
@@ -222,7 +222,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // Self-mounts on DOMContentLoaded + on every htmx:afterSwap so the
         // pencil-button HTMX swaps pick up edit affordances automatically.
         output.Content.AppendHtml(
-            $@"<script src=""{PolicyStackEditPath}?v={AssetVersion}""{nonceAttr}></script>");
+            $@"<script defer src=""{PolicyStackEditPath}?v={AssetVersion}""{nonceAttr}></script>");
 
         // C7 -- Policy Stack drag-drop reorder + source-pill navigation.
         // Same self-mount lifecycle as the edit script: no-op when no
@@ -231,7 +231,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // control regardless of whether the operator has dashboard-write
         // (the drag handle itself is server-gated by canEdit).
         output.Content.AppendHtml(
-            $@"<script src=""{PolicyStackReorderPath}?v={AssetVersion}""{nonceAttr}></script>");
+            $@"<script defer src=""{PolicyStackReorderPath}?v={AssetVersion}""{nonceAttr}></script>");
 
         // A8 -- Policy Stack scope-group accordion + Owned/Effective tab JS.
         // Two document-level click listeners (event-delegated) drive the
@@ -241,6 +241,6 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // exists on the page, so safe to emit unconditionally alongside
         // the other policy-stack scripts.
         output.Content.AppendHtml(
-            $@"<script src=""{PolicyStackTabsPath}?v={AssetVersion}""{nonceAttr}></script>");
+            $@"<script defer src=""{PolicyStackTabsPath}?v={AssetVersion}""{nonceAttr}></script>");
     }
 }
