@@ -137,8 +137,14 @@ public sealed class BotDetectionOrchestrator : IDisposable
             // and the response header trail above are unaffected. _postureProvider.LearningEnabled
             // is the SAME gate at a global, host-level scope (e.g. a license-expiry freeze) --
             // orthogonal to the per-request/per-API-key suppression, both must pass.
+            // Internal verdicts (LAN-trusted peers, health probes, the product's own
+            // hub/beacon plumbing) are operator-owned traffic, not visitors: they must
+            // never blend into the fingerprint's cached probability, which is what the
+            // signature risk band derives from at read. The band clamp (Internal ->
+            // Low) fixes the per-request display; this skip fixes the AGGREGATION.
             if (!string.IsNullOrEmpty(identityFingerprintId) && !context.IsLearningSuppressedByApiKey()
-                && _postureProvider.LearningEnabled)
+                && _postureProvider.LearningEnabled
+                && evidence.PrimaryBotType != BotType.Internal)
             {
                 // PrimaryBotType is the CATALOGUE type (BotType enum: Internal / SearchEngine /
                 // AiBot / Tool / GoodBot / ...). .ToString() yields exactly the vocabulary the
@@ -393,6 +399,7 @@ public static class BotDetectionOrchestratorExtensions
         // SensorAtoms -- boundary / signal extractors
         services.AddDetectorAtom<SignatureAtom>();             // Priority 1  (Wave 0)
         services.AddDetectorAtom<HealthEndpointAtom>();        // Priority 2  (Wave 0)
+        services.AddDetectorAtom<InternalPlumbingAtom>();      // Priority 2  (Wave 0)
         services.AddDetectorAtom<TransportProtocolAtom>();     // Priority 5  (Wave 0)
         services.AddDetectorAtom<TimeAtom>();                  // Priority 5  (Wave 0)
         services.AddDetectorAtom<FediverseDomainAtom>();       // Priority 5  (Wave 0)

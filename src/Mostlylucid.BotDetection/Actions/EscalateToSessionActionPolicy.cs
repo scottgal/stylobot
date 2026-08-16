@@ -87,6 +87,16 @@ public sealed class EscalateToSessionActionPolicy : IActionPolicy
             return ActionResult.Allowed("Escalation skipped: learning suppressed");
         }
 
+        // Internal verdicts (LAN-trusted peers, health probes, the product's own
+        // hub/beacon plumbing) are operator-owned traffic, not visitors: the session
+        // sample would drag the session's mean (and the session-boundary verdict write
+        // that converges the fingerprint's cached probability) with hub/beacon rows.
+        // Same exclusion as the orchestrator's per-request write-behind.
+        if (evidence.PrimaryBotType == BotType.Internal)
+        {
+            return ActionResult.Allowed("Escalation skipped: internal traffic");
+        }
+
         var fingerprintId = ResolveFingerprintId(context, evidence);
         if (string.IsNullOrEmpty(fingerprintId))
         {

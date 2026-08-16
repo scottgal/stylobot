@@ -196,7 +196,13 @@ public static class DetectionLedgerExtensions
         // primary-position-trust semantics intact while routing it through
         // the single Compose() site.
         var localIpForVerdict = ReadBool(SignalKeys.IpIsLocal);
-        var verdictBotType = localIpForVerdict ? BotType.Internal : ledgerBotType;
+        // Product-plumbing promotion (hub / beacon): the dashboard's OWN live-update
+        // channel is operator-owned plumbing, not a visitor — same trust semantics as
+        // network position, routed through the same Internal -> RiskBand.Low clamp.
+        var isInternalPlumbing = ReadBool(SignalKeys.InternalPlumbing);
+        var verdictBotType = localIpForVerdict || isInternalPlumbing
+            ? BotType.Internal
+            : ledgerBotType;
 
         // Compose the risk verdict via the single-source-of-truth composer. The
         // legacy DetermineRiskBand method is now a thin wrapper that builds the
@@ -305,7 +311,11 @@ public static class DetectionLedgerExtensions
             && ProbeShapeClassifier.IsProbeShape(preSignals, sink, probeUas);
         // Non-health-endpoint trusted-internal traffic: Internal.
         // Health-endpoint trusted-internal traffic: requires probe shape (shape guard).
+        // Product-plumbing traffic (hub / beacon): Internal — the dashboard's own
+        // live-update channel, never a visitor verdict (the same operator-owned
+        // semantics as network position; the hub is served by the gateway's own UI).
         var primaryBotType = (isTrustedInternal && !isHealthEndpoint) || isHealthProbe
+                             || isInternalPlumbing
             ? BotType.Internal
             : verdict.HostilePinFired
                 ? BotType.MaliciousBot
@@ -631,14 +641,14 @@ public static class DetectionLedgerExtensions
         // Internal clamp requires BOTH local IP AND probe shape; source alone is
         // not sufficient. Non-health local traffic is clamped unconditionally as
         // before.
-        if (ReadBool(SignalKeys.IpIsLocal))
+        if (ReadBool(SignalKeys.IpIsLocal) || ReadBool(SignalKeys.InternalPlumbing))
         {
             var earlyIsHealthEndpoint = ReadBool(SignalKeys.HealthEndpoint);
             var earlyProbeUas = options?.HealthEndpoints?.ProbeUserAgents
                                 ?? HealthEndpointOptions.DefaultProbeUserAgents;
             var earlyIsHealthProbe = earlyIsHealthEndpoint
                                      && ProbeShapeClassifier.IsProbeShape(earlySignals, sink, earlyProbeUas);
-            if (!earlyIsHealthEndpoint || earlyIsHealthProbe)
+            if (!earlyIsHealthEndpoint || earlyIsHealthProbe || ReadBool(SignalKeys.InternalPlumbing))
             {
                 primaryBotType = BotType.Internal;
                 earlyRiskBand = RiskBand.VeryLow;

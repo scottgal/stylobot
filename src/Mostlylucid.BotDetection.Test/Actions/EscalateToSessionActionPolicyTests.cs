@@ -276,6 +276,44 @@ public class EscalateToSessionActionPolicyTests
             "stylobot's own enforcement code must not be counted upstream (closed-loop guard)");
     }
 
+    // ── Internal-verdict exclusion (2026-08-16, the hub-misclassification fix) ──
+
+    [Fact]
+    public async Task Skips_upsert_when_verdict_is_Internal()
+    {
+        // The product's OWN hub/beacon/LAN traffic (BotType.Internal) must not raise
+        // a session sample: the sample would drag the session's mean — and the
+        // session-boundary verdict write that converges the fingerprint's cached
+        // probability — with operator-owned rows. Same exclusion as the orchestrator's
+        // per-request write-behind (InternalPlumbingWriteExclusionTests).
+        using var store = NewStore();
+        var policy = NewPolicy(store);
+        var context = NewContext(
+            items: new() { [SignalKeys.IdentityFingerprintId] = FingerprintFromItems });
+        var evidence = NewEvidence(botProbability: 0.95) with { PrimaryBotType = BotType.Internal };
+
+        await policy.ExecuteAsync(context, evidence);
+
+        store.TryGet("default", FingerprintFromItems).Should().BeNull(
+            "an Internal verdict must never raise a session sample");
+    }
+
+    [Fact]
+    public async Task Upserts_when_verdict_is_a_high_threat_bot()
+    {
+        // Control: a genuine high-probability visitor bot still escalates — the
+        // exclusion is specific to Internal (operator-owned) traffic.
+        using var store = NewStore();
+        var policy = NewPolicy(store);
+        var context = NewContext(
+            items: new() { [SignalKeys.IdentityFingerprintId] = FingerprintFromItems });
+        var evidence = NewEvidence(botProbability: 0.95) with { PrimaryBotType = BotType.MaliciousBot };
+
+        await policy.ExecuteAsync(context, evidence);
+
+        store.TryGet("default", FingerprintFromItems).Should().NotBeNull();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private sealed class FakeSiteResolver : ISiteProfileResolver
