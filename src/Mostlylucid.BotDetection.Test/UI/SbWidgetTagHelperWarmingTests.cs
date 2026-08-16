@@ -42,8 +42,12 @@ public sealed class SbWidgetTagHelperWarmingTests
     }
 
     [Fact]
-    public void WarmingWhen_true_renders_spinner_strip_and_suppresses_the_canvas()
+    public void WarmingWhen_true_renders_the_honest_empty_strip_and_suppresses_the_canvas()
     {
+        // P0 2026-08-16 (the operator's "period switch spinner"): the warming spinner
+        // is DEAD — NO loading state ever. A cold-cache miss renders the honest empty
+        // strip (the warming-when text when present); the background prewarm fills the
+        // envelope and the beacon OOB-replaces the widget once warm.
         var helper = new SbWidgetTagHelper
         {
             Width = "half",
@@ -55,14 +59,14 @@ public sealed class SbWidgetTagHelperWarmingTests
 
         var (rendered, _) = Render(helper);
 
-        Assert.Contains("loading loading-spinner", rendered);
         Assert.Contains("Warming up", rendered);
-        // The bare Chart.js canvas MUST NOT render behind the warming strip.
+        Assert.DoesNotContain("loading loading-spinner", rendered);
+        // The bare Chart.js canvas MUST NOT render behind the empty strip.
         Assert.DoesNotContain("chart-canvas", rendered);
     }
 
     [Fact]
-    public void WarmingWhen_takes_precedence_over_EmptyWhen()
+    public void WarmingWhen_takes_precedence_over_EmptyWhen_without_a_spinner()
     {
         var helper = new SbWidgetTagHelper
         {
@@ -75,7 +79,7 @@ public sealed class SbWidgetTagHelperWarmingTests
         var (rendered, _) = Render(helper);
 
         Assert.Contains("Warming up", rendered);
-        Assert.Contains("loading loading-spinner", rendered);
+        Assert.DoesNotContain("loading loading-spinner", rendered);
         Assert.DoesNotContain("No data in this window", rendered);
     }
 

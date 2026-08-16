@@ -104,24 +104,23 @@ public sealed class SbWidgetTagHelper : TagHelper
             ? string.Empty
             : $"<div class=\"sb-widget-head\">{enc.Encode(Heading)}</div>";
 
-        if (WarmingWhen)
+        if (WarmingWhen || EmptyWhen)
         {
-            // Cold-cache miss: collapse to a compact WARMING strip (spinner + text) so a
-            // chart never paints a bare canvas. Precedence over EmptyWhen -- "still warming"
-            // is a truer signal than "no data" until the bundle is actually composed.
+            // P0 2026-08-16 (the operator's "period switch spinner"): the warming
+            // spinner is DEAD — NO loading state ever (the 4fc31a8c doctrine; the
+            // SSR-only contract: "Warming up" is NEVER valid). A cold-cache miss
+            // renders the honest empty strip — the background prewarm fills the
+            // envelope and the freshness beacon OOB-replaces the widget once warm;
+            // the page never shows a loading state. The warming-when text (when
+            // present) still wins so callers can distinguish the still-warming copy
+            // from the composed-empty copy without a spinner anywhere.
+            var emptyText = enc.Encode(
+                !string.IsNullOrEmpty(WarmingText)
+                    ? WarmingText
+                    : (EmptyText ?? "No data"));
             output.Content.SetHtmlContent(
                 $"<div class=\"card bg-base-100 border border-base-300\"><div class=\"card-body p-3\">{head}" +
-                "<div class=\"sb-widget-empty\">" +
-                "<span class=\"loading loading-spinner loading-sm\"></span>" +
-                $"<span>{enc.Encode(WarmingText ?? "Warming up — data will appear shortly.")}</span>" +
-                "</div></div></div>");
-        }
-        else if (EmptyWhen)
-        {
-            // Collapse to a compact strip — no full empty card.
-            output.Content.SetHtmlContent(
-                $"<div class=\"card bg-base-100 border border-base-300\"><div class=\"card-body p-3\">{head}" +
-                $"<div class=\"sb-widget-empty\">{enc.Encode(EmptyText ?? "No data")}</div></div></div>");
+                $"<div class=\"sb-widget-empty\">{emptyText}</div></div></div>");
         }
         else
         {
