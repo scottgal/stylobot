@@ -248,7 +248,7 @@
                                     <a href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)"
                                        class="block truncate font-medium text-xs hover:underline"
                                        aria-label="@displayName — signature detail">@displayName</a>
-                                    @NameActionSlot.Render(v.PrimarySignature, displayName ?? v.PrimarySignature, v.BotType, v.IsBot)
+                                    @NameActionSlot.Render(v.PrimarySignature, displayName ?? v.PrimarySignature, v.BotType, v.BotProbability)
                                 </div>
                             </td>
                             <td class="py-1 w-6">

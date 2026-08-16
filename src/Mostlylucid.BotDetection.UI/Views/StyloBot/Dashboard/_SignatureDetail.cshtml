@@ -166,7 +166,7 @@ else
                     </svg>
                 </button>
             }
-            @NameActionSlot.Render(Model.SignatureId, signatureDisplayName ?? Model.SignatureId, Model.BotType, Model.IsBot)
+            @NameActionSlot.Render(Model.SignatureId, signatureDisplayName ?? Model.SignatureId, Model.BotType, Model.BotProbability)
         </span>
         @* Operator "correct decision" control (commercial). Lazy-loads the correction
            editor fragment from the gateway; under FOSS the endpoint returns 402 and the
@@ -485,9 +485,10 @@ else
                             }
                             @* NearestFingerprint carries no bot-type/verdict field -- unlike
                                the other 4 slot sites, this data genuinely isn't available
-                               here without an extra lookup, so botType/isBot go through as
-                               unknown (null/false) rather than a real classification. *@
-                            @NameActionSlot.Render(n.FingerprintId, label, null, false)
+                               here without an extra lookup, so botType/botProbability go
+                               through as null -- the slot renders this as Uncertain, not
+                               a false Human. *@
+                            @NameActionSlot.Render(n.FingerprintId, label, null, null)
                         </span>
                         <span class="tabular-nums text-base-content/55 text-[10px] whitespace-nowrap" sb-tooltip="lookslike.distance">
                             d = @n.Distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)

@@ -30,8 +30,16 @@ public interface IFingerprintNameActionSlot
     /// <param name="fingerprintId">The signature/fingerprint id the name belongs to.</param>
     /// <param name="displayName">The name as rendered at the call site (already resolved: custom name, LLM name, or UA-derived fallback).</param>
     /// <param name="botType">The classified bot type/family, or null for an unclassified/human visitor. Already available on the row/page model at every call site -- never fetched here.</param>
-    /// <param name="isBot">Whether this fingerprint is currently classified as a bot.</param>
-    IHtmlContent Render(string fingerprintId, string displayName, string? botType, bool isBot);
+    /// <param name="botProbability">
+    ///     The raw bot-probability score backing this row's verdict, or <c>null</c> when the
+    ///     call site genuinely has no score available (e.g. the "looks like" nearest-fingerprint
+    ///     list, which carries no classification for the neighbours it lists). The implementation
+    ///     compares this against the canonical HumanCeiling/BotFloor thresholds to render one of
+    ///     THREE states -- bot / human / uncertain -- never collapsed to a boolean. A confirmed
+    ///     human and a genuinely unclassified/unknown row are different states and must not render
+    ///     identically.
+    /// </param>
+    IHtmlContent Render(string fingerprintId, string displayName, string? botType, double? botProbability);
 }
 
 /// <summary>
@@ -41,6 +49,6 @@ public interface IFingerprintNameActionSlot
 public sealed class EmptyFingerprintNameActionSlot : IFingerprintNameActionSlot
 {
     /// <inheritdoc />
-    public IHtmlContent Render(string fingerprintId, string displayName, string? botType, bool isBot)
+    public IHtmlContent Render(string fingerprintId, string displayName, string? botType, double? botProbability)
         => HtmlString.Empty;
 }
