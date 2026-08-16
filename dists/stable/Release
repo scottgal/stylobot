@@ -2,28 +2,28 @@ Origin: StyloBot
 Label: StyloBot
 Suite: stable
 Codename: stable
-Date: Sun, 16 Aug 2026 15:34:20 UTC
+Date: Sun, 16 Aug 2026 20:15:50 UTC
 Architectures: amd64 arm64
 Components: main
 Description: StyloBot - self-hosted bot detection gateway (apt repository)
 MD5Sum:
- cf7076635475c6ae9170a26e6a671aee 614 main/binary-amd64/Packages
- d302c2c77c34cf275af4be4b3cdcaa3f 448 main/binary-amd64/Packages.gz
+ fe4da8d7ff85d8920617df0d463f4612 616 main/binary-amd64/Packages
+ 8e3efcc47b04e2c50834867cda98a40d 451 main/binary-amd64/Packages.gz
  9e2d38ba39c3c70e15473e4c361d4577 160 main/binary-amd64/Release
- 261bd824d0e9c5d13341afb1f87e2bf9 614 main/binary-arm64/Packages
- 84ae1903b534ded64930c2d10d9cae6b 449 main/binary-arm64/Packages.gz
+ 46e6f29760c1cd65c0ae2441e51dcf36 616 main/binary-arm64/Packages
+ 50dfdb50f0e5e12b816930eddbea2d6c 449 main/binary-arm64/Packages.gz
  0e665c3008a34af283e0813a9116a921 160 main/binary-arm64/Release
 SHA1:
- f75d12ac170eec7b918f6813a91037ae7ed530a9 614 main/binary-amd64/Packages
- 54c3598b844593928e06c3cf2a3a17b6a031457e 448 main/binary-amd64/Packages.gz
+ 381de03e90dc23e44d4f145e062123482d1683b5 616 main/binary-amd64/Packages
+ 9eb1120091782bf074f7755c83963dea6ebe1f3a 451 main/binary-amd64/Packages.gz
  536177db9fa93adf9d200efdffc081137e9c968a 160 main/binary-amd64/Release
- 6950b8b3291bea41b6714cd924598762e4d97597 614 main/binary-arm64/Packages
- 3e4224567755c1a869ff16161a27b75650c8d48f 449 main/binary-arm64/Packages.gz
+ 7f3ffd9fbe4e6ef38ca16e47e70a78b5a9239d00 616 main/binary-arm64/Packages
+ 3a078cdb1bb9e08872c4392df0ca45e59cc97acb 449 main/binary-arm64/Packages.gz
  f96bb0b4189388d86c97bca33cddd62a590af539 160 main/binary-arm64/Release
 SHA256:
- 6c4ed061ca0671f563400abe69e321296544112a8445e7208133854878411f23 614 main/binary-amd64/Packages
- b35e36f12f3416a449aa74dd2ddac1f5f47b9c5f62e4cf39a5cc89aac5f5c429 448 main/binary-amd64/Packages.gz
+ 65d16dbb3e3d841fd9e17413202f8f34a2db0f2f9e724ad35ae142b46737a998 616 main/binary-amd64/Packages
+ c8ec038a10b6cec5346047079347422b5eb5cfa2545551b6e152f0a08ca92091 451 main/binary-amd64/Packages.gz
  e31655c96f09e88ef86d30a4b6112fe69005576b66822d87b750f63666b9073d 160 main/binary-amd64/Release
- 467046528c7a32530d2bd5b7888fbded36ea5a6100ecf66388fe4f8e4430cc2c 614 main/binary-arm64/Packages
- 0ebd9d1296a95f8c7aab39cdbc0e88a7ac4f1a1b79f4d527483318f20e5f1b7c 449 main/binary-arm64/Packages.gz
+ 0200e235d715ad3214bf8edaa40cc28e26bae242b5b31503b0056f50ef52cb27 616 main/binary-arm64/Packages
+ a881d847828e83d8182fde12cbe2075bb520e597b4da3ef0818879e8fb5fc2f7 449 main/binary-arm64/Packages.gz
  4213d6a5c33788c481735e8f1341af76c810bf5cce6bf549bcacf9d44e0148c0 160 main/binary-arm64/Release
