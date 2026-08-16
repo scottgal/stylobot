@@ -46,6 +46,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private readonly IOptions<DashboardMaterializerOptions> _optionsAccessor;
     private readonly IOptions<DashboardLayoutOptions>? _layout;
     private readonly DashboardDiagnostics? _diagnostics;
+    private readonly IDashboardPrewarmDomains? _prewarmDomains;
 
     // Startup-snapshot only (FOSS hard rule: no runtime options-reload -- hot-reload is
     // commercial-only). Enabled/MaxTickDurationMs/etc. are fixed at process start.
@@ -100,7 +101,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub>? hubContext = null,
         TimeProvider? timeProvider = null,
         IOptions<DashboardLayoutOptions>? layout = null,
-        DashboardDiagnostics? diagnostics = null)
+        DashboardDiagnostics? diagnostics = null,
+        IDashboardPrewarmDomains? prewarmDomains = null)
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(cursor);
@@ -116,6 +118,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         _time = timeProvider ?? TimeProvider.System;
         _layout = layout;
         _diagnostics = diagnostics;
+        _prewarmDomains = prewarmDomains;
         _adaptive = new DashboardMaterializerAdaptiveController(options);
 
         // Boot-time materializer pass, fired HERE (not StartAsync) so its completion is
@@ -458,6 +461,26 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                             // every standard window against the same FOSS SQLite store at once.
                             // Demand-ranked live views retain their configured wave parallelism.
                             warmQueue.Add((prewarmManifest, pinnedWindow, IsPinned: true));
+
+                        // P0 2026-08-16 (the operator's domain-scoped cold view): the pinned
+                        // law must cover EVERY managed domain, not just the all-domains key.
+                        // The domain-scoped envelopes (manifest, window, domains=[X]) are
+                        // distinct cache keys the old loop never warmed — a domain-pill
+                        // selection read a forever-cold envelope (summary 0/0/0 + "No data
+                        // in this window" while the store had the rows). The seam is
+                        // nullable: no provider (FOSS-only hosts) keeps all-domains-only.
+                        if (_prewarmDomains is { } domains)
+                        {
+                            foreach (var domain in domains.GetManagedDomains())
+                            {
+                                if (string.IsNullOrWhiteSpace(domain)) continue;
+                                var domainWindow = DashboardRoutingHelpers.BuildPinnedWindow(
+                                    token, now, new[] { domain });
+                                var domainEnvelope = DashboardContentEnvelope.From(prewarmManifest, domainWindow);
+                                if (IsDueForWarm(domainEnvelope, prewarmManifest, accessCount: 0))
+                                    warmQueue.Add((prewarmManifest, domainWindow, IsPinned: true));
+                            }
+                        }
                     }
                 }
             }
