@@ -45,7 +45,7 @@
 @* SignalR client + invalidation -> DOM-event bridge. Same shape the legacy
    _SignatureDetail.cshtml uses, narrowed to fire HTMX events on the body
    instead of a hard window.location.reload(). *@
-<script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js" nonce="@cspNonce"></script>
+<script defer src="/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js" nonce="@cspNonce"></script>
 <script nonce="@cspNonce">
 (function() {
     if (typeof signalR === 'undefined') return;
