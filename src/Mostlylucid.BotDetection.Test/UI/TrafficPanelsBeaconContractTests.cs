@@ -19,17 +19,19 @@ using Xunit;
 namespace Mostlylucid.BotDetection.Test.UI;
 
 /// <summary>
-///     The four Traffic side panels' Signal-Shingle beacon contract (RC2):
+///     The four Traffic side panels' SSR-only render contract (dash- 2026-08-16, after the
+///     operator's rip-out a62024fd):
 ///     <list type="bullet">
-///         <item>#traffic-panels carries data-sb-widget / data-sb-depends / data-sb-params,
-///             so the content-ready beacon (BroadcastDirty) can target it at all — before
-///             this, the four panels had no beacon contract and stayed "Warming up" forever
-///             after a cold-miss first paint.</item>
-///         <item>The boot prewarm (BootPrewarmEnabled) composes the pinned windows at host
-///             start, so the first page load renders real data, not the warming shell.</item>
-///         <item>The batch path renders "traffic-panels" from the warm page bundle through
-///             the same TrafficPanelsProjector the SSR uses — an OOB swap can never
-///             disagree with the first paint.</item>
+///         <item>First paint is the SSR-complete page with REAL data (page 200 + the
+///             widgets' data present when the store has it).</item>
+///         <item>No beacon widget attrs on the panels: data-sb-widget / data-sb-depends stay
+///             DELETED until the update machinery returns as the gated re-activation. The
+///             container keeps id="traffic-panels" + data-sb-params (render-state only).</item>
+///         <item>No "Warming up" strip anywhere — the spinner is dead; a cold miss renders
+///             the honest empty state.</item>
+///         <item>The /dashboard/partials/update batch endpoint survives server-side
+///             (dormant structure for the re-activation), but no test pins a client batch
+///             fetch — the client never calls it today.</item>
 ///     </list>
 /// </summary>
 public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
@@ -47,7 +49,7 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task First_load_renders_data_and_panels_carry_the_beacon_contract()
+    public async Task First_load_renders_real_data_with_no_beacon_contract()
     {
         var store = new SeededEventStore();
         var manifests = new DefaultDashboardPageManifestSource();
@@ -85,27 +87,24 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
 
         var client = _app.GetTestClient();
 
-        // ---- First page load: data, not warming, and the panels carry the contract. ----
+        // ---- First page load: SSR-complete first paint with real data, no beacon. ----
         var response = await client.GetAsync("/dashboard/traffic");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var html = await response.Content.ReadAsStringAsync();
 
-        Assert.Contains("data-sb-widget=\"traffic-panels\"", html);
-        Assert.Contains("data-sb-depends=\"countries,signature,threats\"", html);
+        // SSR-only contract: no beacon widget attrs on the TRAFFIC PANELS container —
+        // the client does NOTHING for these widgets. The container keeps its render-state
+        // id + params only. (Other widgets elsewhere on the page may still carry their own
+        // attrs; the rip-out a62024fd scoped the traffic panels.)
+        Assert.Contains("id=\"traffic-panels\"", html);
+        Assert.DoesNotContain("data-sb-widget=\"traffic-panels\"", html);
+        Assert.DoesNotContain("data-sb-depends=\"countries,signature,threats\"", html);
         Assert.Contains("data-sb-params=\"window=", html);
         Assert.DoesNotContain("Warming up", html);
         Assert.Contains("GPTBot", html); // seeded bot surfaces in the panels (by source / top visitors / threats)
 
-        // ---- Batch refresh: the content-ready ping's fetch renders the SAME panels. ----
-        var batch = await client.GetAsync(
-            "/dashboard/partials/update?widgets=traffic-panels&traffic-panels.window=24h");
-        Assert.Equal(HttpStatusCode.OK, batch.StatusCode);
-        var batchHtml = await batch.Content.ReadAsStringAsync();
-
-        Assert.Contains("traffic-panels", batchHtml);
-        Assert.Contains("hx-swap-oob", batchHtml);
-        Assert.Contains("GPTBot", batchHtml);
-        Assert.DoesNotContain("Warming up", batchHtml);
+        // No client batch fetch is pinned: the /dashboard/partials/update endpoint
+        // survives server-side but the client never calls it today (dash- 2026-08-16).
     }
 
     /// <summary>Seed store: one bot + one country so the composed bundle carries real data.</summary>

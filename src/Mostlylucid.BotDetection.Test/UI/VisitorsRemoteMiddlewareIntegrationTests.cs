@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.Common.Scheduling;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.UI;
@@ -31,6 +32,13 @@ public sealed class VisitorsRemoteMiddlewareIntegrationTests : IAsyncDisposable
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+
+        // Tick pin (stream- pattern call 2026-08-16): the §8 Fix 1 contract this test pins
+        // is REQUEST-path-only. The tick materializer composing from the remote gateway is
+        // BY DESIGN for remote hosts — an unpinned background tick would race the
+        // compose-batch assertion below. NeverTicking keeps the registered surface
+        // identical to a deployed remote viewer host.
+        builder.Services.AddSingleton<IScheduleCoordinator>(new NeverTickingScheduleCoordinator());
 
         builder.Services.AddStyloBotDashboardRemote(new DashboardSourceOptions
         {
@@ -87,6 +95,22 @@ public sealed class VisitorsRemoteMiddlewareIntegrationTests : IAsyncDisposable
     {
         if (_app is not null)
             await _app.DisposeAsync();
+    }
+
+    /// <summary>
+    ///     No-op schedule coordinator (the sibling fixtures' pattern — see
+    ///     <see cref="TrafficPanelsBeaconContractTests.NeverTickingScheduleCoordinator"/>).
+    ///     Keeps the AddStyloBotDashboard-registered coordinator surface identical while
+    ///     pinning the tick: the background materializer never fires mid-test.
+    /// </summary>
+    private sealed class NeverTickingScheduleCoordinator : IScheduleCoordinator
+    {
+        private sealed class NoopDisposable : IDisposable { public void Dispose() { } }
+
+        public IDisposable Subscribe(TickCadence cadence, string subscriberName, CostHint costHint, Func<DateTimeOffset, CancellationToken, Task> handler)
+            => new NoopDisposable();
+
+        public IReadOnlyList<TickSubscriberMetadata> Snapshot() => Array.Empty<TickSubscriberMetadata>();
     }
 
     private sealed class FakeGatewayHandler : HttpMessageHandler

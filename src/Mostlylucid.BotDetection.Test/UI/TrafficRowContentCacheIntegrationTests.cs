@@ -130,14 +130,14 @@ public sealed class TrafficRowContentCacheIntegrationTests : IAsyncDisposable
         var html = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        // bd196a8e + b7c72711: "Warming up" is NEVER valid — cold rows fetch live on first
-        // paint. The old page-level banner and the chart widget's warming strip are gone.
-        // Renderers fall through to self-fetch from the live store rather than stashing or
-        // displaying a warming placeholder.
-        // bd196a8e: the "chart data will appear shortly." placeholder text was killed;
-        // the chart widget's three-state warming strip still renders "Warming up".
-        Assert.Contains("Warming up", html);
+        // bd196a8e + b7c72711 + 4fc31a8c + a62024fd (SSR-only contract, dash- 2026-08-16):
+        // "Warming up" is NEVER valid — cold rows fetch live on first paint; the old
+        // page-level banner, the chart widget's warming strip, and the spinner branches
+        // are all gone. A genuinely cold cache renders the honest empty state, never a
+        // warming placeholder, and never falls back to a synchronous compose.
+        Assert.DoesNotContain("Warming up", html);
         Assert.DoesNotContain("chart data will appear shortly.", html);
+        Assert.Contains("no data in this window", html);
         Assert.Equal(0, store.GetTimeSeriesCallCount);
     }
 
