@@ -152,6 +152,31 @@ public sealed class PostDetectionActionGate
             context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
         }
 
+        // The Internal class's policy is allow (operator 2026-08-16): the product's
+        // own plumbing — the dashboard host's compose / hub / REST reads — is a
+        // DETECTION CLASS whose policy is never shaped by an endpoint rule. The
+        // endpoint override below is exactly how the site→gateway /api/v1 reads got
+        // a path-scoped rate-limit action (the trigger set, the class fallback
+        // skipped, the 60/min bucket exhausted → 429s → the dashboard's Warming
+        // sentinel pages). The class action (logonly/allow via
+        // ResolveBotTypeActionPolicy) is the effective policy for internal traffic;
+        // the honeypot arm above still wins (behaviour beats identity for negative
+        // signals).
+        if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
+            && evidence.PrimaryBotType == BotType.Internal)
+        {
+            var apiKeyContext = context.Items.TryGetValue("BotDetection.ApiKeyContext", out var keyCtxObj)
+                && keyCtxObj is ApiKeyContext keyCtx
+                    ? keyCtx
+                    : null;
+            var internalAction = ResolveBotTypeActionPolicy(evidence, apiKeyContext);
+            if (!string.IsNullOrEmpty(internalAction))
+            {
+                evidence = evidence with { TriggeredActionPolicyName = internalAction };
+                context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
+            }
+        }
+
         // Per-endpoint action-policy override.
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName))
         {

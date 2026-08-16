@@ -55,13 +55,47 @@ public sealed class PostDetectionActionGateRegistryTests
         Assert.Equal(PostDetectionActionOutcome.PolicyContinued, outcome);
     }
 
+    [Fact]
+    public async Task Internal_class_wins_over_endpoint_rate_limit_rule()
+    {
+        // P0 2026-08-16 (the operator's 429 whole-page break): the site→gateway
+        // dashboard reads (/api/v1/*) carried a path-scoped rate-limit endpoint
+        // rule — the endpoint override set TriggeredActionPolicyName and the
+        // Internal class fallback never ran, so the product's own plumbing got
+        // throttled (the 60/min bucket exhausted → 429s → the dashboard's Warming
+        // sentinel pages). The Internal class's policy (logonly/allow) must be the
+        // effective action for Internal-classified traffic regardless of the
+        // endpoint rule; the honeypot arm still wins (behaviour beats identity).
+        var gate = Gate();
+        var registry = new RecordingRegistry();
+        var context = Context();
+
+        var (outcome, evidence) = await gate.EvaluateAsync(
+            context, InternalEvidence(), registry);
+
+        Assert.Equal("logonly", evidence.TriggeredActionPolicyName);
+        Assert.DoesNotContain("throttle-tools", registry.Requested);
+        Assert.Equal(PostDetectionActionOutcome.PolicyContinued, outcome);
+    }
+
+    private static AggregatedEvidence InternalEvidence() => new()
+    {
+        BotProbability = 1.0,
+        Confidence = 1.0,
+        RiskBand = RiskBand.Low,
+        PrimaryBotType = BotType.Internal,
+        PrimaryBotName = "StyloBot dashboard host",
+        Signals = new Dictionary<string, object>()
+    };
+
     private static PostDetectionActionGate Gate() => new(
         Options.Create(new BotDetectionOptions
         {
             BotThreshold = 0.70,
             BotTypeActionPolicies = new Dictionary<string, string>
             {
-                ["Tool"] = "throttle-tools"
+                ["Tool"] = "throttle-tools",
+                ["Internal"] = "logonly"
             }
         }),
         NullLogger<PostDetectionActionGate>.Instance);
