@@ -223,6 +223,53 @@ public class RateLimitActionPolicyTests
         public DateTime? TierEnteredAtUtc { get; }
     }
 
+    // ── Internal-class exemption (2026-08-16, the compose-path 429 incident) ──
+
+    [Fact]
+    public async Task Internal_classified_request_is_never_rate_limited()
+    {
+        // The site's own data path (the compose key) classifies Internal by peer
+        // trust; its prewarm burst must never 429 the dashboard — the exemption must
+        // hold even when the bucket is empty.
+        var (policy, _) = Build(new RateLimitActionOptions
+        {
+            RequestsPerMinute = 1, BurstSize = 1, OverLimitAction = "throttle-status",
+        });
+        var ctx = NewContext();
+
+        // Exhaust the bucket with ordinary visitor evidence.
+        await policy.ExecuteAsync(ctx, EvidenceWithSig("sig:a"));
+        var denied = await policy.ExecuteAsync(ctx, EvidenceWithSig("sig:a"));
+        Assert.False(denied.Continue);
+
+        // Internal-classified (operator-owned) evidence passes regardless of the
+        // empty bucket, and does not stamp the rate-limit headers (fresh context —
+        // the earlier calls stamped theirs).
+        var internalCtx = NewContext();
+        var internalResult = await policy.ExecuteAsync(internalCtx,
+            EvidenceWithSig("sig:a") with { PrimaryBotType = BotType.Internal });
+
+        Assert.True(internalResult.Continue);
+        Assert.Equal(string.Empty, internalCtx.Response.Headers["X-RateLimit-Policy"].ToString());
+    }
+
+    [Fact]
+    public async Task Non_internal_classified_request_is_still_rate_limited()
+    {
+        // Control: the exemption is specific to Internal — a genuine visitor bot
+        // hitting the same key still gets 429'd after the burst.
+        var (policy, _) = Build(new RateLimitActionOptions
+        {
+            RequestsPerMinute = 1, BurstSize = 1, OverLimitAction = "throttle-status",
+        });
+        var ctx = NewContext();
+
+        await policy.ExecuteAsync(ctx, EvidenceWithSig("sig:a") with { PrimaryBotType = BotType.Scraper });
+        var denied = await policy.ExecuteAsync(ctx, EvidenceWithSig("sig:a") with { PrimaryBotType = BotType.Scraper });
+
+        Assert.False(denied.Continue);
+    }
+
     /// <summary>
     ///     Stub policy that records each invocation so the OverLimitAction
     ///     routing test can assert hand-off without a real throttle.

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.RateLimiting;
 
@@ -59,6 +60,18 @@ public sealed class RateLimitEnforcer
         Mostlylucid.BotDetection.Orchestration.AggregatedEvidence evidence,
         CancellationToken ct = default)
     {
+        // Internal-class exemption (2026-08-16, the compose-path 429 incident): the
+        // product's OWN traffic — LAN-trusted peers, health probes, the hub/beacon
+        // plumbing, the site's own data path (the compose key's requests classify
+        // Internal by peer trust) — is operator-owned, never threat-throttled. Skip
+        // the rule resolution + the data-rate wrap entirely; an external caller can
+        // never classify Internal (peer-verified trust or the internal-plumbing paths
+        // only), so the exemption is precisely the operator's own surface.
+        if (evidence.PrimaryBotType == BotType.Internal)
+        {
+            return RateLimitOutcome.Allowed;
+        }
+
         var requestSubjects = _subjects.Resolve(context, detection);
         var rules = _scopes.ResolveRules(
             context.Request.Host.Host,
