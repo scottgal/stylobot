@@ -336,6 +336,18 @@ try
     // Initialize profile calibration store (no-op when profile mode disabled)
     await app.InitializeProfileStoreAsync();
 
+    // Capture the ORIGINAL TCP peer BEFORE the forwarded-headers processing overwrites
+    // Connection.RemoteIpAddress (the site's own calls carry the browser's X-Forwarded-For,
+    // and the InternalTrust peer-only evaluation must see the real peer — the staging 429
+    // incident, 2026-08-16). IpAtom reads the stash; hosts without the capture fall back to
+    // the (possibly overwritten) Connection.RemoteIpAddress.
+    app.Use(async (context, next) =>
+    {
+        context.Items[Mostlylucid.BotDetection.Middleware.BotDetectionMiddleware.OriginalTcpPeerItemKey]
+            = context.Connection.RemoteIpAddress;
+        await next();
+    });
+
     // Forward headers FIRST so bot detection sees real client IPs, not Docker bridge IPs
     app.UseForwardedHeaders();
 

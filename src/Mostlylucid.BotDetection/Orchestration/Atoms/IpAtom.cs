@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Helpers;
+using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Proxy;
@@ -143,12 +144,24 @@ public sealed class IpAtom : DetectorAtomBase
         sink.Raise($"{SignalKeys.IpIsLocal}:{(isLocal ? "true" : "false")}", sessionId);
 
         // Peer-verified trust for the Internal enforcement carve-out. Computed from the REAL TCP
-        // peer (Connection.RemoteIpAddress) + InternalTrust config, never from clientIp (which
-        // may be X-Forwarded-For-derived and is therefore spoofable). The Internal classification
-        // in DetectionLedgerExtensions reads THIS signal, not ip.is_local, so no header can claim
-        // Internal -> logonly and bypass enforcement.
+        // peer + InternalTrust config, never from clientIp (which may be X-Forwarded-For-derived
+        // and is therefore spoofable). The Internal classification in DetectionLedgerExtensions
+        // reads THIS signal, not ip.is_local, so no header can claim Internal -> logonly and
+        // bypass enforcement.
+        //
+        // The peer source: the gateway's UseForwardedHeaders middleware (TrustAllForwardedProxies,
+        // the staging/prod edge config) OVERWRITES Connection.RemoteIpAddress with the forwarded
+        // client IP BEFORE this atom runs — the site's own calls carry the browser's X-Forwarded-
+        // For, so their "peer" read as the browser's public IP and the peer-trust never fired
+        // (the staging 429 incident, 2026-08-16). The gateway host now stashes the ORIGINAL TCP
+        // peer in HttpContext.Items BEFORE the forwarded-headers processing; this check prefers
+        // the stash and falls back to Connection.RemoteIpAddress (hosts without the capture).
+        var originalPeer = context.Items.TryGetValue(BotDetectionMiddleware.OriginalTcpPeerItemKey, out var raw)
+                           && raw is System.Net.IPAddress captured
+            ? captured
+            : context.Connection.RemoteIpAddress;
         var isTrustedInternal = InternalTrustEvaluator.IsTrustedInternalPeer(
-            context.Connection.RemoteIpAddress,
+            originalPeer,
             _options?.Value.InternalTrust ?? new InternalTrustOptions());
         sink.Raise($"{SignalKeys.IpIsTrustedInternal}:{(isTrustedInternal ? "true" : "false")}", sessionId);
 

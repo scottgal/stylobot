@@ -195,7 +195,14 @@ public static class DetectionLedgerExtensions
         // Risk Profile VeryHigh"). Reading IpIsLocal here keeps the override's
         // primary-position-trust semantics intact while routing it through
         // the single Compose() site.
-        var localIpForVerdict = ReadBool(SignalKeys.IpIsLocal);
+        var localIpForVerdict = ReadBool(SignalKeys.IpIsLocal)
+            // The peer-trust signal is the spoof-safe network-position anchor: behind a
+            // trusted forwarded-proxy edge, ip.is_local follows the forwarded client IP
+            // (the product's own calls read as the browser's public IP), but the peer
+            // trust still fires — the verdict's Internal clamp must honour it too, so the
+            // site's own calls land band Low, not the ledger bot type's band (staging 429
+            // incident, 2026-08-16).
+            || ReadBool(SignalKeys.IpIsTrustedInternal);
         // Product-plumbing promotion (hub / beacon): the dashboard's OWN live-update
         // channel is operator-owned plumbing, not a visitor — same trust semantics as
         // network position, routed through the same Internal -> RiskBand.Low clamp.

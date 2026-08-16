@@ -163,6 +163,20 @@ public sealed class BotDetectionMiddleware
     ///     kept in sync by hand -- <c>UpstreamTimingTransformTests</c> / this class's
     ///     tests each pin their own side.
     /// </summary>
+    /// <summary>
+    ///     HttpContext.Items key for the ORIGINAL TCP peer, stashed by the gateway host
+    ///     BEFORE its UseForwardedHeaders middleware runs. The forwarded-headers
+    ///     processing overwrites <c>Connection.RemoteIpAddress</c> with the X-Forwarded-For
+    ///     value, which would make the InternalTrust peer-only evaluation read the
+    ///     forwarded client IP instead of the real peer — the product's own calls (which
+    ///     legitimately carry the browser's forwarded headers) then never classify
+    ///     Internal (the staging 429 incident, 2026-08-16). The stash preserves the
+    ///     peer-only invariant across the middleware ordering; absent (hosts without the
+    ///     capture), the evaluation falls back to the (possibly overwritten)
+    ///     Connection.RemoteIpAddress as before.
+    /// </summary>
+    public const string OriginalTcpPeerItemKey = "StyloBot.Peer.OriginalTcpPeer";
+
     internal const string UpstreamElapsedMsItemKey = "StyloBot.ProxyTiming.UpstreamElapsedMs";
 
     /// <summary>
