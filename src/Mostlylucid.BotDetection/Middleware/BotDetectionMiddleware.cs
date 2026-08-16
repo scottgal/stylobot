@@ -8,6 +8,7 @@ using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.Policies.Dispatch;
 using Mostlylucid.BotDetection.RateLimit;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Middleware;
 
@@ -135,6 +136,55 @@ public sealed class BotDetectionMiddleware
         sink.Raise($"response.from_upstream:{context.IsResponseFromUpstream()}", sessionId);
 
         RecordDegradation(context, context.RequestServices.GetService<DegradationAtom>(), requestStartTicks);
+        RecordResponseCoordinator(context, sink, context.RequestServices.GetService<ResponseCoordinator>());
+    }
+
+    /// <summary>
+    ///     Feeds this response into <see cref="Orchestration.ResponseCoordinator"/> so the NEXT
+    ///     request from the same client sees it in <c>ResponseBehaviorAtom</c>'s history read
+    ///     (exclusive-404 scan pattern, honeypot hits, auth struggle, rate-limit violations).
+    ///     Fire-and-forget, same reasoning as <see cref="Lifecycle.PathLifecycleMiddleware"/>:
+    ///     never block the response on a history write. Skips stylobot's own enforcement
+    ///     responses for the same reason <see cref="RecordDegradation"/> does -- a self-inflicted
+    ///     403/429/challenge status must not read back as bot evidence.
+    ///     <para>
+    ///     Body-pattern signals (stack-trace / login-failed / rate-limited body markers) are NOT
+    ///     populated here -- that needs a response-body-capture wrapper, a separate change with
+    ///     its own buffering cost. Status code + path is enough to feed the exclusive-404 /
+    ///     honeypot-hit / scan-tier / auth-struggle arms, which read status and path only.
+    ///     </para>
+    /// </summary>
+    internal static void RecordResponseCoordinator(
+        HttpContext context, SignalSink sink, ResponseCoordinator? coordinator)
+    {
+        if (coordinator is null) return;
+        if (!context.IsResponseFromUpstream()) return;
+
+        var evidence = context.Items.TryGetValue(AggregatedEvidenceKey, out var raw)
+            ? raw as AggregatedEvidence
+            : null;
+
+        var signal = new ResponseSignal
+        {
+            RequestId = context.TraceIdentifier,
+            ClientId = ResponseBehaviorAtom.GetClientSignature(context, sink),
+            Timestamp = DateTimeOffset.UtcNow,
+            StatusCode = context.Response.StatusCode,
+            ResponseBytes = context.Response.ContentLength ?? 0,
+            Path = context.Request.Path.Value ?? string.Empty,
+            Method = context.Request.Method,
+            BodySummary = new ResponseBodySummary
+            {
+                IsPresent = (context.Response.ContentLength ?? 0) > 0,
+                Length = (int)Math.Min(context.Response.ContentLength ?? 0, int.MaxValue),
+                ContentType = context.Response.ContentType
+            },
+            RequestBotProbability = evidence?.BotProbability ?? 0.0
+        };
+
+        // Fire-and-forget: RecordResponseAsync only enqueues onto the coordinator's own
+        // sequential-per-client processing atom, which handles its own errors.
+        _ = coordinator.RecordResponseAsync(signal, context.RequestAborted);
     }
 
     /// <summary>

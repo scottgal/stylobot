@@ -1,7 +1,13 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.BotDetection.RateLimit;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Test.Middleware;
 
@@ -150,5 +156,71 @@ public class BotDetectionMiddlewareDegradationAtomGateTests
         var latencyMs = BotDetectionMiddleware.ResolveUpstreamLatencyMs(ctx, start);
 
         Assert.True(latencyMs >= 0);
+    }
+
+    // ---- ResponseCoordinator wiring gate (was missing entirely -- ResponseBehaviorAtom's
+    // exclusive-404/honeypot/fail2ban/auth-struggle signals silently never fired because
+    // nothing fed ResponseCoordinator.RecordResponseAsync. Same "gate exists, production
+    // caller was missing" shape as the DegradationAtom tests above. ----
+
+    private static ResponseCoordinator NewCoordinator() =>
+        new(NullLogger<ResponseCoordinator>.Instance, Options.Create(new BotDetectionOptions()));
+
+    [Fact]
+    public void Production_RecordResponseCoordinator_is_noop_when_coordinator_not_registered()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Response.StatusCode = 404;
+        var sink = new SignalSink(maxCapacity: 64, maxAge: TimeSpan.FromMinutes(5));
+
+        var ex = Record.Exception(() =>
+            BotDetectionMiddleware.RecordResponseCoordinator(ctx, sink, coordinator: null));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public async Task Production_RecordResponseCoordinator_feeds_the_coordinator_when_response_is_from_upstream()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Response.StatusCode = 404;
+        ctx.Request.Path = "/scanner/probe";
+        var sink = new SignalSink(maxCapacity: 64, maxAge: TimeSpan.FromMinutes(5));
+        var coordinator = NewCoordinator();
+
+        var clientId = ResponseBehaviorAtom.GetClientSignature(ctx, sink);
+        BotDetectionMiddleware.RecordResponseCoordinator(ctx, sink, coordinator);
+
+        // Fire-and-forget internally; poll briefly for the coordinator's own sequential
+        // processing to land rather than assuming a fixed delay.
+        ClientResponseBehavior? behavior = null;
+        for (var i = 0; i < 50 && (behavior is null || behavior.TotalResponses == 0); i++)
+        {
+            await Task.Delay(10);
+            behavior = await coordinator.GetClientBehaviorAsync(clientId);
+        }
+
+        Assert.NotNull(behavior);
+        Assert.Equal(1, behavior!.TotalResponses);
+        Assert.Equal(1, behavior.Count404);
+    }
+
+    [Fact]
+    public async Task Production_RecordResponseCoordinator_skips_when_stylobot_marked_response()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Response.StatusCode = 429;
+        ctx.MarkResponseFromStyloBot();
+        var sink = new SignalSink(maxCapacity: 64, maxAge: TimeSpan.FromMinutes(5));
+        var coordinator = NewCoordinator();
+
+        var clientId = ResponseBehaviorAtom.GetClientSignature(ctx, sink);
+        BotDetectionMiddleware.RecordResponseCoordinator(ctx, sink, coordinator);
+
+        // Give the (should-never-fire) enqueue a moment, then confirm nothing landed.
+        await Task.Delay(100);
+        var behavior = await coordinator.GetClientBehaviorAsync(clientId);
+
+        Assert.Null(behavior);
     }
 }

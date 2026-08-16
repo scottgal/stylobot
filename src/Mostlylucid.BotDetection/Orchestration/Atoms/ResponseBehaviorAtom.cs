@@ -493,7 +493,12 @@ public sealed class ResponseBehaviorAtom : DetectorAtomBase
         }
     }
 
-    private static string GetClientSignature(HttpContext context, SignalSink sink)
+    // internal (not private): BotDetectionMiddleware's post-response hook needs the SAME
+    // client-key derivation to feed ResponseCoordinator.RecordResponseAsync -- a second,
+    // hand-rolled copy of "ip:hash(ua)" would silently drift from this one and the exclusive-
+    // 404/honeypot/fail2ban history would never join to the request-side signature it's
+    // supposed to score.
+    internal static string GetClientSignature(HttpContext context, SignalSink sink)
     {
         // Prefer the resolved IP from the sink (IpAtom's canonical ClientIp hint).
         // Falls back to the raw connection address only when the sink hint is absent
@@ -505,7 +510,7 @@ public sealed class ResponseBehaviorAtom : DetectorAtomBase
         return $"{ip}:{GetHash(ua)}";
     }
 
-    private static string GetHash(string input)
+    internal static string GetHash(string input)
     {
         if (input.Length == 0) return "empty";
         var bytes = Encoding.UTF8.GetBytes(input);

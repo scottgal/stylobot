@@ -67,6 +67,10 @@ output:
     - key: response.rate_limit_violations
       entity_type: integer
       salience: 0.7
+    - key: response.client_signature
+      entity_type: string
+      salience: 0.2
+      description: ip:hash(ua) key used to join this request to its response history in ResponseCoordinator
 
 triggers:
   requires: []  # No dependencies - runs in Wave 0
@@ -84,6 +88,12 @@ emits:
     - key: response.coordinator_available
       type: bool
       description: True when the ResponseCoordinator was reachable during detection (raised by the atom; declared here to close the reverse-drift gap)
+    - key: response.client_signature
+      type: string
+      description: ip:hash(ua) join key for this request's response history (raised whenever the coordinator is reachable, before the history read)
+    - key: response.total_responses
+      type: integer
+      description: Count of tracked historical responses for this client (raised on every reachable-coordinator path, including the zero-history early return)
   on_failure:
     - detector.responsebehavior.failed
 

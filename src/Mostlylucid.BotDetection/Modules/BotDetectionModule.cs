@@ -168,6 +168,14 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
         services.TryAddSingleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>();
 
+        // Response-history coordinator: ResponseBehaviorAtom's exclusive-404 scan detection,
+        // honeypot-hit counting, fail2ban escalation, and auth-brute-force struggle all read
+        // this via GetClientBehaviorAsync -- but it was never registered, so the atom always
+        // saw ResponseCoordinator=null and every one of those signals was silently dead (same
+        // "fully built, unit tested, never wired" class as DomainNormalizer/SiteProfiles
+        // above). BotDetectionMiddleware.EmitResponseSignals now feeds it post-response.
+        services.TryAddSingleton<Orchestration.ResponseCoordinator>();
+
         // Domain/host normalization (eTLD+1 via the embedded Public Suffix List,
         // SNI-preferred over the spoofable Host header). Backs RequestScope --
         // the (Domain, Host) pair BotDetectionMiddleware stamps on HttpContext.Items
