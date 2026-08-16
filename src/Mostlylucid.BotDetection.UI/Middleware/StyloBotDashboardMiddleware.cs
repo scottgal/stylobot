@@ -525,10 +525,6 @@ public class StyloBotDashboardMiddleware
                 await ServeMeApiAsync(context);
                 break;
 
-            case "api/license":
-                await ServeLicenseApiAsync(context);
-                break;
-
             case "api/config/manifests":
                 await ServeConfigManifestsListAsync(context);
                 break;
@@ -617,10 +613,6 @@ public class StyloBotDashboardMiddleware
 
             case "partials/your-detection":
                 await ServeYourDetectionPartialAsync(context);
-                break;
-
-            case "partials/license":
-                await ServeLicensePartialAsync(context);
                 break;
 
             case "partials/configuration":
@@ -1874,7 +1866,6 @@ public class StyloBotDashboardMiddleware
             TopBots = topBotsTask.Result,
             Sessions = sessionsTask.Result,
             Threats = threatsTask.Result,
-            License = BuildLicenseCardModel(context),
             // Only build the editor model when the operator is on the Configuration tab --
             // listing all 30+ embedded manifests on every dashboard render is wasteful.
             Configuration = tab.Equals("configuration", StringComparison.OrdinalIgnoreCase)
@@ -3981,42 +3972,6 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    /// <summary>
-    ///     <c>GET /api/license</c> - FOSS builds carry no license concept, so
-    ///     this endpoint just returns the upsell target. Commercial replaces
-    ///     the middleware and serves parsed claims + entitlement stats.
-    /// </summary>
-    private async Task ServeLicenseApiAsync(HttpContext context)
-    {
-        var model = BuildLicenseCardModel(context);
-        context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, new
-        {
-            status = model.Status.ToString(),
-            upsellUrl = model.UpsellUrl,
-            upsellLabel = model.UpsellLabel
-        }, CamelCaseJson);
-    }
-
-    /// <summary>Render the license card partial (HTMX target - refreshes itself every 60s).</summary>
-    private async Task ServeLicensePartialAsync(HttpContext context)
-    {
-        var model = BuildLicenseCardModel(context);
-        context.Response.ContentType = "text/html";
-        var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/_LicenseCard.cshtml", model, context);
-        await context.Response.WriteAsync(html);
-    }
-
-    /// <summary>
-    ///     Build the license card view model by combining the runtime
-    ///     <see cref="DomainEntitlementValidator"/> stats with the parsed JWT (when present).
-    ///     Logic lives in <see cref="LicenseCardModelBuilder"/> so the controller-hosted
-    ///     dashboard renders the same status calculation.
-    /// </summary>
-    private LicenseCardModel BuildLicenseCardModel(HttpContext context) =>
-        LicenseCardModelBuilder.Build(context, _options.BasePath.TrimEnd('/'));
-
     // ----- Policy Stack signal catalogue API -----
     //
     // Three JSON routes the expression editor binds to for autocomplete + signal
@@ -4911,17 +4866,11 @@ public class StyloBotDashboardMiddleware
         var editor = context.RequestServices.GetService<IConfigEditorService>();
         if (editor is null) return null;
 
-        // Reuse the shared license-status logic so the upsell rail's gating matches what
-        // the License card on Overview is showing - no risk of inconsistency.
-        var license = LicenseCardModelBuilder.Build(context, _options.BasePath.TrimEnd('/'));
-        var commercial = license.Status is LicenseStatusKind.Active or LicenseStatusKind.Trial;
-
         return new ConfigurationEditorModel
         {
             BasePath = _options.BasePath.TrimEnd('/'),
             Detectors = await editor.ListManifestsAsync(context.RequestAborted),
-            Sections = EffectiveConfigSerializer.DiscoverSections(),
-            IsCommercialLicensed = commercial
+            Sections = EffectiveConfigSerializer.DiscoverSections()
         };
     }
 
@@ -6925,7 +6874,7 @@ public class StyloBotDashboardMiddleware
         // from Index.cshtml itself, so the mirror silently went stale.
         //
         // Only the fields the shared shell actually renders are built for real
-        // (YourDetection pill, License card, Packs for the sidebar, TunnelEnvironment
+        // (YourDetection pill, Packs for the sidebar, TunnelEnvironment
         // banner); DashboardShellModel's other required fields are cheap empty
         // placeholders -- the SignatureDetailContent dispatch branch in Index.cshtml
         // never touches them, so there's no reason to pay for the Visitors/Countries/
@@ -6960,7 +6909,6 @@ public class StyloBotDashboardMiddleware
             TopBots = new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
             Sessions = new SessionsListModel { Sessions = [], BasePath = basePath },
             Threats = new ThreatsListModel { BasePath = basePath },
-            License = BuildLicenseCardModel(context),
             IsCommercial = IsCommercialMode(context),
             Packs = registry.Packs,
             TunnelEnvironment = context.RequestServices
@@ -7534,7 +7482,6 @@ public class StyloBotDashboardMiddleware
             TopBots = new() { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
             Sessions = new() { Sessions = [], BasePath = basePath },
             Threats = new() { BasePath = basePath },
-            License = BuildLicenseCardModel(context),
             IsCommercial = IsCommercialMode(context),
             Packs = registry.Packs,
             SignatureDetailContent = model,
@@ -7664,7 +7611,7 @@ public class StyloBotDashboardMiddleware
         var detailModel = await BuildEndpointDetailModelAsync(context, method, path, standalonePage: true);
 
         // Only the fields the shared shell actually renders are built for real
-        // (YourDetection pill, License card, Packs for the sidebar, TunnelEnvironment
+        // (YourDetection pill, Packs for the sidebar, TunnelEnvironment
         // banner); every other required field is a cheap empty placeholder -- the
         // EndpointDetailContent dispatch branch in Index.cshtml never touches them.
         var registry = context.RequestServices
@@ -7697,7 +7644,6 @@ public class StyloBotDashboardMiddleware
             TopBots = new TopBotsListModel { Bots = [], Page = 1, PageSize = 10, TotalCount = 0, SortField = "default", BasePath = basePath },
             Sessions = new SessionsListModel { Sessions = [], BasePath = basePath },
             Threats = new ThreatsListModel { BasePath = basePath },
-            License = BuildLicenseCardModel(context),
             IsCommercial = IsCommercialMode(context),
             Packs = registry.Packs,
             TunnelEnvironment = context.RequestServices

@@ -8,7 +8,7 @@
    on purpose - this is a separate code path that delegates the whole editor surface
    to a remote control plane. The FOSS view-only surface below replaces the dead
    Monaco-from-CDN editor that used to live here. *@
-@if (!string.IsNullOrEmpty(Model.ControlPlaneUrl) && Model.IsCommercialLicensed)
+@if (!string.IsNullOrEmpty(Model.ControlPlaneUrl))
 {
     <div class="flex items-center gap-1 mb-1">
         <h3 class="text-sm font-bold text-base-content">Configuration</h3>

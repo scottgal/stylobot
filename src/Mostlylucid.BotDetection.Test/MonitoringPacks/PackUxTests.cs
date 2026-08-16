@@ -64,7 +64,6 @@ public class PackUxTests
             TopBots       = null!,
             Sessions      = null!,
             Threats       = null!,
-            License       = null!,
             Packs         = packs.Select(p => (Mostlylucid.BotDetection.UI.Dashboard.IDashboardPack)
                 new ShimPack(p.Id, p.TabName)).ToList(),
         };

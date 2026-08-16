@@ -83,7 +83,6 @@ public sealed class SidebarV2PackNavTests
             },
             Sessions = new SessionsListModel { Sessions = [], BasePath = "/dashboard" },
             Threats = new ThreatsListModel { BasePath = "/dashboard" },
-            License = LicenseCardModelBuilder.Build(context, "/dashboard"),
             IsCommercial = true,
             Packs = [settingsPack, domainsPack],
         };

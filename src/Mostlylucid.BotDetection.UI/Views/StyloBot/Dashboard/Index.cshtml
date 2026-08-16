@@ -150,24 +150,6 @@
            it burned prime top-of-dashboard space for a value the operator
            reads on the Policies tab. The rule stack lives there in full. *@
 
-        @if (Model.License.Status != LicenseStatusKind.Unconfigured)
-        {
-            <!-- Commercial license card on its own compact row -->
-            <div class="mb-3">
-                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_LicenseCard.cshtml", Model.License)
-            </div>
-        }
-
-        @* Commercial-only: full Your Detection partial below the strip (gives operators the
-           expanded detector trace they expect on commercial dashboards). FOSS gets the compact
-           pill inside the strip above and nothing else. *@
-        @if (Model.License.Status != LicenseStatusKind.Unconfigured)
-        {
-            <div class="mb-3">
-                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_YourDetection.cshtml", Model.YourDetection)
-            </div>
-        }
-
         @* Top-of-page navigation now lives entirely in the left drawer
            (_LeftNav.cshtml). The horizontal tab pill block + StatusStrip preamble
            were deleted in favour of the registry-driven dispatch chain below --

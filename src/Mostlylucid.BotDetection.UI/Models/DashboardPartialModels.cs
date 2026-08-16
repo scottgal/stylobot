@@ -763,9 +763,6 @@ public sealed class DashboardShellModel
     public required SessionsListModel Sessions { get; init; }
     public required ThreatsListModel Threats { get; init; }
 
-    /// <summary>License entitlement card model. Always present (renders the muted OSS line in the unconfigured case).</summary>
-    public required LicenseCardModel License { get; init; }
-
     /// <summary>
     ///     Configuration editor model. Optional -- only set when the active tab is "configuration"
     ///     so we don't pay the embedded-manifest enumeration cost on every dashboard render.
@@ -880,12 +877,6 @@ public sealed class ConfigurationEditorModel
     ///     are the complex sub-options classes (AiDetection, Behavioral, ...).
     /// </summary>
     public required IReadOnlyList<Mostlylucid.BotDetection.UI.Services.ConfigSectionInfo> Sections { get; init; }
-
-    /// <summary>
-    ///     True when the active license is paid (Active or Trial). Hides the per-target
-    ///     upsell rail. Read off the LicenseCardModel that's already on the shell.
-    /// </summary>
-    public required bool IsCommercialLicensed { get; init; }
 
     /// <summary>
     ///     Control plane URL for loading the commercial config editor via HTMX.
