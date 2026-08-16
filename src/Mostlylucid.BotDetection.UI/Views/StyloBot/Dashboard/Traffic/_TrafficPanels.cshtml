@@ -81,11 +81,7 @@
     @if (showMap)
     {
         <sb-widget width="third" height="tall" heading="Traffic by country">
-            @if (Model.Countries.Count == 0 && Model.IsWarming)
-            {
-                <div class="h-full min-h-[96px] flex items-center justify-center"><span class="loading loading-spinner loading-sm text-base-content/40"></span></div>
-            }
-            else if (Model.Countries.Count == 0)
+            @if (Model.Countries.Count == 0)
             {
                 <div class="text-center text-base-content/30 py-12 text-sm">No location data in this window</div>
             }
@@ -98,7 +94,6 @@
     else
     {
         <sb-widget width="third" height="tall" heading="By country"
-                   warming-when="@Model.IsWarming"
                    empty-when="@(Model.Countries.Count == 0)" empty-text="No data in this window">
             <vc:sb-chartlet model="countryChart" />
         </sb-widget>
@@ -107,11 +102,7 @@
     @if (showBySource)
     {
         <sb-widget width="third" height="tall" heading="By source">
-            @if (sources.Count == 0 && Model.IsWarming)
-            {
-                <div class="h-full min-h-[96px] flex items-center justify-center"><span class="loading loading-spinner loading-sm text-base-content/40"></span></div>
-            }
-            else if (sources.Count == 0)
+            @if (sources.Count == 0)
             {
                 <div class="text-center text-base-content/30 py-12 text-sm">No external traffic in this window</div>
             }
@@ -148,7 +139,6 @@
     else
     {
         <sb-widget width="third" height="tall" heading="By bot type"
-                   warming-when="@Model.IsWarming"
                    empty-when="@(Model.BotTypes.Count == 0)" empty-text="No data in this window">
             <vc:sb-chartlet model="botTypeChart" />
         </sb-widget>
