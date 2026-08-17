@@ -1,0 +1,16 @@
+{
+  "scenarioName": "feed-reader-recognized",
+  "description": "P0 regression 2026-08-17 addition 2: Feedly is correctly cataloged in well-known-bots.baseline.json under category 'feedfetcher' (-> BotType.GoodBot), but UserAgentAtom used to check a generic downloaded crawler-pattern list FIRST, which only ever answers BotType.Unknown -- so Feedly fell through BotTypeActionPolicies (no entry for Unknown) to the generic throttle default instead of being recognised as a legitimate feed reader. See BdfReplayTests.FeedReaderScenario_IsRecognisedAsGoodBot_NotUnknown for the BotType-specific assertion this generic bot-scenario loop doesn't check.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/feed",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (compatible; Feedly/1.0; +http://www.feedly.com/fetcher.html)",
+        "Accept": "application/rss+xml, application/xml"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.4, "riskBand": "Medium" }
+    }
+  ]
+}

@@ -347,11 +347,72 @@ public sealed class BdfReplayTests
             "is unreachable.");
     }
 
-    private async Task<BdfReplayResponse?> ReplayAsync(string scenarioFile)
+    // ── P0 2026-08-17 acceptance fixtures (not covered by the generic Bot/Human loops) ──
+
+    /// <summary>
+    ///     Addition 2 (P0): Feedly must be recognised as BotType.GoodBot, not Unknown -- the
+    ///     generic BotScenarios loop only asserts IsBot, which was already true before this fix
+    ///     (Unknown still crosses BotFloor); the actual regression is the BotType value itself,
+    ///     which only this dedicated assertion checks.
+    /// </summary>
+    [Fact]
+    public async Task FeedReaderScenario_IsRecognisedAsGoodBot_NotUnknown()
+    {
+        var scenarioFile = Path.Combine(TestSuitesRoot, "bots", "17-feed-reader-recognized.bdf.json");
+        var response = await ReplayAsync(scenarioFile);
+        Assert.NotNull(response);
+        Assert.NotEmpty(response.Results);
+
+        var last = response.Results[^1];
+        Assert.NotNull(last.Actual);
+        Assert.Equal(nameof(BotType.GoodBot), last.Actual!.BotType);
+    }
+
+    /// <summary>
+    ///     Addition 1 (P0): a real browser hitting /wp-login.php on a WordPress-profiled site
+    ///     must not be classified Scraper. Replayed with Host: wp.demo.local so the synthetic
+    ///     context resolves the wordpress site profile (Demo's Sites:Domains mapping) -- the
+    ///     generic HumanScenarios loop deliberately does NOT discover this fixture (it lives in
+    ///     humans/site-profile-scenarios/, one level below the loop's top-directory-only scan)
+    ///     because running it under the DEFAULT ("generic") profile would fail for the opposite,
+    ///     correct reason: a non-WordPress site legitimately treats /wp-login.php as suspicious.
+    /// </summary>
+    [Fact]
+    public async Task BrowserOnWpLoginScenario_WithWordPressProfile_IsNotFlaggedAsScraper()
+    {
+        var scenarioFile = Path.Combine(
+            TestSuitesRoot, "humans", "site-profile-scenarios", "fp-06-browser-wp-login.bdf.json");
+        var response = await ReplayAsync(scenarioFile, host: "wp.demo.local");
+        Assert.NotNull(response);
+        Assert.NotEmpty(response.Results);
+
+        var last = response.Results[^1];
+        Assert.NotNull(last.Actual);
+        Assert.NotEqual(nameof(BotType.Scraper), last.Actual!.BotType);
+        Assert.False(last.Actual.IsBot,
+            $"a browser visiting the real login page of its own WordPress-profiled site must not " +
+            $"be classified a bot (got type={last.Actual.BotType}, prob={last.Actual.BotProbability:F2})");
+    }
+
+    private Task<BdfReplayResponse?> ReplayAsync(string scenarioFile) => ReplayAsync(scenarioFile, host: null);
+
+    /// <summary>
+    ///     <paramref name="host"/> lets a test replay a scenario as if it arrived on a specific
+    ///     site -- the replay endpoint stamps the synthetic context's Host from the OUTER
+    ///     request's Host (see BdfReplayEndpoints.cs, `syntheticContext.Request.Host =
+    ///     httpContext.Request.Host`), and a `Host` key inside the fixture's own per-request
+    ///     Headers is deliberately blocked (host-manipulation prevention). Site-profile-scoped
+    ///     scenarios (e.g. the WordPress framework-path exemption) MUST go through this, not the
+    ///     generic no-host overload -- Demo's configured Sites:Domains maps wp.demo.local to the
+    ///     wordpress profile (Mostlylucid.BotDetection.Demo/appsettings.json).
+    /// </summary>
+    private async Task<BdfReplayResponse?> ReplayAsync(string scenarioFile, string? host)
     {
         var bdfBody = await File.ReadAllBytesAsync(scenarioFile);
 
         using var client = new HttpClient { BaseAddress = new Uri(_demo.BaseUrl), Timeout = TimeSpan.FromSeconds(60) };
+        if (host is not null)
+            client.DefaultRequestHeaders.Host = host;
 
         // Reset the identity store before each scenario. The Demo persists fingerprints
         // across requests by design; without a reset, scenario N inherits the fingerprints

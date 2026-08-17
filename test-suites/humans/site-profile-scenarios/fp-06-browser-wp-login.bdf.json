@@ -1,0 +1,27 @@
+{
+  "scenarioName": "fp-browser-wp-login",
+  "description": "FALSE POSITIVE PREVENTION / P0 regression 2026-08-17 addition 1: a real browser visiting the normal login page of a site running the WordPress site profile. Must NOT be classified Scraper/throttled -- the person most likely to hit /wp-login.php on a freshly-installed gateway is the owner who just installed it. Requires the outer replay request to carry Host: wp.demo.local (Demo's configured WordPress-profile domain) -- see BdfReplayTests.BrowserOnWpLoginScenario_WithWordPressProfile_IsNotFlaggedAsScraper, which is the only caller that sets that header; this fixture is not covered by the generic HumanScenarios loop.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/wp-login.php",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Cache-Control": "max-age=0",
+        "Sec-Ch-Ua": "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": "\"Windows\"",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.3, "riskBand": "Low" }
+    }
+  ]
+}
