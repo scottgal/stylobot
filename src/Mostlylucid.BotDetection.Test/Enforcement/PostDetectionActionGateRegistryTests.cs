@@ -30,7 +30,7 @@ public sealed class PostDetectionActionGateRegistryTests
 
         // Benign routing: the pipeline continues and no throttle policy is invoked.
         Assert.Equal(PostDetectionActionOutcome.PolicyContinued, outcome);
-        Assert.Equal("registry-client-recognized", evidence.TriggeredActionPolicyName);
+        Assert.Equal(PostDetectionActionGate.RegistryClientFastPathName, evidence.TriggeredActionPolicyName);
         Assert.True(context.Items.ContainsKey("BotDetection.RegistryClientRecognized"));
 
         // The Tool throttle bucket was never consulted, and no 429 was shaped.

@@ -70,6 +70,27 @@ public sealed class PostDetectionActionGate
     /// </summary>
     public const string SafetyCeilingPolicyName = "safety-ceiling";
 
+    /// <summary>
+    ///     Every value this class stamps onto <c>evidence.TriggeredActionPolicyName</c> for
+    ///     the observability-only fast paths (verified-crawler, registry-client,
+    ///     webhook-recognized) must fit in this many characters. <c>TriggeredActionPolicyName</c>
+    ///     is free text that downstream event consumers may persist into a fixed-length field
+    ///     -- FOSS doesn't know the exact bound any given consumer uses, so 20 is the
+    ///     documented, tested contract this class promises to stay under (a field-length
+    ///     correctness convention, not any specific schema detail). Pinned by
+    ///     <c>PostDetectionActionGateFastPathNameLengthTests</c>.
+    /// </summary>
+    public const int MaxFastPathActionPolicyNameLength = 20;
+
+    /// <summary>Fast-path stamp: <see cref="IsVerifiedCrawlerMarketingFetch"/>.</summary>
+    public const string VerifiedCrawlerFastPathName = "verified-crawler";
+
+    /// <summary>Fast-path stamp: corroborated OCI/Docker registry-client routing.</summary>
+    public const string RegistryClientFastPathName = "registry-client";
+
+    /// <summary>Fast-path stamp: corroborated webhook-sender routing.</summary>
+    public const string WebhookRecognizedFastPathName = "webhook-recognized";
+
     private readonly BotDetectionOptions _options;
     private readonly ILogger<PostDetectionActionGate> _logger;
     private readonly ITokenBucketStore? _tokenBucketStore;
@@ -226,7 +247,11 @@ public sealed class PostDetectionActionGate
         if (IsVerifiedCrawlerMarketingFetch(context, evidence))
         {
             // Preserve action observability without invoking a latency-inducing action.
-            evidence = evidence with { TriggeredActionPolicyName = "verified-crawler-fast-path" };
+            // TriggeredActionPolicyName is a free-text identifier that downstream event
+            // consumers may bound to a fixed-length field -- keep every literal here at
+            // 20 chars or under (shortened from "verified-crawler-fast-path", a field-
+            // length correctness fix, not a semantic change).
+            evidence = evidence with { TriggeredActionPolicyName = VerifiedCrawlerFastPathName };
             context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
             context.Items["BotDetection.VerifiedCrawlerFastPath"] = true;
             _logger.LogInformation("[ACTION] Verified crawler fast path for {Path}", context.Request.Path);
@@ -246,11 +271,12 @@ public sealed class PostDetectionActionGate
         // Tool and MUST still throttle). Placed AFTER the honeypot + endpoint
         // overrides above (those still win via the TriggeredActionPolicyName guard)
         // and BEFORE the BotType fallback. A rate policy on top is still allowed.
-        // Mirrors the verified-crawler-fast-path sibling above.
+        // Mirrors the verified-crawler sibling above -- same 20-char field-length rule
+        // applies (shortened from "registry-client-recognized").
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
             && evidence.RegistryClientCorroborated)
         {
-            evidence = evidence with { TriggeredActionPolicyName = "registry-client-recognized" };
+            evidence = evidence with { TriggeredActionPolicyName = RegistryClientFastPathName };
             context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
             context.Items["BotDetection.RegistryClientRecognized"] = true;
             _logger.LogInformation(
@@ -271,11 +297,11 @@ public sealed class PostDetectionActionGate
         // or BotType alone (an unrecognized request to the same endpoint must still
         // resolve the normal action). Placed AFTER the honeypot + endpoint overrides
         // above (those still win via the TriggeredActionPolicyName guard) and BEFORE
-        // the BotType fallback. Mirrors the registry-client-recognized sibling above.
+        // the BotType fallback. Mirrors the registry-client sibling above.
         if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName)
             && evidence.WebhookRecognized)
         {
-            evidence = evidence with { TriggeredActionPolicyName = "webhook-recognized" };
+            evidence = evidence with { TriggeredActionPolicyName = WebhookRecognizedFastPathName };
             context.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;
             context.Items["BotDetection.WebhookRecognized"] = true;
             _logger.LogInformation(

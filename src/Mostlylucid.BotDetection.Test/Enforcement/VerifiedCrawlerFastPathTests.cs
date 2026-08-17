@@ -22,7 +22,7 @@ public sealed class VerifiedCrawlerFastPathTests
         var (outcome, evidence) = await gate.EvaluateAsync(context, VerifiedEvidence(), Registry());
 
         Assert.Equal(PostDetectionActionOutcome.PolicyContinued, outcome);
-        Assert.Equal("verified-crawler-fast-path", evidence.TriggeredActionPolicyName);
+        Assert.Equal(PostDetectionActionGate.VerifiedCrawlerFastPathName, evidence.TriggeredActionPolicyName);
         Assert.True(context.Items.ContainsKey("BotDetection.VerifiedCrawlerFastPath"));
     }
 
