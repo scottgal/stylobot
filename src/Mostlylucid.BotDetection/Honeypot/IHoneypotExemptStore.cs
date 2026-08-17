@@ -25,6 +25,14 @@ public interface IHoneypotExemptStore
     ///     True if the given normalised path is operator-exempted from
     ///     Tier 2 signals. Tier 1 paths always return false (never
     ///     exempt-able).
+    ///     <para>
+    ///     Also consumed by <see cref="Orchestration.Atoms.HaxxorAtom"/> to suppress its own,
+    ///     unrelated <c>path_probes</c> "existence of this path is suspicious" signal for the
+    ///     same framework-legitimate paths (operator P0 2026-08-17) -- a deliberate reuse of
+    ///     the site-profile <c>framework_paths</c> resolution below, not a Honeypot-only
+    ///     contract. Callers outside the Honeypot detector should treat the name/doc as "is this
+    ///     path operator/profile-declared legitimate", not literally "exempt from Tier 2".
+    ///     </para>
     /// </summary>
     /// <param name="normalizedPath">Normalised request path.</param>
     /// <param name="context">

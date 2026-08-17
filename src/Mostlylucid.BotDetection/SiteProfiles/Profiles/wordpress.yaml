@@ -3,8 +3,21 @@ name: WordPress
 # WordPress sites legitimately serve /wp-login.php, /wp-admin, wp-cron.php,
 # xmlrpc.php and the wp-content/uploads tree. The global honeypot catalog
 # classifies all of these as Tier 2 (probable scanner) because they're hostile
-# anywhere ELSE on the web. For this host we skip the Tier 2 elevation;
-# Haxxor, behavioural, rate-limit, auth-takeover still run normally.
+# anywhere ELSE on the web. For this host we skip the Tier 2 elevation.
+#
+# HaxxorAtom's path_probes signal ("existence of this path is suspicious")
+# ALSO reads this same framework_paths list (via IHoneypotExemptStore,
+# operator P0 2026-08-17: a real browser hitting /wp-login.php got
+# classified Scraper and throttled ~28s) and is suppressed on this host too
+# -- the two mechanisms share the exemption on purpose now, not by accident.
+# Behavioural, rate-limit, and auth-takeover (a DIFFERENT signal -- tracking
+# repeated failed logins AT these paths, not their mere existence) are
+# unaffected and still run normally, as does every other Haxxor category
+# (webshell/backup/debug/config-exposure probes, the injection-payload
+# regex scan) on these same paths -- a real attack payload here is still
+# caught. Do not read "still run normally" as "everything except honeypot
+# elevation is untouched" -- it means "still defended against actual
+# attacks", which path_probes alone is not.
 honeypot:
   framework_paths:
     - /wp-login.php
