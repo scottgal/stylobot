@@ -223,15 +223,17 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
         if (IsCommonBotPattern(userAgent, out var botType, out var botName))
             return (true, PatternMatchConfidence, botType, botName, $"Known bot pattern: {botName}");
 
-        if (_patternCache is not null && _patternCache.MatchesAnyPattern(userAgent, out var matchedValue))
-        {
-            var extractedName = ExtractNameFromUserAgent(userAgent);
-            return (true, PatternMatchConfidence, BotType.Unknown, extractedName,
-                extractedName is not null
-                    ? $"Known bot pattern: {extractedName}"
-                    : DescribeMatchedUserAgent(userAgent, matchedValue));
-        }
-
+        // Well-known-bots catalog BEFORE the generic downloaded pattern cache: the catalog
+        // carries a real category (feedfetcher/social/monitor/... -> a real BotType via
+        // WellKnownBotIndex.MapBotType), while the downloaded crawler-pattern lists
+        // (isbot/crawler-user-agents/coreruleset) only ever answer "yes this is some kind
+        // of bot" with BotType.Unknown baked in. Checking the generic list first meant any
+        // bot present in BOTH (e.g. Feedly, cataloged as feedfetcher -> GoodBot) got stuck
+        // at Unknown -- which BotTypeActionPolicies intentionally has no entry for, so it
+        // fell through to the generic throttle default instead of being recognised
+        // (operator P0, 2026-08-17: "Feed readers being classified Unknown... a content
+        // site's RSS traffic is legitimate and must be recognised"). Prefer the specific
+        // classification whenever both would match.
         if (_wellKnownBots is { Count: > 0 })
         {
             var match = _wellKnownBots.TryMatch(userAgent);
@@ -242,6 +244,15 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
                 // crawler names on Top Bots (operator P0, 2026-08-12).
                 return (true, PatternMatchConfidence, match.BotType, match.Family,
                     $"Well-known bot: {match.Id}");
+        }
+
+        if (_patternCache is not null && _patternCache.MatchesAnyPattern(userAgent, out var matchedValue))
+        {
+            var extractedName = ExtractNameFromUserAgent(userAgent);
+            return (true, PatternMatchConfidence, BotType.Unknown, extractedName,
+                extractedName is not null
+                    ? $"Known bot pattern: {extractedName}"
+                    : DescribeMatchedUserAgent(userAgent, matchedValue));
         }
 
         if (IsSuspiciousUserAgent(userAgent, out var suspiciousReason))

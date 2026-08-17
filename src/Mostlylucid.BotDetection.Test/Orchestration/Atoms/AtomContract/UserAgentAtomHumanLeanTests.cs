@@ -1,7 +1,10 @@
+using System.Net;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Definitions.WellKnownBots;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
 using Mostlylucid.Ephemeral;
@@ -79,5 +82,70 @@ public class UserAgentAtomHumanLeanTests
         var bot = contributions.Should().ContainSingle().Subject;
         bot.ConfidenceDelta.Should().BeGreaterThan(0.0,
             "a self-declaring contact-URL UA is a bot marker, not a weak human lean");
+    }
+
+    /// <summary>Matches any UA containing the configured substring -- simulates a downloaded
+    /// generic crawler-pattern list (isbot/crawler-user-agents) that recognises "some kind of
+    /// bot" but carries no category, mirroring what actually fires for Feedly in production.</summary>
+    private sealed class SubstringPatternCache : ICompiledPatternCache
+    {
+        private readonly string _substring;
+        public SubstringPatternCache(string substring) => _substring = substring;
+
+        public bool MatchesAnyPattern(string userAgent, out string? matchedPattern)
+        {
+            var hit = userAgent.Contains(_substring, StringComparison.OrdinalIgnoreCase);
+            matchedPattern = hit ? _substring : null;
+            return hit;
+        }
+
+        public IReadOnlyList<System.Text.RegularExpressions.Regex> DownloadedPatterns { get; } = [];
+        public IReadOnlyList<ParsedCidrRange> DownloadedCidrRanges { get; } = [];
+        public System.Text.RegularExpressions.Regex? GetOrCompileRegex(string pattern) => null;
+        public ParsedCidrRange? GetOrParseCidr(string cidr) => null;
+        public void UpdateDownloadedPatterns(IEnumerable<string> patterns) { }
+        public void UpdateDownloadedCidrRanges(IEnumerable<string> cidrs) { }
+        public bool IsInAnyCidrRange(IPAddress ipAddress, out string? matchedRange) { matchedRange = null; return false; }
+        public void Clear() { }
+    }
+
+    [Fact]
+    public async Task Well_known_bots_catalog_wins_over_the_generic_downloaded_pattern_cache()
+    {
+        // Regression for operator P0 2026-08-17: "Feed readers being classified Unknown...
+        // a content site's RSS traffic is legitimate and must be recognised." Feedly is
+        // correctly cataloged in well-known-bots.baseline.json under category "feedfetcher"
+        // (-> BotType.GoodBot per WellKnownBotIndex.MapBotType), but the SAME UA also matches
+        // generic downloaded crawler-pattern lists that only ever answer BotType.Unknown --
+        // and that generic check used to run FIRST, discarding the catalog's real category.
+        // BotTypeActionPolicies has no entry for Unknown, so it fell through to the generic
+        // throttle default instead of being recognised as a legitimate feed reader.
+        var wellKnownBots = new WellKnownBotIndex();
+        wellKnownBots.Replace(
+        [
+            new WellKnownBotEntry
+            {
+                Id = "feedly-feedfetcher",
+                Categories = ["feedfetcher"],
+                Pattern = new WellKnownBotPattern { Accepted = ["Feedly"], Forbidden = [] }
+            }
+        ]);
+        var genericPatternCache = new SubstringPatternCache("Feedly");
+
+        var atom = new UserAgentAtom(
+            NullLogger<UserAgentAtom>.Instance,
+            Options.Create(new BotDetectionOptions()),
+            new StubDetectorConfigProvider(),
+            new StaticHttpContextAccessor(WithUa("Mozilla/5.0 (compatible; Feedly/1.0; +http://www.feedly.com/fetcher.html)")),
+            wellKnownBots,
+            patternCache: genericPatternCache);
+        var sink = new SignalSink(maxCapacity: 64, maxAge: TimeSpan.FromMinutes(5));
+
+        var contributions = await atom.DetectAsync(sink, "test");
+
+        var bot = contributions.Should().ContainSingle().Subject;
+        bot.BotType.Should().Be(nameof(BotType.GoodBot),
+            "the well-known-bots catalog's feedfetcher category must win over the generic " +
+            "downloaded-pattern match, which only ever produces Unknown");
     }
 }
