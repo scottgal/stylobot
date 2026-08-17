@@ -72,6 +72,7 @@ public sealed class HaxxorAtom : DetectorAtomBase
     private readonly ILogger<HaxxorAtom> _logger;
     private readonly IDetectorConfigProvider _configProvider;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly Honeypot.IHoneypotExemptStore? _exemptStore;
 
     private volatile CompiledPatternSet? _compiledPatterns;
     private volatile CachedPathPatterns? _cachedPathPatterns;
@@ -80,12 +81,14 @@ public sealed class HaxxorAtom : DetectorAtomBase
     public HaxxorAtom(
         ILogger<HaxxorAtom> logger,
         IDetectorConfigProvider configProvider,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        Honeypot.IHoneypotExemptStore? exemptStore = null)
         : base(name: "Haxxor", category: "Attack")
     {
         _logger = logger;
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
+        _exemptStore = exemptStore;
     }
 
     public override int Priority => 7;
@@ -136,7 +139,21 @@ public sealed class HaxxorAtom : DetectorAtomBase
             var pathPatterns = EnsureCachedPathPatterns();
             var matchedFlags = 0u;
 
-            if (MatchesAnyPathPattern(pathSpan, pathPatterns.PathProbes)) matchedFlags |= CategoryFlag.PathProbes;
+            // path_probes fires on the mere EXISTENCE of a request to a path like /wp-login.php
+            // or /wp-admin* -- "someone is probing for a stack that might not be here." On a
+            // site that genuinely runs that stack (operator set the matching site profile), the
+            // path existing is not evidence of anything; it's the normal front door. Honour the
+            // SAME framework_paths exemption the honeypot tagger already applies (IsExempt reads
+            // the active site profile via ISiteProfileResolver) rather than a second allow-list --
+            // operator P0 2026-08-17: a real browser hitting /wp-login.php on a WordPress-profiled
+            // stock gateway got classified Scraper and throttled ~28s. Every OTHER category here
+            // (webshell/backup/debug/config-exposure, and the injection-payload regex scan below)
+            // still runs unconditionally -- a login page is a genuine attack target and stays
+            // defended against real payloads/brute-force; only the "this URL existing is
+            // suspicious" signal is exempted, never the request's actual content.
+            var pathProbeExempt = _exemptStore is not null
+                && _exemptStore.IsExempt(Honeypot.HoneypotPathDefinitions.NormalizePath(path), context);
+            if (!pathProbeExempt && MatchesAnyPathPattern(pathSpan, pathPatterns.PathProbes)) matchedFlags |= CategoryFlag.PathProbes;
             if (MatchesAnyPathPattern(pathSpan, pathPatterns.Webshell)) matchedFlags |= CategoryFlag.Webshell;
             if (MatchesAnyPathPattern(pathSpan, pathPatterns.BackupScan)) matchedFlags |= CategoryFlag.BackupScan;
             if (MatchesAnyPathPattern(pathSpan, pathPatterns.AdminScan)) matchedFlags |= CategoryFlag.AdminScan;
