@@ -27,7 +27,7 @@ Out of the box, stylobot:
 | `GoodBot` | `rate-limit-search` | Same |
 | `VerifiedBot` | `rate-limit-search` | Same |
 | `SocialMediaBot` | `rate-limit-social` | 30 req/min, burst 5. Fediverse / Slack / Twitter link-preview stampede case |
-| `MonitoringBot` | `rate-limit-monitoring` | 6 req/min, burst 2 (1 every 10s is plenty for uptime checks) |
+| `MonitoringBot` | `rate-limit-monitor` | 6 req/min, burst 2 (1 every 10s is plenty for uptime checks) |
 | `Unknown` | (omitted) | Falls through to `DefaultActionPolicyName` (default: `throttle-stealth`) |
 
 Override any of these via `BotDetection:BotTypeActionPolicies` in `appsettings.json`. The dictionary completely replaces the default if you set it -- merge defaults in yourself if you want to keep them.

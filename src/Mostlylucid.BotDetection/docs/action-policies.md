@@ -253,7 +253,7 @@ Token-bucket rate limits, distinct from throttle-by-delay. Bucket overflow deleg
 | `rate-limit-search` | 60 req/min | 10 | `throttle-status` | `SearchEngine`, `GoodBot`, `VerifiedBot` |
 | `rate-limit-ai` | 10 req/min | 2 | `block-soft` | `AiBot` (bounces harder -- AI scrapers ignore `Retry-After`) |
 | `rate-limit-social` | 30 req/min | 5 | `throttle-status` | `SocialMediaBot` |
-| `rate-limit-monitoring` | 6 req/min | 2 | `throttle-status` | `MonitoringBot` |
+| `rate-limit-monitor` (alias of `rate-limit-monitoring`) | 6 req/min | 2 | `throttle-status` | `MonitoringBot` |
 
 Allowed requests carry response headers:
 

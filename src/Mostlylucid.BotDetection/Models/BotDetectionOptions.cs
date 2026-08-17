@@ -1252,7 +1252,7 @@ public class BotDetectionOptions
         ["GoodBot"]        = "rate-limit-search",
         ["VerifiedBot"]    = "rate-limit-search",
         ["SocialMediaBot"] = "rate-limit-social",
-        ["MonitoringBot"]  = "rate-limit-monitoring",
+        ["MonitoringBot"]  = "rate-limit-monitor",
         // Internal (LAN / loopback / docker bridge): detection ran, the row
         // lands in the dashboard so operators see what their own admin
         // curls / dashboard self-polls / test runners look like, but the

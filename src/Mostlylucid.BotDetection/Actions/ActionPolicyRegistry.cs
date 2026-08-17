@@ -51,6 +51,44 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
     private readonly ConcurrentDictionary<string, IActionPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    ///     Length contract for a NEW built-in policy <see cref="IActionPolicy.Name"/>. The name
+    ///     can flow into a downstream consumer's free-text action/event field, which some
+    ///     consumers persist into a fixed-length column (see <see cref="Enforcement.PostDetectionActionGate.MaxFastPathActionPolicyNameLength"/>
+    ///     for the sibling contract on fast-path names) -- a prod incident (2026-08-17) traced
+    ///     to two over-length defaults is why this is enforced, not just documented. Pinned by
+    ///     <c>ActionPolicyRegistryNameLengthTests</c>.
+    /// </summary>
+    public const int MaxBuiltInPolicyNameLength = 20;
+
+    /// <summary>
+    ///     Built-in policy names that predate <see cref="MaxBuiltInPolicyNameLength"/> and are
+    ///     grandfathered: they stay registered and resolvable forever because a customer may
+    ///     already have copied one into their own appsettings.json from FOSS's own docs/
+    ///     quickstart, so renaming outright would silently break a deployed config. FOSS's own
+    ///     shipped defaults should reference the short alias in <see cref="BuiltInPolicyNameAliases"/>
+    ///     instead -- do NOT add new entries here; shorten (or alias) a new policy's name.
+    /// </summary>
+    public static readonly IReadOnlySet<string> LegacyOverLengthPolicyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "rate-limit-monitoring",   // 21 chars -> alias "rate-limit-monitor"
+        "extract-markdown-cache-ai", // 25 chars -> alias "extract-markdown-ai" (registered by the StyloExtract pack)
+    };
+
+    /// <summary>
+    ///     Short-name aliases for <see cref="LegacyOverLengthPolicyNames"/>. Alias registration
+    ///     is additive only -- the canonical (long) name stays resolvable, the alias resolves to
+    ///     the SAME <see cref="IActionPolicy"/> instance, so switching a default config value to
+    ///     the alias changes only the persisted display name, never behaviour. A canonical name
+    ///     not being registered (e.g. the StyloExtract pack isn't installed) is a no-op, not an
+    ///     error -- most hosts won't have every aliased policy available.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> BuiltInPolicyNameAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["rate-limit-monitor"] = "rate-limit-monitoring",
+        ["extract-markdown-ai"] = "extract-markdown-cache-ai",
+    };
+
+    /// <summary>
     ///     Creates a new action policy registry.
     /// </summary>
     /// <param name="options">Bot detection options containing action-policy configuration.</param>
@@ -99,6 +137,17 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         if (additionalPolicies != null)
             foreach (var policy in additionalPolicies)
                 RegisterPolicy(policy);
+
+        // Alias registration runs last: every source (built-in, config, DI) has had a chance
+        // to register a LegacyOverLengthPolicyNames canonical name by now.
+        RegisterAliases();
+    }
+
+    private void RegisterAliases()
+    {
+        foreach (var (alias, canonicalName) in BuiltInPolicyNameAliases)
+            if (_policies.TryGetValue(canonicalName, out var policy))
+                _policies.TryAdd(alias, policy);
     }
 
     /// <inheritdoc />

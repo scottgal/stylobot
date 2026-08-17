@@ -13,7 +13,7 @@ public static class ActionDisplayHelper
         "rate-limit-ai" => "AI Rate Limit",
         "rate-limit-search" => "Search Rate Limit",
         "rate-limit-social" => "Social Rate Limit",
-        "rate-limit-monitoring" => "Monitoring Rate Limit",
+        "rate-limit-monitoring" or "rate-limit-monitor" => "Monitoring Rate Limit",
         "block" => "Block",
         "block-hard" => "Hard Block",
         "block-soft" => "Soft Block",
@@ -37,7 +37,7 @@ public static class ActionDisplayHelper
         "Block" or "block" or "block-hard" or "block-soft" => "text-error",
         "Throttle" or "throttle" or "throttle-stealth" or "throttle-gentle"
             or "throttle-moderate" or "throttle-aggressive" or "throttle-tools"
-            or "rate-limit-ai" or "rate-limit-search" or "rate-limit-social" or "rate-limit-monitoring"
+            or "rate-limit-ai" or "rate-limit-search" or "rate-limit-social" or "rate-limit-monitoring" or "rate-limit-monitor"
             => "text-warning",
         "Challenge" or "challenge" or "challenge-captcha"
             or "challenge-pow" or "challenge-js" => "text-info",
@@ -51,7 +51,7 @@ public static class ActionDisplayHelper
         "Block" or "block" or "block-hard" or "block-soft" => "bg-error/20 text-error",
         "Throttle" or "throttle" or "throttle-stealth" or "throttle-gentle"
             or "throttle-moderate" or "throttle-aggressive" or "throttle-tools"
-            or "rate-limit-ai" or "rate-limit-search" or "rate-limit-social" or "rate-limit-monitoring"
+            or "rate-limit-ai" or "rate-limit-search" or "rate-limit-social" or "rate-limit-monitoring" or "rate-limit-monitor"
             => "bg-warning/20 text-warning",
         "Challenge" or "challenge" or "challenge-captcha"
             or "challenge-pow" or "challenge-js" => "bg-info/20 text-info",

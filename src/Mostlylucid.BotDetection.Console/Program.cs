@@ -1709,7 +1709,7 @@ static void ShowManPage()
                                                override to production to enable policy actions)
         [bold]--policy[/] <name>                Action policy override. Default action grammar (6.8+)
                                                routes per BotType: MaliciousBot -> block-hard,
-                                               AiBot -> extract-markdown-cache-ai, SearchEngine -> content-cache-search,
+                                               AiBot -> extract-markdown-ai, SearchEngine -> content-cache-search,
                                                etc. Override the fallback (used when no per-type entry
                                                matches): logonly | block | throttle-stealth | challenge.
         [bold]--threshold[/] <0.0-1.0>          Bot probability threshold (default: 0.7)
@@ -1756,7 +1756,7 @@ static void ShowManPage()
         and route per-BotType automatically. Set per-policy overrides in appsettings.json:
 
           BotDetection:BotTypeActionPolicies.MaliciousBot   = "block-hard"        (default)
-          BotDetection:BotTypeActionPolicies.AiBot          = "extract-markdown-cache-ai"  (default)
+          BotDetection:BotTypeActionPolicies.AiBot          = "extract-markdown-ai"  (default)
           BotDetection:BotTypeActionPolicies.SearchEngine   = "rate-limit-search" (default)
           BotDetection:BotTypeActionPolicies.Tool           = "throttle-tools"    (default)
           ...

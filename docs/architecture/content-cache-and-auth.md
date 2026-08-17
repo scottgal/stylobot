@@ -115,7 +115,7 @@ Rel(pev, dvdp, "evaluates policy")
     "DetectionPolicies": {
       "Rules": [
         { "Name": "search-engine-docs-cache", "Path": "/docs/*", "Types": ["SearchEngine"], "Action": "content-cache-search" },
-        { "Name": "ai-bot-docs-markdown", "Path": "/docs/*", "Types": ["AiBot"], "Confidence": ">= 0.85", "Action": "extract-markdown-cache-ai" }
+        { "Name": "ai-bot-docs-markdown", "Path": "/docs/*", "Types": ["AiBot"], "Confidence": ">= 0.85", "Action": "extract-markdown-ai" }
       ]
     }
   }

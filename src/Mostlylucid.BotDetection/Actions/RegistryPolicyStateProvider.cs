@@ -34,8 +34,15 @@ public sealed class RegistryPolicyStateProvider : IPolicyStateProvider
     public IReadOnlyList<PolicyState> GetAll()
     {
         var all = _registry.GetAllPolicies();
+        // A policy can be reachable under more than one registry key -- an alias name (e.g.
+        // "rate-limit-monitor" for "rate-limit-monitoring", see ActionPolicyRegistry's
+        // BuiltInPolicyNameAliases) resolves to the SAME instance. Distinct by reference so the
+        // dashboard/state view lists each logical policy once, keyed by its own Name, not once
+        // per registry key that happens to reach it.
         var states = new List<PolicyState>(all.Count);
-        foreach (var (_, policy) in all)
+        // IActionPolicy implementations don't override Equals, so the default comparer is
+        // reference equality here.
+        foreach (var policy in all.Values.Distinct())
         {
             states.Add(ToState(policy));
         }

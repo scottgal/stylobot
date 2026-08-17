@@ -623,13 +623,13 @@ Action policies define HOW to respond (block, throttle, challenge) and are separ
 | `AiBot` | `rate-limit-ai` | 10 req/min, burst 2 -> `block-soft` on overflow |
 | `SearchEngine` / `GoodBot` / `VerifiedBot` | `rate-limit-search` | 60 req/min, burst 10 -> `throttle-status` on overflow |
 | `SocialMediaBot` | `rate-limit-social` | 30 req/min, burst 5 -> `throttle-status` on overflow |
-| `MonitoringBot` | `rate-limit-monitoring` | 6 req/min, burst 2 -> `throttle-status` on overflow |
+| `MonitoringBot` | `rate-limit-monitor` | 6 req/min, burst 2 -> `throttle-status` on overflow |
 | `Unknown` | (omitted) | Falls through to `DefaultActionPolicyName` |
 
 Built-in action policies available without configuration:
 - **Block**: `block`, `block-hard`, `block-soft`, `block-debug`
 - **Throttle**: `throttle`, `throttle-gentle`, `throttle-moderate`, `throttle-aggressive`, `throttle-stealth`, `throttle-tools`, `throttle-status`, `throttle-escalating`
-- **RateLimit** (6.8+): `rate-limit-search`, `rate-limit-ai`, `rate-limit-social`, `rate-limit-monitoring`
+- **RateLimit** (6.8+): `rate-limit-search`, `rate-limit-ai`, `rate-limit-social`, `rate-limit-monitor` (alias of `rate-limit-monitoring`)
 - **Challenge**: `challenge`, `challenge-captcha`, `challenge-js`, `challenge-pow`
 - **Redirect**: `redirect`, `redirect-honeypot`, `redirect-tarpit`, `redirect-error`
 - **Other**: `logonly`, `shadow`, `debug`, `mask-pii`, `strip-pii` (`mask-pii`/`strip-pii` require `ResponsePiiMasking.Enabled = true`)
