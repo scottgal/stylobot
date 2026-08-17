@@ -33,6 +33,22 @@ public sealed class ResponseBodyCapture
     {
         var interceptor = new BodyInterceptStream(context.Response.Body, context, transform);
         context.Response.Body = interceptor;
+
+        // P0 (2026-08-17): confirmed via direct instrumentation that YARP writes the full
+        // proxied body into this interceptor (bytes land in _buffer correctly) but then
+        // completes the response itself -- via HttpResponse.CompleteAsync()/the
+        // IHttpResponseBodyFeature pipe, NOT through the Response.Body Stream we substituted
+        // -- so HasStarted flips true with nothing ever written to the real connection. Two
+        // finalize triggers were tried and both fired too late (HasStarted already true,
+        // any Response.* write throws and the framework silently swallows it): a plain
+        // FlushAsync-on-first-call (the pre-existing behaviour, which additionally had the
+        // separate premature-empty-buffer bug) and RegisterForDisposeAsync (fires at
+        // HttpContext disposal, well after YARP's completion). OnStarting is the correct
+        // hook: it runs synchronously, exactly once, immediately BEFORE headers are actually
+        // sent -- i.e. before HasStarted flips true -- regardless of which API (Stream vs.
+        // PipeWriter vs. CompleteAsync) downstream used to finish writing.
+        context.Response.OnStarting(static state =>
+            ((BodyInterceptStream)state).FinalizeAsync(), interceptor);
         return interceptor;
     }
 
@@ -145,15 +161,33 @@ public sealed class BodyInterceptStream : Stream
 
     public override void Flush() => FlushAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-    public override async Task FlushAsync(CancellationToken cancellationToken)
+    // Non-definitive: a bare Flush()/FlushAsync() call (not the OnStarting/Dispose backstops)
+    // is treated as advisory. The primary finalize trigger is FinalizeAsync(), invoked via
+    // Response.OnStarting -- see ResponseBodyCapture.InstallInterceptor for why: YARP writes
+    // the full proxied body into _buffer (confirmed) but completes the response itself via
+    // HttpResponse.CompleteAsync()/the pipe-writer feature, bypassing this Stream override
+    // entirely, so nothing here ever observes that completion directly. An empty buffer on a
+    // bare Flush() may just mean "nothing written yet" -- defer rather than finalize on it.
+    public override Task FlushAsync(CancellationToken cancellationToken) => FlushCoreAsync(cancellationToken, isDefinitive: false);
+
+    /// <summary>The authoritative finalize entry point -- see the OnStarting registration in
+    /// <see cref="ResponseBodyCapture.InstallInterceptor"/>.</summary>
+    public Task FinalizeAsync() => FlushCoreAsync(CancellationToken.None, isDefinitive: true);
+
+    private async Task FlushCoreAsync(CancellationToken cancellationToken, bool isDefinitive)
     {
         if (_flushed) return;
-        _flushed = true;
-
-        _context.Response.Body = OriginalBody;
 
         var status = _context.Response.StatusCode;
-        if (status is 204 or 304 || (status >= 300 && status < 400) || _buffer.Length == 0)
+        var bodylessStatus = status is 204 or 304 || (status >= 300 && status < 400);
+
+        if (!isDefinitive && !bodylessStatus && _buffer.Length == 0)
+            return; // Nothing written yet and nothing forces finality -- wait for the real trigger.
+
+        _flushed = true;
+        _context.Response.Body = OriginalBody;
+
+        if (bodylessStatus || _buffer.Length == 0)
         {
             _buffer.Seek(0, SeekOrigin.Begin);
             await _buffer.CopyToAsync(OriginalBody, cancellationToken);
@@ -196,8 +230,8 @@ public sealed class BodyInterceptStream : Stream
         // Content-Length. The upstream value YARP copied by default (and any header a
         // variant's TransformAsync tried to set from inside the transform callback above)
         // is stale the moment either path runs; setting it here, right before the write,
-        // is what actually lands. Safe unconditionally: nothing has touched OriginalBody
-        // yet, so HttpContext.Response.HasStarted is still false.
+        // is what actually lands. Must run before HasStarted flips true -- see the
+        // OnStarting registration in ResponseBodyCapture.InstallInterceptor.
         var finalBytes = transformed is null ? originalBytes : Encoding.UTF8.GetBytes(transformed);
         _context.Response.ContentLength = finalBytes.Length;
 
@@ -205,10 +239,20 @@ public sealed class BodyInterceptStream : Stream
         await OriginalBody.FlushAsync(cancellationToken);
     }
 
+    // Backstops only -- FinalizeAsync() via Response.OnStarting is the primary trigger.
+    // These cover code paths where OnStarting somehow never fires (harmless no-ops
+    // otherwise thanks to the _flushed guard).
     protected override void Dispose(bool disposing)
     {
         if (disposing && !_flushed)
-            Flush();
+            FlushCoreAsync(CancellationToken.None, isDefinitive: true).GetAwaiter().GetResult();
         base.Dispose(disposing);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (!_flushed)
+            await FlushCoreAsync(CancellationToken.None, isDefinitive: true).ConfigureAwait(false);
+        await base.DisposeAsync().ConfigureAwait(false);
     }
 }
