@@ -191,15 +191,17 @@ public sealed class BodyInterceptStream : Stream
             // Transform failed; fall through to write original bytes.
         }
 
-        if (transformed is null)
-        {
-            await OriginalBody.WriteAsync(originalBytes, cancellationToken);
-        }
-        else
-        {
-            await OriginalBody.WriteAsync(Encoding.UTF8.GetBytes(transformed), cancellationToken);
-        }
+        // Whatever we're about to write -- original bytes unchanged, or a transform's
+        // (possibly differently-sized) replacement -- is the ONLY source of truth for
+        // Content-Length. The upstream value YARP copied by default (and any header a
+        // variant's TransformAsync tried to set from inside the transform callback above)
+        // is stale the moment either path runs; setting it here, right before the write,
+        // is what actually lands. Safe unconditionally: nothing has touched OriginalBody
+        // yet, so HttpContext.Response.HasStarted is still false.
+        var finalBytes = transformed is null ? originalBytes : Encoding.UTF8.GetBytes(transformed);
+        _context.Response.ContentLength = finalBytes.Length;
 
+        await OriginalBody.WriteAsync(finalBytes, cancellationToken);
         await OriginalBody.FlushAsync(cancellationToken);
     }
 

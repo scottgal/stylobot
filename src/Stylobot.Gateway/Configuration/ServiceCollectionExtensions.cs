@@ -150,6 +150,13 @@ public static class ServiceCollectionExtensions
                 // throttled traffic never runs this transform, by design.
                 builderContext.AddUpstreamStatusTransform();
 
+                // Content-cache action policies (content-cache-search / extract-markdown-cache-ai)
+                // buffer and possibly rewrite the response body; the upstream Content-Length YARP
+                // copies by default would then race the interceptor's actual write. Strip it
+                // whenever the interceptor is installed so Kestrel falls back to chunked transfer
+                // instead of holding the rewrite to a stale byte-count promise (P0, 2026-08-17).
+                builderContext.AddContentRewriteContentLengthTransform();
+
                 // Extension seam for an optional host/product transform. FOSS
                 // callers leave this null and retain the existing pipeline;
                 // composed hosts can append their transform after the FOSS

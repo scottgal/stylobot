@@ -124,6 +124,37 @@ public sealed class ExtractMarkdownCacheAiActionPolicyTests
     }
 
     [Fact]
+    public async Task Content_length_matches_the_actual_markdown_bytes_not_the_upstream_html_length()
+    {
+        // P0 regression (2026-08-17): "Response Content-Length mismatch: too few bytes written
+        // (0 of 141)". YARP copies the upstream response's Content-Length verbatim onto the
+        // outgoing response BEFORE our interceptor's transform runs; the transform then writes
+        // a DIFFERENT-length body (markdown is virtually always shorter than the source HTML)
+        // without ever reconciling the header against what actually got written. Simulate the
+        // upstream-declared length here the way YARP would set it, and assert the final header
+        // matches the transformed body's real byte count -- not the stale HTML-sized promise.
+        var longerHtml = "<html><body>" + new string('x', 500) + "</body></html>";
+        var shortMarkdown = "# Short\n";
+        var fake = new FakeExtractor { MarkdownToReturn = shortMarkdown };
+        var policy = PolicyFactory.Markdown(fake);
+        var originalBody = new MemoryStream();
+        var context = HttpContextBuilder.CreateHtmlContext();
+        context.Response.Body = originalBody;
+        context.Response.ContentLength = Encoding.UTF8.GetByteCount(longerHtml); // YARP's stale promise
+
+        var (body, headers) = await ActionPolicyRunner.RunAndFlushAsync(
+            context,
+            c => policy.ExecuteAsync(c, Evidence.Bot()),
+            longerHtml,
+            originalBody);
+
+        body.Should().Be(shortMarkdown);
+        headers.ContentLength.Should().Be(Encoding.UTF8.GetByteCount(shortMarkdown),
+            "Content-Length must reflect the transformed body actually written, or Kestrel " +
+            "throws a Content-Length mismatch against the stale upstream-HTML-sized promise");
+    }
+
+    [Fact]
     public async Task Markdown_cache_hit_short_circuits_without_reextracting()
     {
         var options = new StyloExtractActionOptions
