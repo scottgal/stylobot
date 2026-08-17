@@ -159,10 +159,29 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
                 ? $"{botName} {botInstance}"
                 : botName;
 
+            // SecurityToolAtom (Priority 8, runs before this atom at Priority 10) may
+            // already have raised ua.bot_type from a verified, curated, 0.95-confidence
+            // catalog match against dedicated exploit-tool patterns (sqlmap, nikto, etc.)
+            // -- always MORE specific than this atom's own generic fallback (Scraper/Tool/
+            // Unknown from the broad downloaded pattern lists or the suspicious-UA
+            // heuristics). Writing ua.bot_type here would silently clobber that stronger,
+            // purpose-built classification (last-writer-wins on the shared signal),
+            // downgrading a confirmed exploit tool to a generic bucket so action-policy
+            // resolution never reached MaliciousBot/ExploitScanner's block-hard tier.
+            // NOTE: keyed on SecurityToolName, not SecurityToolDetected -- the latter is
+            // raised bare (sink.Raise(key, sessionId), no ":value") which never populates
+            // the same-request hint cache ReadHint/ReadBoolHint read (only colon-encoded
+            // raises do, e.g. ua.bot_type); SecurityToolName IS colon-encoded and carries
+            // the same "SecurityToolAtom already fired" fact.
+            var deferToSecurityTool = !string.IsNullOrEmpty(sink.ReadHint(SignalKeys.SecurityToolName));
+
             sink.Raise($"{SignalKeys.UserAgent}:{userAgent}", sessionId);
             sink.Raise($"{SignalKeys.UserAgentIsBot}:true", sessionId);
-            sink.Raise($"{SignalKeys.UserAgentBotType}:{botType?.ToString() ?? "Unknown"}", sessionId);
-            sink.Raise($"{SignalKeys.UserAgentBotName}:{displayBotName ?? string.Empty}", sessionId);
+            if (!deferToSecurityTool)
+            {
+                sink.Raise($"{SignalKeys.UserAgentBotType}:{botType?.ToString() ?? "Unknown"}", sessionId);
+                sink.Raise($"{SignalKeys.UserAgentBotName}:{displayBotName ?? string.Empty}", sessionId);
+            }
             sink.Raise($"{SignalKeys.UserAgentFamily}:{displayBotName ?? family}", sessionId);
             sink.Raise($"{SignalKeys.UserAgentFamilyVersion}:{familyVersion ?? string.Empty}", sessionId);
             if (!string.IsNullOrEmpty(botInstance))
@@ -248,8 +267,15 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
 
         if (_patternCache is not null && _patternCache.MatchesAnyPattern(userAgent, out var matchedValue))
         {
+            // "Unknown" is never a valid terminal classification for a declared bot -- if the
+            // downloaded pattern lists (isbot / crawler-user-agents / coreruleset) matched, that
+            // match IS the behavioural evidence (a known automated-client/attack signature), so
+            // the type must follow from it. These lists don't expose which source matched, so
+            // Scraper is the correct generic bucket (confirmed automated non-human traffic, intent
+            // not further specified) -- it carries a real BotTypeActionPolicies mapping
+            // (throttle-aggressive) instead of falling through the default, unlike Unknown.
             var extractedName = ExtractNameFromUserAgent(userAgent);
-            return (true, PatternMatchConfidence, BotType.Unknown, extractedName,
+            return (true, PatternMatchConfidence, BotType.Scraper, extractedName,
                 extractedName is not null
                     ? $"Known bot pattern: {extractedName}"
                     : DescribeMatchedUserAgent(userAgent, matchedValue));
@@ -257,8 +283,11 @@ public sealed partial class UserAgentAtom : DetectorAtomBase
 
         if (IsSuspiciousUserAgent(userAgent, out var suspiciousReason))
         {
+            // Same rule: the suspicious-UA heuristics (bot keyword, bare Mozilla, short UA,
+            // self-declared contact URL) are themselves the behavioural evidence for "this is
+            // automated" -- Scraper, not Unknown, for the same reason as above.
             var extractedName2 = ExtractNameFromUserAgent(userAgent);
-            return (true, SuspiciousConfidence, BotType.Unknown, extractedName2, suspiciousReason);
+            return (true, SuspiciousConfidence, BotType.Scraper, extractedName2, suspiciousReason);
         }
 
         return (false, 0.0, null, null, "Normal user agent");
