@@ -231,14 +231,22 @@ public sealed class ResponseCoordinator : IAsyncDisposable
     private readonly Action<string, double>? _heuristicFeedback;
     private readonly ILogger<ResponseCoordinator> _logger;
     private readonly ResponseCoordinatorOptions _options;
+    // Cross-restart durable tier (CLAUDE.md: "NEVER use in-memory stores for persistence...
+    // for anything that matters" -- this hot cache drives live bot-classification scoring via
+    // ResponseBehaviorAtom, so it qualifies). Nullable/optional so a host that doesn't register
+    // SqliteResponseHistoryStore degrades to the pre-existing in-memory-only behaviour rather
+    // than failing to construct.
+    private readonly SqliteResponseHistoryStore? _historyStore;
 
     public ResponseCoordinator(
         ILogger<ResponseCoordinator> logger,
         IOptions<BotDetectionOptions> options,
+        SqliteResponseHistoryStore? historyStore = null,
         Action<string, double>? heuristicFeedback = null)
     {
         _logger = logger;
         _options = options.Value.ResponseCoordinator ?? new ResponseCoordinatorOptions();
+        _historyStore = historyStore;
         _heuristicFeedback = heuristicFeedback;
 
         // Initialize internal signal sink owned by this coordinator
@@ -251,8 +259,11 @@ public sealed class ResponseCoordinator : IAsyncDisposable
             async (clientId, ct) =>
             {
                 _logger.LogDebug("Creating new ClientResponseTrackingAtom for client: {ClientId}", clientId);
-                return await Task.FromResult(
-                    new ClientResponseTrackingAtom(clientId, _options, _logger));
+                // Seed from the durable tier on cold create -- a client evicted from the hot
+                // sliding cache (or a pod restart, which loses the ENTIRE hot tier) doesn't
+                // reset to zero history if it already has durable rows.
+                var seed = await LoadSeedAsync(clientId, ct);
+                return new ClientResponseTrackingAtom(clientId, _options, _logger, seed);
             },
             _options.ClientTtl,
             _options.ClientTtl * 2,
@@ -285,6 +296,44 @@ public sealed class ResponseCoordinator : IAsyncDisposable
         await _clientCache.DisposeAsync();
 
         _logger.LogInformation("ResponseCoordinator disposed");
+    }
+
+    /// <summary>
+    ///     Reads the durable tier for <paramref name="clientId"/> and, if present, maps it onto
+    ///     the seed shape <see cref="ClientResponseTrackingAtom"/> already knows how to fold
+    ///     (<see cref="CompactedResponseSummary"/>) -- reusing the existing compaction-merge path
+    ///     instead of teaching the atom a second seeding mechanism. Never throws: a durable-tier
+    ///     read failure degrades to no seed (pre-existing in-memory-only behaviour), same
+    ///     fail-open posture the base <see cref="Storage.WriteBehindLfuStore{TKey,TValue,TWriteOp}"/>
+    ///     already takes on its own cold-load path.
+    /// </summary>
+    private async Task<CompactedResponseSummary?> LoadSeedAsync(string clientId, CancellationToken ct)
+    {
+        if (_historyStore is null) return null;
+        try
+        {
+            var durable = await _historyStore.GetAsync(clientId, ct);
+            if (durable is null) return null;
+            return new CompactedResponseSummary
+            {
+                FirstSeen = durable.FirstSeenUtc,
+                LastSeen = durable.LastSeenUtc,
+                TotalCount = durable.TotalCount,
+                Count2xx = durable.Count2xx,
+                Count3xx = durable.Count3xx,
+                Count4xx = durable.Count4xx,
+                Count5xx = durable.Count5xx,
+                Count404 = durable.Count404,
+                AuthFailures = durable.AuthFailures,
+                HoneypotHits = durable.HoneypotHits,
+                UniqueNotFoundPaths = durable.UniqueNotFoundPathCount
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ResponseHistory seed load failed for {ClientId}", clientId);
+            return null;
+        }
     }
 
     /// <summary>
@@ -330,6 +379,18 @@ public sealed class ResponseCoordinator : IAsyncDisposable
 
             // Get updated behavior
             var behavior = await atom.GetBehaviorAsync(cancellationToken);
+
+            // Cross-restart durability: mirror this observation into the SQLite-backed store.
+            // Non-blocking write-behind (Record() returns in microseconds; see
+            // WriteBehindLfuStore) -- classification here is independent of the hot atom's own
+            // (it doesn't read from `atom`/`behavior`), same "each store classifies its own
+            // write ops" shape SqlitePathLifecycleStore/PathLifecycleOp already uses.
+            _historyStore?.Record(signal.ClientId, new ResponseHistoryOp(
+                signal.ClientId,
+                signal.StatusCode,
+                signal.Path,
+                _options.HoneypotPaths.Any(hp => ClientResponseTrackingAtom.MatchesHoneypotPattern(signal.Path, hp)),
+                signal.Timestamp));
 
             // Emit analysis signal to coordinator-owned sink
             if (_options.EnableSignals)
@@ -435,6 +496,16 @@ internal sealed class CompactedResponseSummary
     public Dictionary<string, int> PatternCounts { get; set; } = new();
     public DateTimeOffset FirstSeen { get; set; }
     public DateTimeOffset LastSeen { get; set; }
+
+    /// <summary>
+    ///     Only ever populated by <see cref="ResponseCoordinator.LoadSeedAsync"/> when seeding a
+    ///     newly-created <see cref="ClientResponseTrackingAtom"/> from the durable tier
+    ///     (<see cref="SqliteResponseHistoryStore"/>) -- normal in-process compaction
+    ///     (<see cref="ClientResponseTrackingAtom.MergeIntoCompacted"/>) never sets this because
+    ///     the live ring buffer's own <c>unique404Paths</c> HashSet already has exact dedup for
+    ///     paths still resident. Added to the live count in <c>ComputeBehavior</c>.
+    /// </summary>
+    public int UniqueNotFoundPaths { get; set; }
 }
 
 /// <summary>
@@ -455,12 +526,18 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
     public ClientResponseTrackingAtom(
         string clientId,
         ResponseCoordinatorOptions options,
-        ILogger logger)
+        ILogger logger,
+        CompactedResponseSummary? seed = null)
     {
         _clientId = clientId;
         _options = options;
         _logger = logger;
         _responses = new LinkedList<ResponseSignal>();
+        // Cross-restart seed (ResponseCoordinator.LoadSeedAsync): starts this atom from its
+        // durable-tier history instead of zero. Reuses the SAME compaction-merge path
+        // MergeIntoCompacted already folds evicted ring-buffer entries into -- ComputeBehavior
+        // doesn't need to know whether _compacted came from in-process compaction or a cold seed.
+        _compacted = seed;
     }
 
     /// <summary>
@@ -619,7 +696,10 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
                 patternCounts[pattern] = patternCounts.GetValueOrDefault(pattern) + 1;
         }
 
-        var unique404PathCount = unique404Paths.Count;
+        // Compacted's UniqueNotFoundPaths is only ever non-zero for a durable-tier seed (see
+        // CompactedResponseSummary's remarks) -- normal in-process compaction never sets it, so
+        // this is additive, never double-counted against the live ring buffer's own dedup.
+        var unique404PathCount = unique404Paths.Count + (_compacted?.UniqueNotFoundPaths ?? 0);
 
         // Merge compacted summary counts into live counts
         if (_compacted != null)
@@ -741,8 +821,10 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
     ///     Supports glob wildcards: * matches any sequence of characters, ? matches a single character.
     ///     Patterns without wildcards match as prefix (backward compatible).
     ///     Examples: "/wp-*" matches /wp-admin, /wp-login.php; "/.git/*" matches /.git/config
+    ///     Internal (not private): ResponseCoordinator.ProcessResponseSignalAsync reuses this
+    ///     for the durable-tier write's honeypot-hit classification -- one glob matcher, not two.
     /// </summary>
-    private static bool MatchesHoneypotPattern(string path, string pattern)
+    internal static bool MatchesHoneypotPattern(string path, string pattern)
     {
         if (pattern.Contains('*') || pattern.Contains('?'))
             return System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(

@@ -168,6 +168,13 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
         services.TryAddSingleton<Lifecycle.IPathLifecycleStore, Lifecycle.NullPathLifecycleStore>();
 
+        // Cross-restart durable tier for ResponseCoordinator's per-client history (CLAUDE.md:
+        // "NEVER use in-memory stores for persistence... for anything that matters" -- this
+        // drives live bot-classification scoring via ResponseBehaviorAtom, so it qualifies).
+        // Registered BEFORE ResponseCoordinator so DI resolves the optional ctor param instead
+        // of degrading to the in-memory-only fallback.
+        services.TryAddSingleton<Orchestration.SqliteResponseHistoryStore>();
+
         // Response-history coordinator: ResponseBehaviorAtom's exclusive-404 scan detection,
         // honeypot-hit counting, fail2ban escalation, and auth-brute-force struggle all read
         // this via GetClientBehaviorAsync -- but it was never registered, so the atom always
