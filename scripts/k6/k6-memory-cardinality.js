@@ -25,6 +25,10 @@ const DURATION    = __ENV.DURATION || '6m';
 const SESSION_LEN = parseInt(__ENV.SESSION_LEN || '3'); // requests sharing one signature (fills session store)
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:5080';
+const API_KEY  = __ENV.API_KEY || '';
+if (!API_KEY) {
+  throw new Error('API_KEY is required -- keyless traffic poisons the corpus. Pass --env API_KEY=<gateway-debug-api-key>.');
+}
 
 const uniqueSignatures = new Counter('unique_signatures_minted');
 const detectionLatency = new Trend('detection_latency_ms');
@@ -79,6 +83,7 @@ export default function () {
         'X-Forwarded-For': xff,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
+        'X-SB-Api-Key': API_KEY,
       },
       tags: { name: 'cardinality' },
     });
