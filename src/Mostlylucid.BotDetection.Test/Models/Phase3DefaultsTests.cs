@@ -38,7 +38,7 @@ public class Phase3DefaultsTests
     [InlineData("GoodBot",        "rate-limit-search")]
     [InlineData("VerifiedBot",    "rate-limit-search")]
     [InlineData("SocialMediaBot", "rate-limit-social")]
-    [InlineData("MonitoringBot",  "rate-limit-monitoring")]
+    [InlineData("MonitoringBot",  "rate-limit-monitor")]
     public void BotTypeActionPolicies_DefaultCoversEveryType(string botType, string expectedPolicy)
     {
         var options = new BotDetectionOptions();

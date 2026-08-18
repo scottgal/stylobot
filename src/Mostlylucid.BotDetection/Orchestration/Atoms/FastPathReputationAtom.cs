@@ -148,7 +148,7 @@ public sealed class FastPathReputationAtom : DetectorAtomBase
             matched.PatternId, matchType, matched.State, matched.BotScore, matched.Support);
 
         var mt = matchType.ToLowerInvariant();
-        sink.Raise(SignalKeys.ReputationFastPathHit, sessionId);
+        sink.Raise($"{SignalKeys.ReputationFastPathHit}:true", sessionId);
         sink.Raise(SignalKeys.ReputationCanAllow, sessionId);
         sink.Raise($"reputation.fastpath.{mt}.pattern_id:{matched.PatternId}", sessionId);
         sink.Raise($"reputation.fastpath.{mt}.state:{matched.State}", sessionId);
@@ -180,7 +180,7 @@ public sealed class FastPathReputationAtom : DetectorAtomBase
         var secFetchSite = context.Request.Headers["Sec-Fetch-Site"].FirstOrDefault();
         var hasBrowserAttestation = !string.IsNullOrEmpty(secFetchSite);
 
-        sink.Raise(SignalKeys.ReputationFastPathHit, sessionId);
+        sink.Raise($"{SignalKeys.ReputationFastPathHit}:true", sessionId);
         sink.Raise(SignalKeys.ReputationCanAbort, sessionId);
         sink.Raise(SignalKeys.ReputationFastAbortActive, sessionId);
         sink.Raise($"reputation.fastpath.{mt}.pattern_id:{matched.PatternId}", sessionId);

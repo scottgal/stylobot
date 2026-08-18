@@ -114,7 +114,9 @@ public sealed class SecurityToolAtom : DetectorAtomBase
                 toolName, category, clientIp);
 
             // Public labels only -- tool name + category are catalog values, not PII.
-            sink.Raise(SignalKeys.SecurityToolDetected, sessionId);
+            // Colon-encoded: a bare raise here left CveFingerprintAtom's SecurityTool radar
+            // dimension permanently 0.0 regardless of a real match (2026-08-17 finding).
+            sink.Raise($"{SignalKeys.SecurityToolDetected}:true", sessionId);
             sink.Raise($"{SignalKeys.SecurityToolName}:{toolName}", sessionId);
             sink.Raise($"{SignalKeys.SecurityToolCategory}:{category}", sessionId);
             sink.Raise($"{SignalKeys.UserAgentIsBot}:true", sessionId);

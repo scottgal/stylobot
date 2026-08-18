@@ -94,11 +94,18 @@ public sealed class VerifiedBotInlineAtom : DetectorAtomBase
             // friendly.ip_verified is the signal the SignatureRiskVerdictComposer
             // reads to (a) fire the friendly-pin and (b) suppress a ConfirmedBad
             // hostile-pin if the UA reputation cache had been poisoned.
-            sink.Raise(SignalKeys.VerifiedBotChecked, sessionId);
+            // Colon-encoded, not bare: a bare sink.Raise(key, sessionId) only lands in the
+            // post-hoc merged-signals dict, never the same-request hint cache ReadHint/
+            // ReadBoolHint read. This atom (VerifiedBotInlineAtom) and its sibling
+            // VerifiedBotAtom both run at Wave 0 Priority 4 -- VerifiedBotAtom happened to be
+            // registered second and its correct colon-encoded raise masked this atom's bare
+            // one for any same-request reader, but that's registration-order luck, not a
+            // guarantee (2026-08-17 finding).
+            sink.Raise($"{SignalKeys.VerifiedBotChecked}:true", sessionId);
             sink.Raise($"{SignalKeys.VerifiedBotName}:{result.BotName}", sessionId);
             sink.Raise($"{SignalKeys.VerifiedBotMethod}:ip_range", sessionId);
-            sink.Raise(SignalKeys.VerifiedBotConfirmed, sessionId);
-            sink.Raise(SignalKeys.FriendlyIpVerified, sessionId);
+            sink.Raise($"{SignalKeys.VerifiedBotConfirmed}:true", sessionId);
+            sink.Raise($"{SignalKeys.FriendlyIpVerified}:true", sessionId);
 
             _logger.LogInformation(
                 "VerifiedBotInline: {BotName} verified via published IP range", result.BotName);
@@ -114,10 +121,10 @@ public sealed class VerifiedBotInlineAtom : DetectorAtomBase
         // friendly.ip_verified is INTENTIONALLY NOT raised here -- absence is
         // the "this is a UA-claim impersonator" signal. verified_bot.spoofed
         // is the explicit positive marker.
-        sink.Raise(SignalKeys.VerifiedBotChecked, sessionId);
+        sink.Raise($"{SignalKeys.VerifiedBotChecked}:true", sessionId);
         sink.Raise($"{SignalKeys.VerifiedBotName}:{result.BotName}", sessionId);
         sink.Raise($"{SignalKeys.VerifiedBotMethod}:ip_range", sessionId);
-        sink.Raise(SignalKeys.VerifiedBotSpoofed, sessionId);
+        sink.Raise($"{SignalKeys.VerifiedBotSpoofed}:true", sessionId);
 
         _logger.LogWarning(
             "VerifiedBotInline: spoofed UA -- claims {BotName} but IP not in published range",

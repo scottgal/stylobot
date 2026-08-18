@@ -77,15 +77,22 @@ public sealed class PiiQueryStringAtom : DetectorAtomBase
 
         if (adTraffic.UtmPresent)
         {
-            sink.Raise(SignalKeys.UtmPresent, sessionId);
+            // Bare sink.Raise(key, sessionId) only records the key as a post-hoc merged-dict
+            // signal; it does NOT populate the same-request hint cache ReadHint/ReadBoolHint
+            // read (only colon-encoded "key:value" raises do -- confirmed via direct
+            // instrumentation, 2026-08-17). ClickFraudAtom reads five of these six as
+            // ReadBoolHint gates, including its own top-level "is this even paid traffic"
+            // OR-trigger -- the bare form left its entire UTM/click-ID detection arm
+            // permanently dead regardless of what any request's query string carried.
+            sink.Raise($"{SignalKeys.UtmPresent}:true", sessionId);
             if (!string.IsNullOrEmpty(adTraffic.SourcePlatform))
                 sink.Raise($"{SignalKeys.UtmSourcePlatform}:{adTraffic.SourcePlatform}", sessionId);
-            if (adTraffic.HasGclid) sink.Raise(SignalKeys.UtmHasGclid, sessionId);
-            if (adTraffic.HasFbclid) sink.Raise(SignalKeys.UtmHasFbclid, sessionId);
-            if (adTraffic.HasMsclkid) sink.Raise(SignalKeys.UtmHasMsclkid, sessionId);
-            if (adTraffic.HasTtclid) sink.Raise(SignalKeys.UtmHasTtclid, sessionId);
+            if (adTraffic.HasGclid) sink.Raise($"{SignalKeys.UtmHasGclid}:true", sessionId);
+            if (adTraffic.HasFbclid) sink.Raise($"{SignalKeys.UtmHasFbclid}:true", sessionId);
+            if (adTraffic.HasMsclkid) sink.Raise($"{SignalKeys.UtmHasMsclkid}:true", sessionId);
+            if (adTraffic.HasTtclid) sink.Raise($"{SignalKeys.UtmHasTtclid}:true", sessionId);
             if (adTraffic.ReferrerPresent) sink.Raise(SignalKeys.UtmReferrerPresent, sessionId);
-            if (adTraffic.ReferrerMismatch) sink.Raise(SignalKeys.UtmReferrerMismatch, sessionId);
+            if (adTraffic.ReferrerMismatch) sink.Raise($"{SignalKeys.UtmReferrerMismatch}:true", sessionId);
 
             if (adTraffic.SourceHash != null)
                 sink.Raise($"{SignalKeys.UtmSourceHash}:{adTraffic.SourceHash}", sessionId);
