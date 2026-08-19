@@ -382,11 +382,16 @@
         statusEl.className = 'w-2 h-2 rounded-full sb-' + state;
         statusEl.title = 'SignalR: ' + state;
         // Broadcast to external surfaces (e.g. the scope bar's LIVE indicator):
-        // any element with [data-sb-live-dot] gets data-live="connected|connecting|paused|disconnected".
+        // any element with [data-sb-live-dot] gets data-live AND the same
+        // sb-* colour class as this chip. The class is what the CSS styles —
+        // setting data-live alone left the bar's dot permanently red while the
+        // connection was actually up (uxreview 2026-08-19, verified live:
+        // data-live="connected" with class sb-disconnected).
         try {
             window.dispatchEvent(new CustomEvent('sb:live-status', { detail: state }));
             document.querySelectorAll('[data-sb-live-dot]').forEach(function (el) {
                 el.setAttribute('data-live', state);
+                el.className = 'w-2 h-2 rounded-full sb-' + state;
             });
         } catch (e) { /* ignore */ }
     }

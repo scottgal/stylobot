@@ -136,15 +136,18 @@
     <div class="sb-widget-grid">
         @* Chart state contract (PART 2, revised 2026-08-19): NEVER a bare canvas,
            and NEVER a "no data" render — "no signal data is NOT a valid state,
-           the signal is always in that period" (operator). A cold envelope
-           (warming) and a composed-empty window both render the ONE honest
-           "generating" state (spinner + copy); the swap region's bounded retry
-           keeps running while it renders, so it always transitions to the
-           plotted chart. data-sb-depends="summary" lets the freshness beacon
+           the signal is always in that period" (operator). A COLD envelope
+           (warming, compose in flight) renders the ONE honest "generating" state
+           (spinner + copy); the swap region's bounded retry keeps running while
+           it renders, so it always transitions to the plotted chart. A COMPOSED
+           window — even an all-zero series (genuinely quiet period, e.g. a past
+           custom range) — renders its data: the chart plots the zero axis rather
+           than generating forever (the eternal-generating lock-up class, verified
+           2026-08-19). data-sb-depends="summary" lets the freshness beacon
            OOB-replace it once warm. *@
         <sb-widget width="half" height="tall" heading="@chartLabel"
                    depends="summary"
-                   warming-when="@(Model.IsWarming || Model.Timeseries.Bot.Sum() + Model.Timeseries.Human.Sum() + Model.Timeseries.Suspicious.Sum() == 0)"
+                   warming-when="@Model.IsWarming"
                    warming-text="@($"Generating {Model.Filters.Window}…")">
             <vc:sb-chartlet model="hitsChart" />
         </sb-widget>
