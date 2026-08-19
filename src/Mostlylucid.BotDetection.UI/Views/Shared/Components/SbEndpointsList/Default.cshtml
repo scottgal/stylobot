@@ -29,7 +29,7 @@
         ? "text-base-content/70 font-bold"
         : "text-base-content/40 hover:text-base-content/60";
     string ChipClass(string bucket) => Model.StatusFilter.Equals(bucket, StringComparison.OrdinalIgnoreCase)
-        ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-primary/20 text-primary border border-primary/30"
+        ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-primary/30 text-primary font-bold border border-primary/50"
         : "px-2 py-0.5 text-[10px] rounded-md text-base-content/60 hover:text-base-content/90 border border-base-content/15 hover:border-base-content/30 transition-colors";
     string AudienceChipClass(string audience) => Model.AudienceFilter.Equals(audience, StringComparison.OrdinalIgnoreCase)
         ? "px-2 py-0.5 text-[10px] rounded-md font-semibold bg-warning/20 text-warning border border-warning/30"
@@ -241,7 +241,17 @@
     }
     else if (Model.Endpoints.Count == 0)
     {
-        <div class="text-xs text-base-content/40 py-8 text-center">No endpoint analytics yet</div>
+        // Empty-state copy differentiation (uxreview 2026-08-19): "No endpoint
+        // analytics yet" read as "the feature never ran" — the window + filter
+        // context is the honest framing.
+        var filterActive = (!string.IsNullOrEmpty(Model.StatusFilter) && !Model.StatusFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
+            || (!string.IsNullOrEmpty(currentMethod) && !currentMethod.Equals("all", StringComparison.OrdinalIgnoreCase))
+            || (!string.IsNullOrEmpty(Model.ModeFilter) && !Model.ModeFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
+            || !string.IsNullOrEmpty(Model.PathFilter);
+        var emptyText = filterActive
+            ? "No endpoints match this filter in this window"
+            : "No endpoint analytics in this window";
+        <div class="text-xs text-base-content/40 py-8 text-center">@emptyText</div>
     }
     else
     {
