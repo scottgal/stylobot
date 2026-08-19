@@ -157,7 +157,7 @@ public sealed class TrafficControllerComposeTests
         };
 
         // Act
-        _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, default);
+        _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
 
         // Assert — the current window is composed once with its six datasets (five
         // detection aggregates + site-health), and the prior window is a SECOND batched
@@ -186,7 +186,7 @@ public sealed class TrafficControllerComposeTests
             store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
-        _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, default);
+        _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
 
         Assert.True(httpContext.Items.ContainsKey("sb.dashboard.pageresult"),
             "Expected 'sb.dashboard.pageresult' in HttpContext.Items after Index()");
@@ -222,7 +222,7 @@ public sealed class TrafficControllerComposeTests
             store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
-        var result = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, default);
+        var result = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
 
         var model = Assert.IsType<Microsoft.AspNetCore.Mvc.ViewResult>(result).Model as TrafficPageModel;
         Assert.NotNull(model);
@@ -245,7 +245,7 @@ public sealed class TrafficControllerComposeTests
             store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
-        _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, default);
+        _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
 
         // No direct prior-window fetches — it's batched instead.
         Assert.Equal(0, store.GetTopBotsCallCount + store.GetSummaryCallCount);
@@ -280,7 +280,7 @@ public sealed class TrafficControllerComposeTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
 
-        var result = await controller.Index(null, null, null, null, null, null, null, CancellationToken.None);
+        var result = await controller.Index(null, null, null, null, null, null, null, null, CancellationToken.None);
 
         Assert.IsType<ViewResult>(result);
         // The page result is the Warming as-served — the old first-paint poll loop is

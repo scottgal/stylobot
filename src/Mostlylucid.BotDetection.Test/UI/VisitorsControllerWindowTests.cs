@@ -46,7 +46,7 @@ public sealed class VisitorsControllerWindowTests
         DashboardPageWindow? captured = null;
         var controller = NewController(new Mock<IDashboardContentCache>(), w => captured = w);
 
-        await controller.Index(null, null, null, null, null, false, "7d", CancellationToken.None);
+        await controller.Index(null, null, null, null, null, null, "7d", CancellationToken.None);
 
         Assert.NotNull(captured);
         Assert.Equal(120, captured.BucketMinutes);
@@ -59,7 +59,7 @@ public sealed class VisitorsControllerWindowTests
         DashboardPageWindow? captured = null;
         var controller = NewController(new Mock<IDashboardContentCache>(), w => captured = w);
 
-        await controller.Index(null, null, null, null, null, false, null, CancellationToken.None);
+        await controller.Index(null, null, null, null, null, null, null, CancellationToken.None);
 
         Assert.NotNull(captured);
         Assert.Equal(20, captured.BucketMinutes);
@@ -72,7 +72,7 @@ public sealed class VisitorsControllerWindowTests
         DashboardPageWindow? captured = null;
         var controller = NewController(new Mock<IDashboardContentCache>(), w => captured = w);
 
-        await controller.Index(null, null, null, null, null, false, "bogus", CancellationToken.None);
+        await controller.Index(null, null, null, null, null, null, "bogus", CancellationToken.None);
 
         Assert.NotNull(captured);
         Assert.Equal(20, captured.BucketMinutes);
@@ -103,7 +103,7 @@ public sealed class VisitorsControllerWindowTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
 
-        await controller.Index(null, null, null, null, null, false, "24h", CancellationToken.None);
+        await controller.Index(null, null, null, null, null, null, "24h", CancellationToken.None);
 
         cache.Verify(c => c.GetCurrentAsync(
             It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),

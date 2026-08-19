@@ -86,7 +86,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(page);
         var controller = NewController(cacheMock);
 
-        var result = await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
+        var result = await controller.Index(null, null, null, null, "24h", null, null, CancellationToken.None);
 
         Assert.IsType<ViewResult>(result);
         Assert.NotNull(capturedManifest);
@@ -119,7 +119,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(DashboardPageResult.Warming);
         var controller = NewController(cacheMock);
 
-        await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
+        await controller.Index(null, null, null, null, "24h", null, null, CancellationToken.None);
 
         Assert.False(controller.HttpContext.Items.ContainsKey("sb.dashboard.pageresult"));
     }
@@ -136,7 +136,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(CompleteSitePage());
         var controller = NewController(cacheMock);
 
-        var result = await controller.Index(null, null, null, null, "7d", 1, CancellationToken.None);
+        var result = await controller.Index(null, null, null, null, "7d", 1, null, CancellationToken.None);
 
         var partial = Assert.IsType<PartialViewResult>(result);
         Assert.Equal("/Views/StyloBot/Dashboard/Site/Index.cshtml", partial.ViewName);
@@ -158,7 +158,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(page);
         var controller = NewController(cacheMock);
 
-        var result = await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
+        var result = await controller.Index(null, null, null, null, "24h", null, null, CancellationToken.None);
 
         Assert.IsType<ViewResult>(result);
         // The first read was Warming; the wait re-read until the stash landed.
@@ -184,7 +184,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(page);
         var controller = NewController(cacheMock);
 
-        var result = await controller.Index(null, null, null, null, "12h", null, CancellationToken.None);
+        var result = await controller.Index(null, null, null, null, "12h", null, null, CancellationToken.None);
 
         Assert.IsType<ViewResult>(result);
         cacheMock.Verify(c => c.GetCurrentAsync(
@@ -219,7 +219,7 @@ public sealed class SiteControllerSummaryStashTests
             .ReturnsAsync(page);
         var controller = NewController(cacheMock);
 
-        await controller.Index(null, null, null, null, "24h", null, CancellationToken.None);
+        await controller.Index(null, null, null, null, "24h", null, null, CancellationToken.None);
 
         Assert.False(controller.HttpContext.Items.ContainsKey("sb.dashboard.pageresult"));
     }

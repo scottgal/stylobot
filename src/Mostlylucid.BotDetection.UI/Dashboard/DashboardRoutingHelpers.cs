@@ -96,13 +96,14 @@ public static class DashboardRoutingHelpers
     ///     site-page summary-0 root cause: the controller computed bucket minutes as
     ///     windowMinutes/60 while the materializer used the chartlet bucket size).
     /// </summary>
-    public static DashboardPageWindow BuildPinnedWindow(string token, DateTime now, IReadOnlyList<string>? domains = null)
+    public static DashboardPageWindow BuildPinnedWindow(
+        string token, DateTime now, IReadOnlyList<string>? domains = null, string audienceFilter = "all")
     {
         var minutes = WindowTokenToMinutes(token, fallbackMinutes: 24 * 60);
         return new DashboardPageWindow(
             StartTime: now.AddMinutes(-minutes),
             EndTime: now,
-            AudienceFilter: "all",
+            AudienceFilter: audienceFilter,
             ProbMin: null,
             Domains: domains,
             TopN: 500,

@@ -52,9 +52,9 @@ public sealed class VisitorsController : Controller
         [FromQuery(Name = "bot_type")] string? botType,
         [FromQuery] string? threat,
         [FromQuery] string? fingerprint,
-        [FromQuery(Name = "internal")] bool @internal,
         [FromQuery(Name = "window")] string? window,
-        CancellationToken ct)
+        [FromQuery(Name = "internal")] string? _internal = null,
+        CancellationToken ct = default)
     {
         // The view consults Layout.BasePath for HTMX urls inside the partial via
         // Model.BasePath. We populate that the same way the middleware does so the
@@ -69,7 +69,14 @@ public sealed class VisitorsController : Controller
         // falls back to 24h (the same normalisation SiteController uses).
         var now = DateTime.UtcNow;
         var windowToken = NormalizeWindowToken(window);
-        var pageWindow = DashboardRoutingHelpers.BuildPinnedWindow(windowToken, now);
+        // Internal-traffic toggle (operator 2026-08-19): the top-level bar toggle
+        // sends ?internal=show (the baseline middleware applies the cookie); the
+        // visitor list's own Internal pill has historically used ?internal=true —
+        // accept both vocabularies so the two controls agree on the same flag.
+        var showInternal = string.Equals(_internal, "show", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(_internal, "true", StringComparison.OrdinalIgnoreCase);
+        var pageWindow = DashboardRoutingHelpers.BuildPinnedWindow(
+            windowToken, now, audienceFilter: showInternal ? "all_incl_internal" : "all");
         var start = pageWindow.StartTime!.Value;
 
         // Visitors and Traffic must consume the same composed page bundle. In
@@ -161,7 +168,7 @@ public sealed class VisitorsController : Controller
             BotType: NullIfEmpty(botType),
             Threat: NullIfEmpty(threat),
             FingerprintId: NullIfEmpty(fingerprint),
-            Internal: @internal,
+            Internal: showInternal,
             BasePath: basePath,
             Counters: counters,
             Countries: countriesData ?? new List<DashboardCountryStats>(),

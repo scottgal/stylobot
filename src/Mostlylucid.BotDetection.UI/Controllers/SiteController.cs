@@ -52,7 +52,8 @@ public sealed class SiteController : Controller
         [FromQuery(Name = "bot_pressure")] string? botPressure,
         [FromQuery(Name = "window")] string? window,
         [FromQuery] int? partial,
-        CancellationToken ct)
+        [FromQuery(Name = "internal")] string? _internal = null,
+        CancellationToken ct = default)
     {
         var basePath = _layout.Value.V2Enabled
             ? "/dashboard"
@@ -75,7 +76,12 @@ public sealed class SiteController : Controller
         var manifest = _manifests.For("dashboard.site")
                        ?? new DashboardPageManifest("dashboard.site",
                            new[] { "summary", "site-health", "endpoints" });
-        var pageWindow = DashboardRoutingHelpers.BuildPinnedWindow(windowToken, now, domainsForQuery);
+        // Internal-traffic toggle (operator 2026-08-19): external-only by default;
+        // ?internal=show (the top-level bar toggle) opts into all_incl_internal.
+        var audience = string.Equals(_internal, "show", StringComparison.OrdinalIgnoreCase)
+            ? "all_incl_internal"
+            : "all";
+        var pageWindow = DashboardRoutingHelpers.BuildPinnedWindow(windowToken, now, domainsForQuery, audience);
 
         DashboardPageResult? page = null;
         try { page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct); }

@@ -75,7 +75,8 @@ public sealed class TrafficController : Controller
         [FromQuery] string? to,
         [FromQuery] string? threat,
         [FromQuery] int? partial,
-        CancellationToken ct)
+        [FromQuery(Name = "internal")] string? _internal = null,
+        CancellationToken ct = default)
     {
         var opts = _layout.Value;
         // Neutral filter construction. TrafficFilters.Domains is neutral
@@ -146,6 +147,14 @@ public sealed class TrafficController : Controller
         // stashed in HttpContext.Items so the VCs read their slice without a
         // self-fetch (HttpContext.Items key "sb.dashboard.pageresult").
         var manifest = _manifests.For("dashboard.traffic")!;
+        // Internal-traffic toggle (operator 2026-08-19): the page's audience is
+        // external-only by default ("all" excludes internal in both stores);
+        // ?internal=show (the top-level bar toggle, baseline-applied by the
+        // commercial middleware) opts into the explicit all_incl_internal token.
+        // One derivation — the same URL-first resolution as the period/domain axes.
+        var audience = string.Equals(_internal, "show", StringComparison.OrdinalIgnoreCase)
+            ? "all_incl_internal"
+            : "all";
         // Structural lock (operator directive 2026-08-12): the window MUST come from
         // DashboardRoutingHelpers.BuildPinnedWindow — the single derivation shared with
         // the materializer's pinned prewarm. Any inline derivation here can drift from
@@ -156,12 +165,12 @@ public sealed class TrafficController : Controller
             ? new DashboardPageWindow(
                 StartTime: startTime,
                 EndTime: endTime,
-                AudienceFilter: "all",
+                AudienceFilter: audience,
                 ProbMin: null,
                 Domains: domainsForQuery,
                 TopN: 500,
                 BucketMinutes: (int)bucketSize.TotalMinutes)
-            : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, endTime, domainsForQuery);
+            : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, endTime, domainsForQuery, audience);
         var page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
 
         // The complete-cache serve (operator 2026-08-15 — "the JSON loads WITH the page,
@@ -264,12 +273,12 @@ public sealed class TrafficController : Controller
                 ? new DashboardPageWindow(
                     StartTime: startTime.AddMinutes(-windowMinutes),
                     EndTime: startTime,
-                    AudienceFilter: "all",
+                    AudienceFilter: audience,
                     ProbMin: null,
                     Domains: domainsForQuery,
                     TopN: 500,
                     BucketMinutes: (int)bucketSize.TotalMinutes)
-                : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, startTime, domainsForQuery);
+                : DashboardRoutingHelpers.BuildPinnedWindow(filters.Window, startTime, domainsForQuery, audience);
             var priorPage = await _contentCache.GetCurrentAsync(priorManifest, priorWindow, ct);
             priorBots = priorPage.BotAggregate ?? new List<DashboardTopBotEntry>();
             priorSummary = priorPage.Summary;
@@ -288,7 +297,7 @@ public sealed class TrafficController : Controller
         // input to the most-recent (usually 1-hit) visitors before grouping — the
         // strip then showed random low-volume entries instead of Googlebot/Bingbot.
         var (visitors, _, _) = WidgetRenderHelpers.ProjectAsVisitors(
-            topBots, filter: "all", sortField: "hits", sortDir: "desc",
+            topBots, filter: audience, sortField: "hits", sortDir: "desc",
             page: 1, pageSize: 500,
             country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 

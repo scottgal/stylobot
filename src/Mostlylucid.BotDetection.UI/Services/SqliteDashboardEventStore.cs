@@ -677,14 +677,28 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     ///     humans are kept (matches Postgres <c>IS DISTINCT FROM</c>). Callers bind
     ///     <c>@botFloor</c> for humans/bots.
     /// </summary>
+    // Internal-classes SQL fragment: the product's own traffic is flagged by
+    // bot_type='Internal' AND/OR by bot_name ('StyloBot Internal', 'Health Probe'
+    // — the website's telemetry polling, health probes; the bot_type column is
+    // often empty on these rows, so the exclusion MUST key on bot_name too —
+    // operator directive 2026-08-19: "by default we should NOT count internal /
+    // display them by default"; deploy- verified the data key on staging).
+    private const string InternalNames = "'StyloBot Internal', 'Health Probe'";
+    private static string ExcludeInternalSql => $" (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ({InternalNames})) ";
+    private static string ShowInternalSql => $" (bot_type = 'Internal' OR bot_name IN ({InternalNames})) ";
+
     private static string AudiencePredicate(string? audienceFilter) => audienceFilter?.ToLowerInvariant() switch
     {
-        "internal"          => " AND bot_type = 'Internal'",
-        "all"               => string.Empty,
+        "internal"          => $" AND {ShowInternalSql}",
+        // "all" = all EXTERNAL traffic (internal excluded by default — operator
+        // 2026-08-19; matches Postgres + the compose + the UI's "All" tab counts);
+        // "all_incl_internal" is the explicit opt-in (the self-probe + top-level
+        // internal toggles).
+        "all"               => $" AND {ExcludeInternalSql}",
         "all_incl_internal" => string.Empty,
-        "bots"              => " AND bot_probability >= @botFloor AND bot_type IS NOT 'Internal'",
-        "humans"            => " AND bot_probability < @botFloor AND bot_type IS NOT 'Internal'",
-        _                   => " AND bot_type IS NOT 'Internal'",
+        "bots"              => $" AND bot_probability >= @botFloor AND {ExcludeInternalSql}",
+        "humans"            => $" AND bot_probability < @botFloor AND {ExcludeInternalSql}",
+        _                   => $" AND {ExcludeInternalSql}",
     };
 
     // ---- Fused-row aggregation fragments -----------------------------------
