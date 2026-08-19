@@ -362,9 +362,10 @@ public sealed class InternalStatExclusionTests
         Assert.All(top, e => Assert.Equal("Internal", e.BotType));
     }
 
-    /// <summary>The "all" audience shows the full mix (self-traffic included).</summary>
+    /// <summary>"all" = all EXTERNAL traffic — internal is excluded by default
+    /// (operator 2026-08-19; matches Postgres + the compose + the UI's "All" tab).</summary>
     [Fact]
-    public async Task GetTopBotsAsync_AllAudience_IncludesInternal()
+    public async Task GetTopBotsAsync_AllAudience_ExcludesInternal()
     {
         await using var fx = await SqliteDashboardStoreFixture.NewAsync("topbots-all");
         var now = DateTime.UtcNow;
@@ -373,7 +374,8 @@ public sealed class InternalStatExclusionTests
 
         var top = await fx.Store.GetTopBotsAsync(count: 10, startTime: now.AddHours(-1), endTime: now.AddHours(1), audienceFilter: "all");
 
-        Assert.Contains(top, e => string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(top, e => string.Equals(e.BotType, "Internal", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(top, e => string.Equals(e.BotType, "SearchEngine", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Summary "internal" audience returns only self-traffic totals.</summary>
@@ -390,9 +392,9 @@ public sealed class InternalStatExclusionTests
         Assert.Equal(1, summary.TotalRequests);
     }
 
-    /// <summary>Summary "all" audience includes self-traffic in the totals.</summary>
+    /// <summary>Summary "all" = all EXTERNAL traffic — internal excluded by default.</summary>
     [Fact]
-    public async Task GetSummaryAsync_AllAudience_IncludesInternal()
+    public async Task GetSummaryAsync_AllAudience_ExcludesInternal()
     {
         await using var fx = await SqliteDashboardStoreFixture.NewAsync("summary-all");
         await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal",     isBot: false, probability: 0.05));
@@ -401,7 +403,7 @@ public sealed class InternalStatExclusionTests
         var summary = await fx.Store.GetSummaryAsync(
             startTime: DateTime.UtcNow.AddHours(-1), endTime: DateTime.UtcNow.AddHours(1), audienceFilter: "all");
 
-        Assert.Equal(2, summary.TotalRequests);
+        Assert.Equal(1, summary.TotalRequests);
     }
 
     // ── "all_incl_internal" (Internal-filter posture, foss-internal-filter-posture) ──
@@ -448,18 +450,21 @@ public sealed class InternalStatExclusionTests
     ///     pins the two tokens staying in lockstep so a caller can't observe drift between
     ///     them.</summary>
     [Fact]
-    public async Task GetSummaryAsync_AllInclInternal_MatchesLegacyAllToken()
+    public async Task GetSummaryAsync_AllInclInternal_IncludesEverything()
     {
+        // "all_incl_internal" is now the ONLY token that includes self-traffic
+        // (the operator's toggle-off + the endpoints' "Show self-probe"); "all"
+        // excludes internal, so the old all-incl == all parity is gone by design.
         await using var fx = await SqliteDashboardStoreFixture.NewAsync("summary-all-incl-internal-parity");
         await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-probe", "Internal", isBot: false, probability: 0.05));
         await fx.Store.AddDetectionAsync(MakeSqlDetection("sig-bot", "SearchEngine", isBot: true, probability: 0.95));
 
         var allInclInternal = await fx.Store.GetSummaryAsync(
             startTime: DateTime.UtcNow.AddHours(-1), endTime: DateTime.UtcNow.AddHours(1), audienceFilter: "all_incl_internal");
-        var legacyAll = await fx.Store.GetSummaryAsync(
+        var all = await fx.Store.GetSummaryAsync(
             startTime: DateTime.UtcNow.AddHours(-1), endTime: DateTime.UtcNow.AddHours(1), audienceFilter: "all");
 
         Assert.Equal(2, allInclInternal.TotalRequests);
-        Assert.Equal(legacyAll.TotalRequests, allInclInternal.TotalRequests);
+        Assert.Equal(1, all.TotalRequests);
     }
 }
