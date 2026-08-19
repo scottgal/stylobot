@@ -872,6 +872,17 @@
 @media (max-width: 1024px) {
     .sb-w-quarter, .sb-w-third, .sb-w-half, .sb-w-2third { grid-column: span 6; }
 }
+
+/* D5 mobile pass (uxreview 2026-08-19, 375px): the desktop tooltip-safe clip
+   becomes a real horizontal scroll on phones — a clipped table read as
+   "endpoint columns cut off". Tooltips still portal at body level, so the
+   scroll tradeoff is safe here. */
+@media (max-width: 640px) {
+    .sb-table-scroll {
+        overflow-x: auto;
+        overflow-y: auto;
+    }
+}
 @media (max-width: 640px) {
     .sb-widget-grid { grid-template-columns: 1fr; }
     .sb-w-quarter, .sb-w-third, .sb-w-half, .sb-w-2third, .sb-w-full { grid-column: 1 / -1; }
