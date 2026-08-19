@@ -2,8 +2,7 @@
 // the inline from/to inputs. External file because the dashboard CSP's
 // script-src 'self' 'nonce-…' 'unsafe-eval' rejects nonced-less inline scripts.
 // DELEGATED listener (document-level) so it survives the pill row's hx-swap
-// (the controller re-renders the form on every selection — a direct listener
-// on the initial form would die with it).
+// (a direct listener on the initial form would die with it).
 (function () {
     'use strict';
 
@@ -25,6 +24,15 @@
         toggle.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
     });
 
-    // Initial state (the SSR renders the custom inputs when the cookie says custom).
-    syncPill(document.querySelector('[data-custom-range-toggle]'));
+    // Initial state (the SSR renders the custom inputs when the current window is
+    // custom). Runs on DOMContentLoaded — the bar sits at the top of the page, so
+    // a script at the end of <body> can race the markup; the delegated click
+    // listener above is registered regardless.
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+            syncPill(document.querySelector('[data-custom-range-toggle]'));
+        });
+    } else {
+        syncPill(document.querySelector('[data-custom-range-toggle]'));
+    }
 })();

@@ -42,59 +42,66 @@ public sealed class SbWidgetTagHelperWarmingTests
     }
 
     [Fact]
-    public void WarmingWhen_true_renders_the_honest_empty_strip_and_suppresses_the_canvas()
+    public void WarmingWhen_true_renders_the_generating_state_and_suppresses_the_canvas()
     {
-        // P0 2026-08-16 (the operator's "period switch spinner"): the warming spinner
-        // is DEAD — NO loading state ever. A cold-cache miss renders the honest empty
-        // strip (the warming-when text when present); the background prewarm fills the
-        // envelope and the beacon OOB-replaces the widget once warm.
+        // Operator 2026-08-19 (supersedes the 4fc31a8c "NO loading state ever"
+        // doctrine FOR THE NOT-DATA PATH): a cold-cache miss (period change to a
+        // not-yet-composed window) renders the ONE honest "generating" state —
+        // spinner + copy — never a "no data" render ("no signal data is NOT a
+        // valid state; the signal is always in that period"). The swap region's
+        // bounded retry transitions it to data; the copy is never the empty text.
         var helper = new SbWidgetTagHelper
         {
             Width = "half",
             Height = "tall",
             Heading = "Hits per period",
             WarmingWhen = true,
-            WarmingText = "Warming up — chart data will appear shortly.",
+            WarmingText = "Generating 7d…",
         };
 
         var (rendered, _) = Render(helper);
 
-        Assert.Contains("Warming up", rendered);
-        Assert.DoesNotContain("loading loading-spinner", rendered);
-        // The bare Chart.js canvas MUST NOT render behind the empty strip.
+        Assert.Contains("Generating 7d", rendered);
+        Assert.Contains("loading loading-spinner", rendered);
+        Assert.Contains("sb-widget-loading", rendered);
+        // The bare Chart.js canvas MUST NOT render behind the generating state.
         Assert.DoesNotContain("chart-canvas", rendered);
     }
 
     [Fact]
-    public void WarmingWhen_takes_precedence_over_EmptyWhen_without_a_spinner()
+    public void WarmingWhen_takes_precedence_over_EmptyWhen()
     {
         var helper = new SbWidgetTagHelper
         {
             WarmingWhen = true,
-            WarmingText = "Warming up — chart data will appear shortly.",
+            WarmingText = "Generating 24h…",
             EmptyWhen = true,
             EmptyText = "No data in this window",
         };
 
         var (rendered, _) = Render(helper);
 
-        Assert.Contains("Warming up", rendered);
-        Assert.DoesNotContain("loading loading-spinner", rendered);
+        Assert.Contains("Generating 24h", rendered);
+        Assert.Contains("loading loading-spinner", rendered);
         Assert.DoesNotContain("No data in this window", rendered);
     }
 
     [Fact]
-    public void EmptyWhen_without_warming_still_renders_the_empty_strip()
+    public void EmptyWhen_without_warming_renders_the_plain_strip()
     {
+        // EmptyWhen is ONLY for callers whose "empty" has non-signal semantics
+        // (e.g. site-health's "no incidents"); signal-data widgets never use it
+        // (they fold composed-empty into the generating state). The plain strip
+        // stays spinner-free — it is a terminal state, not a generating one.
         var helper = new SbWidgetTagHelper
         {
             EmptyWhen = true,
-            EmptyText = "No data in this window",
+            EmptyText = "Upstream healthy — no incidents",
         };
 
         var (rendered, _) = Render(helper);
 
-        Assert.Contains("No data in this window", rendered);
+        Assert.Contains("Upstream healthy", rendered);
         Assert.DoesNotContain("loading loading-spinner", rendered);
         Assert.DoesNotContain("chart-canvas", rendered);
     }

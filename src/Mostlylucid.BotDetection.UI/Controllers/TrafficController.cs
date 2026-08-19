@@ -182,6 +182,21 @@ public sealed class TrafficController : Controller
             page = await _contentCache.GetCurrentAsync(manifest, pageWindow, ct);
         }
 
+        // Terminal-state bound (operator 2026-08-19: "it just 'locks up' if there's
+        // no data yet"): when the page is STILL warming after the (post-boot no-op)
+        // wait AND the materializer has NEVER composed anything successfully, the
+        // compose path is demonstrably broken on this host — paint the explicit
+        // degraded terminal state (the counters' "Data feed unavailable — retrying
+        // on next tick") instead of an eternal loading state with nothing to warm
+        // it. Same PART 4 guard semantics as the dashboard middleware: a host that
+        // warms OTHER envelopes is just LATE for this one — it keeps the honest
+        // loading state + the swap region's bounded retry, and the beacon fills it.
+        if (page is { IsWarming: true }
+            && _coordinator is { HasWarmedSuccessfully: false })
+        {
+            DashboardWarmingSignal.MarkDegraded(HttpContext);
+        }
+
         HttpContext.Items["sb.dashboard.pageresult"] = page;
 
         var topBots = page.BotAggregate ?? new List<DashboardTopBotEntry>();

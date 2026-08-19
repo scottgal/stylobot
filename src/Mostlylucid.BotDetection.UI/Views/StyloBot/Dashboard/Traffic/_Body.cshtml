@@ -134,16 +134,18 @@
        VISITORS card was), with Top Bots beside it — the two headline widgets of
        the page. The visitor split moved to the compact bar above. *@
     <div class="sb-widget-grid">
-        @* Three-state chart contract (PART 2): warming spinner on a genuine cold-cache
-           miss (Model.IsWarming), an honest "No data" strip when the window is warmed but
-           empty, otherwise the real Chart.js stacked bar -- never a bare empty canvas.
-           data-sb-depends="summary" lets the freshness beacon OOB-replace it once warm. *@
+        @* Chart state contract (PART 2, revised 2026-08-19): NEVER a bare canvas,
+           and NEVER a "no data" render — "no signal data is NOT a valid state,
+           the signal is always in that period" (operator). A cold envelope
+           (warming) and a composed-empty window both render the ONE honest
+           "generating" state (spinner + copy); the swap region's bounded retry
+           keeps running while it renders, so it always transitions to the
+           plotted chart. data-sb-depends="summary" lets the freshness beacon
+           OOB-replace it once warm. *@
         <sb-widget width="half" height="tall" heading="@chartLabel"
                    depends="summary"
-                   warming-when="@Model.IsWarming"
-                   warming-text=""
-                   empty-when="@(!Model.IsWarming && Model.Timeseries.Bot.Sum() + Model.Timeseries.Human.Sum() + Model.Timeseries.Suspicious.Sum() == 0)"
-                   empty-text="No data in this window">
+                   warming-when="@(Model.IsWarming || Model.Timeseries.Bot.Sum() + Model.Timeseries.Human.Sum() + Model.Timeseries.Suspicious.Sum() == 0)"
+                   warming-text="@($"Generating {Model.Filters.Window}…")">
             <vc:sb-chartlet model="hitsChart" />
         </sb-widget>
         @* height=tall (reverted from half, operator 2026-08-09): page-size is a fixed

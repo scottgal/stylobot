@@ -855,6 +855,17 @@
     display: flex; align-items: center; gap: .5rem; height: 100%;
     color: var(--color-base-content, #64748b); opacity: .6; font-size: .8125rem;
 }
+
+/* LOADING state (operator 2026-08-19): spinner + honest copy, centered in the
+   tier cell so the swap to data never reflows. The tier height is owned by the
+   outer .sb-widget grid-row span; this only centers its content. */
+.sb-widget-loading {
+    display: flex; align-items: center; justify-content: center; gap: .625rem;
+    height: 100%; min-height: 6rem;
+    color: var(--color-base-content, #64748b); font-size: .8125rem;
+}
+.sb-widget-loading .loading { color: var(--color-primary, #4f46e5); }
+
 .sb-widget-head { font-size: .8125rem; font-weight: 600; opacity: .75; margin-bottom: .5rem; }
 
 /* responsive: don't crush spans on narrow viewports */

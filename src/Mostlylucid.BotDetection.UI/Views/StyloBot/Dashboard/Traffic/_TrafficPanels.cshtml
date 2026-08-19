@@ -93,7 +93,8 @@
     else
     {
         <sb-widget width="third" height="tall" heading="By country"
-                   empty-when="@(Model.Countries.Count == 0)" empty-text="No data in this window">
+                   warming-when="@(Model.Countries.Count == 0)"
+                   warming-text="Generating…">
             <vc:sb-chartlet model="countryChart" />
         </sb-widget>
     }
@@ -138,7 +139,8 @@
     else
     {
         <sb-widget width="third" height="tall" heading="By bot type"
-                   empty-when="@(Model.BotTypes.Count == 0)" empty-text="No data in this window">
+                   warming-when="@(Model.BotTypes.Count == 0)"
+                   warming-text="Generating…">
             <vc:sb-chartlet model="botTypeChart" />
         </sb-widget>
     }

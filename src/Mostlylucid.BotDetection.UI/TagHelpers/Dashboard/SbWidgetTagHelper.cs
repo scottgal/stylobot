@@ -46,13 +46,16 @@ public sealed class SbWidgetTagHelper : TagHelper
     [HtmlAttributeName("empty-text")] public string? EmptyText { get; set; }
 
     /// <summary>
-    ///     When true, render the compact WARMING strip (daisyUI spinner + text) instead
+    ///     When true, render the LOADING state (daisyUI spinner + honest copy) instead
     ///     of the content. Takes precedence over <see cref="EmptyWhen"/> so a cold-cache
-    ///     miss shows "still warming" rather than the honest "no data" state -- the same
-    ///     three-state contract (data / warming / empty) the list widgets (SbCountriesList,
-    ///     SbSummaryStats) already render. This exists so a chart never paints a bare
-    ///     Chart.js canvas on a cold cache: the warming strip replaces the canvas, and the
-    ///     freshness beacon OOB-replaces the widget once the tick materializer warms it.
+    ///     miss (a period change to a not-yet-composed window) shows "Loading {window}…"
+    ///     rather than the no-data callout — the same three-state contract (data /
+    ///     loading / empty) the list widgets (SbCountriesList, SbSummaryStats) already
+    ///     render. Operator directive 2026-08-19: every widget shows a loading state on
+    ///     period change, then transitions to data; the loading state never renders
+    ///     "No data" copy (that lie read as "graph empty by default"). The swap region
+    ///     carries the bounded retry while a warming render is served, so this state
+    ///     always transitions.
     /// </summary>
     [HtmlAttributeName("warming-when")] public bool WarmingWhen { get; set; }
 
@@ -104,20 +107,41 @@ public sealed class SbWidgetTagHelper : TagHelper
             ? string.Empty
             : $"<div class=\"sb-widget-head\">{enc.Encode(Heading)}</div>";
 
-        if (WarmingWhen || EmptyWhen)
+        if (WarmingWhen)
         {
-            // P0 2026-08-16 (the operator's "period switch spinner"): the warming
-            // spinner is DEAD — NO loading state ever (the 4fc31a8c doctrine; the
-            // SSR-only contract: "Warming up" is NEVER valid). A cold-cache miss
-            // renders the honest empty strip — the background prewarm fills the
-            // envelope and the freshness beacon OOB-replaces the widget once warm;
-            // the page never shows a loading state. The warming-when text (when
-            // present) still wins so callers can distinguish the still-warming copy
-            // from the composed-empty copy without a spinner anywhere.
-            var emptyText = enc.Encode(
+            // LOADING state (operator 2026-08-19 — supersedes the 4fc31a8c "NO
+            // loading state ever" doctrine FOR THE WARMING PATH): a cold envelope
+            // (period change to a not-yet-composed window) renders a real loading
+            // state — spinner + honest copy — inside the card. The tier height is
+            // unchanged (the grid-row span lives on the outer .sb-widget), so the
+            // beacon-driven swap to data causes no reflow ("things shift as it does
+            // it" was partly the strip→data height jump). The copy must be HONEST:
+            // "Loading {window} window…", never "No data in this window" — that
+            // lie is what rendered as "graph empty by default" for 5 days. The
+            // swap region carries the bounded retry while a warming render is
+            // served (self-extinguishing — see the traffic body's every-10s
+            // trigger), so this state always transitions.
+            var loadingText = enc.Encode(
                 !string.IsNullOrEmpty(WarmingText)
                     ? WarmingText
-                    : (EmptyText ?? "No data"));
+                    : "Loading…");
+            output.Content.SetHtmlContent(
+                $"<div class=\"card bg-base-100 border border-base-300\"><div class=\"card-body p-3\">{head}" +
+                $"<div class=\"sb-widget-loading\" role=\"status\" aria-live=\"polite\">" +
+                $"<span class=\"loading loading-spinner loading-sm\" aria-hidden=\"true\"></span>" +
+                $"<span>{loadingText}</span></div></div></div>");
+        }
+        else if (EmptyWhen)
+        {
+            // EMPTY state — the plain compact strip, ONLY for callers whose
+            // "empty" has non-signal semantics (e.g. site-health's "Upstream
+            // healthy — no incidents"). Signal-data widgets NEVER render this:
+            // "no signal data is NOT a valid state — the signal is ALWAYS in
+            // that period" (operator 2026-08-19) — they fold composed-empty into
+            // the generating state above so the widget keeps retrying until rows
+            // arrive, instead of painting a terminal "no data" that reads as a
+            // bug (which it always is) or a quiet lie.
+            var emptyText = enc.Encode(EmptyText ?? "No data");
             output.Content.SetHtmlContent(
                 $"<div class=\"card bg-base-100 border border-base-300\"><div class=\"card-body p-3\">{head}" +
                 $"<div class=\"sb-widget-empty\">{emptyText}</div></div></div>");
