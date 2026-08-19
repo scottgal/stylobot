@@ -29,6 +29,14 @@
 .sb-connecting   { background: var(--color-warning, #f59e0b); animation: sb-status-pulse 1.5s infinite; }
 .sb-paused       { background: rgba(148, 163, 184, 0.55); }
 
+/* D2 (uxreview 2026-08-19): state-aware label — the scope bar's LIVE indicator
+   (dot + text siblings) dims while the connection is not established, so the
+   "LIVE" word never claims liveness the dot contradicts. The dot itself carries
+   the colour; this only mutates the text's emphasis. */
+[data-sb-live-dot][data-live="disconnected"] ~ span,
+[data-sb-live-dot][data-live="connecting"] ~ span,
+[data-sb-live-dot][data-live="paused"] ~ span { opacity: 0.45; }
+
 @keyframes sb-status-pulse {
     0%, 100% { opacity: 1; }
     50%      { opacity: 0.4; }
