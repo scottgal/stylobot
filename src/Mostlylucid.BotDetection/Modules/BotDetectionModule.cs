@@ -944,6 +944,15 @@ public sealed class BotDetectionModule : IStyloflowWebModule
                 "ephemeral / in-memory operation (tests, CI, throwaway hosts), call AddBotDetectionInMemory() " +
                 "explicitly (it sets DatabasePath to empty to signal that intent). Do NOT leave DatabasePath null.")
             .ValidateOnStart();
+
+        // Enforce the full BotDetectionOptions validation at boot. The validator
+        // (fail-closed on API-key bypass config, among others) was implemented and
+        // unit-tested but never registered, so its rejections only ran in tests:
+        // a host could boot with DisabledDetectors=["*"] while
+        // AllowFullDetectorBypassApiKeys=false. Registering it here makes
+        // ValidateOnStart() enforce what the tests already assert.
+        services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<BotDetectionOptions>,
+            Mostlylucid.BotDetection.Models.BotDetectionOptionsValidator>();
     }
 
     /// <summary>
