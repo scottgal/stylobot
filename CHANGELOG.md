@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.11.0] - 2026-08-19
+
+8.11.0 ships the dashboard read-path rework (internal-traffic exclusion end to end,
+honest period/generating states, single-source vendor scripts), the FOSS-side API-key
+fail-closed enforcement, and a detection-fix batch (Haxxor path probes, user-agent
+catalog priority, content-cache rewrite races, the licensing-surface excision).
+
+### Dashboard — internal traffic excluded by default
+
+- **Internal-traffic toggle (top-level, default hidden).** `cd233ada` excludes internal
+  traffic from every read path by default; `22a2066d` adds the top-level toggle with
+  the D1 retry-trigger fix; the toggle is event-driven — instant, no full reload.
+  `35b1930c` closes the exclusion leak in the SQL predicates (bot_name classes missed by
+  bot_type-only filters), the live-tier audience gate applies the same exclusion, and
+  `ba00c759` extends it to the monitoring class (self-hosted monitors count as
+  internal).
+- **Honest period + generating states.** `85ad0972` + `efc6eb99` — composed-empty
+  windows render real data instead of eternal "Generating…", and the widget
+  generating-state machine transitions honestly.
+- **Single-source vendor scripts.** `cf844950` adds the `SuppressVendorScripts` option
+  (the host's layout is the one htmx/SignalR source); `6add2a25` hardens the
+  `sb-live-updates` dedup across synthetic render contexts.
+- **Path-suppression seam.** `c9a5c227` — an optional one-shot suppression filter at the
+  traffic rollup.
+- **Accessibility + mobile.** `270463c5` (help-icon names), `26fea677` (LIVE indicator
+  dims while disconnected), `3e17dc1c` (table clip → scroll ≤640px),
+  `40e029ea`/`0be54661` (connection-state dots, one source).
+- **Visitors map + period fidelity.** `59ef7c94` — the visitors map inits on
+  DOMContentLoaded.
+
+### API-key fail-closed enforcement (FOSS side)
+
+- `031e316b` registers `BotDetectionOptionsValidator` (previously implemented and
+  tested but never wired into DI) so `ValidateOnStart` enforces the fail-closed
+  bypass-key rejection at boot — a host can no longer boot with
+  `DisabledDetectors=["*"]` while `AllowFullDetectorBypassApiKeys` is false.
+
+### Detection fixes
+
+- **Haxxor path probes.** `ac216f27` — framework-legitimate paths no longer trip the
+  path-probe signal; `b2cd49e2` + `dd7c895c` add acceptance/regression fixtures.
+- **User-agent classification.** `acecec8f` — a declared bot is never classified
+  Unknown, and SecurityToolAtom's verdict is never clobbered; `f3ea9671` — the
+  well-known-bots catalog wins over the generic downloaded pattern cache;
+  `0c0098d7` — polite-crawler self-identification UAs with no bot keyword are
+  recognised; `6890d67c` — `IFingerprintNameActionSlot` carries bot probability.
+- **Gateway content-cache rewrites.** `dd7c895c` — rewrite policies never race the
+  upstream Content-Length promise; `04fd4f2b` — search engines get byte-identical
+  passthrough by default, never a rewrite; `f4e74c59` — content-cache/extract-markdown
+  policies no longer serve empty bodies to Googlebot/GPTBot.
+- **Licensing-surface excision.** `6acea740` + `4514f74a` — the license-card/status
+  surface and its consumers are gone from the FOSS UI (FOSS carries zero licensing
+  concepts; the trial/paid vocabulary lives only in commercial).
+- **Response history.** `df99bce0` — SQLite-backed durable tier for
+  ResponseCoordinator's per-client history; `5341f7c9` wires it into DI + the
+  post-response middleware.
+- **Action-policy names.** `ac823379` + `538ce4d5` — fast-path action-policy names
+  shortened to fit the 20-char field-length contract (no more truncation at persist).
+- **Signals.** `0a5df205` — colon-encoded bare raises reachable via hint readers.
+- **Soak discipline.** `4b578985` — the k6 cardinality-flood script requires
+  `X-SB-Api-Key` (keyless traffic never poisons the corpus).
+
 ## [8.10.0] - 2026-08-16
 
 8.10.0 ships today's dashboard SSR-only rework and the Internal-class policy chain
