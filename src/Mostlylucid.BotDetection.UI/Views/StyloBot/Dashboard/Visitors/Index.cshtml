@@ -188,6 +188,20 @@
             return map;
         }
 
-        initMapFromData('countries-map-visitors');
+        // F1 (uxreview 2026-08-19): init on DOMContentLoaded — the site layout
+        // loads jsvectormap with defer, so at inline-script parse time
+        // jsVectorMap is still undefined and the silent guard above bailed
+        // (the map never rendered). Defer scripts run BEFORE DOMContentLoaded,
+        // so this closes the race.
+        function initWhenReady() {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function () {
+                    initMapFromData('countries-map-visitors');
+                });
+            } else {
+                initMapFromData('countries-map-visitors');
+            }
+        }
+        initWhenReady();
     })();
 </script>
