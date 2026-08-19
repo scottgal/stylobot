@@ -130,6 +130,23 @@
 <script nonce="@(Context.Items["CspNonce"] as string ?? "")">
     (function() {
         'use strict';
+        // F1b (2026-08-19): the world-merc registration can MISS the final
+        // jsVectorMap instance — a load-order race (the defer'd asset registers
+        // on an earlier instance; verified live: addMap works on the final
+        // instance but world_merc is absent → 'map not loaded'). Ensure the map
+        // data is registered on THIS instance before constructing: fetch + eval
+        // the vendored asset once (idempotent addMap; the dashboard CSP permits
+        // unsafe-eval). The libs are loaded by the time init runs, so this only
+        // re-registers the data on the live instance.
+        var worldMercReady = null;
+        function ensureWorldMerc() {
+            if (worldMercReady) return worldMercReady;
+            worldMercReady = fetch('/_content/Mostlylucid.BotDetection.UI/vendor/js/world-merc.js')
+                .then(function (r) { return r.text(); })
+                .then(function (code) { (0, eval)(code); });
+            return worldMercReady;
+        }
+
         function initMapFromData(containerId) {
             var el = document.getElementById(containerId);
             if (!el || typeof jsVectorMap === 'undefined') return;
@@ -194,12 +211,19 @@
         // (the map never rendered). Defer scripts run BEFORE DOMContentLoaded,
         // so this closes the race.
         function initWhenReady() {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', function () {
+            var run = function () {
+                ensureWorldMerc().then(function () {
+                    initMapFromData('countries-map-visitors');
+                }).catch(function () {
+                    // The asset fetch failed (offline / blocked): fall back to the
+                    // plain init — the libs' own registration may still have landed.
                     initMapFromData('countries-map-visitors');
                 });
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', run);
             } else {
-                initMapFromData('countries-map-visitors');
+                run();
             }
         }
         initWhenReady();
