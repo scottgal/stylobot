@@ -276,6 +276,17 @@ public sealed class StyloBotDashboardOptions
     public bool AllowUnauthenticatedAccess { get; set; }
 
     /// <summary>
+    ///     When true, the <c>&lt;sb-live-updates/&gt;</c> tag helper does NOT emit its
+    ///     vendored htmx + signalR scripts — the HOST layout ships its own copies for
+    ///     every page (the single source). The dashboard site sets this: its _Layout
+    ///     loads htmx + signalR unconditionally, so the tag helper's copies were
+    ///     DUPLICATES — the double/triple htmx init broke hx-post interception (the
+    ///     period-pill swap fell through to the native POST+302 full reload; verified
+    ///     live 2026-08-19 — three vendor trios on the traffic page).
+    /// </summary>
+    public bool SuppressVendorScripts { get; set; }
+
+    /// <summary>
     ///     Master toggle for commercial-only dashboard chrome (policies tab, advanced
     ///     investigate views, etc.). The FOSS dashboard cannot modify configuration
     ///     regardless of this flag - this is purely a read-mostly view-feature gate.

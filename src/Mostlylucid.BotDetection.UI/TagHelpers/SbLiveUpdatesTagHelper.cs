@@ -56,8 +56,6 @@ public class SbLiveUpdatesTagHelper : TagHelper
         typeof(SbLiveUpdatesTagHelper).Assembly.ManifestModule.ModuleVersionId.ToString("N").Substring(0, 12);
 
     private readonly IHttpContextAccessor _httpContextAccessor;
-    private readonly StyloBotDashboardOptions? _options;
-
     public SbLiveUpdatesTagHelper(
         IHttpContextAccessor httpContextAccessor,
         StyloBotDashboardOptions? options = null)
@@ -65,6 +63,8 @@ public class SbLiveUpdatesTagHelper : TagHelper
         _httpContextAccessor = httpContextAccessor;
         _options = options;
     }
+
+    private readonly StyloBotDashboardOptions? _options;
 
     /// <summary>Override the SignalR hub URL. Defaults to the configured HubPath.</summary>
     [HtmlAttributeName("hub-url")]
@@ -167,7 +167,11 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // ship their own htmx / signalR bundle can suppress with
         // include-vendor-scripts="false". Per the strict-CSP setup the script
         // tags carry the same nonce as the rest of the live-update stack.
-        if (IncludeVendorScripts)
+        // The host layout may already ship htmx + signalR for every page (the site's
+        // _Layout does — its own copies are the single source there). Hosts opt out via
+        // StyloBotDashboardOptions.SuppressVendorScripts — the attribute overrides.
+        var suppressVendor = _options?.SuppressVendorScripts ?? false;
+        if (IncludeVendorScripts && !suppressVendor)
         {
             output.Content.AppendHtml($@"<script defer src=""{HtmxScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
             output.Content.AppendHtml($@"<script defer src=""{SignalRScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
