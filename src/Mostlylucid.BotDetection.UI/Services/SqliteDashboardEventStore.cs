@@ -678,14 +678,14 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     ///     <c>@botFloor</c> for humans/bots.
     /// </summary>
     // Internal-classes SQL fragment: the product's own traffic is flagged by
-    // bot_type='Internal' AND/OR by bot_name ('StyloBot Internal', 'Health Probe'
+    // bot_type='Internal' AND/OR by bot_name ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor'
     // — the website's telemetry polling, health probes; the bot_type column is
     // often empty on these rows, so the exclusion MUST key on bot_name too —
     // operator directive 2026-08-19: "by default we should NOT count internal /
     // display them by default"; deploy- verified the data key on staging).
-    private const string InternalNames = "'StyloBot Internal', 'Health Probe'";
+    private const string InternalNames = "'StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor'";
     private static string ExcludeInternalSql => $" (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ({InternalNames})) ";
-    private static string ShowInternalSql => $" (bot_type = 'Internal' OR bot_name IN ({InternalNames})) ";
+    private static string ShowInternalSql => $" (bot_type IN ('Internal', 'MonitoringBot') OR bot_name IN ({InternalNames})) ";
 
     private static string AudiencePredicate(string? audienceFilter) => audienceFilter?.ToLowerInvariant() switch
     {
@@ -1018,10 +1018,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // self, "all" shows the full mix. Keeps dev consistent with Postgres + the windowed path.
         var isBotPredicate = audienceFilter?.ToLowerInvariant() switch
         {
-            "internal" => "WHERE (s.bot_type = 'Internal' OR s.bot_name IN ('StyloBot Internal', 'Health Probe'))",
+            "internal" => "WHERE (s.bot_type IN ('Internal', 'MonitoringBot') OR s.bot_name IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor'))",
             "all"      => string.Empty,
-            "humans"   => "WHERE s.bot_probability < @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe'))",
-            _          => "WHERE s.bot_probability >= @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe'))"
+            "humans"   => "WHERE s.bot_probability < @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor'))",
+            _          => "WHERE s.bot_probability >= @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor'))"
         };
 
         // When a time window is specified, or a domain filter is applied, aggregate
@@ -1132,12 +1132,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.CommandText = $"""
             SELECT
               COUNT(DISTINCT d.signature) as all_count,
-              COUNT(DISTINCT CASE WHEN s.bot_probability < @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN d.signature END) as humans,
-              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN d.signature END) as bots,
+              COUNT(DISTINCT CASE WHEN s.bot_probability < @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN d.signature END) as humans,
+              COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND (s.bot_type IS NOT 'Internal' AND COALESCE(s.bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN d.signature END) as bots,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'AI%' THEN d.signature END) as ai,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND s.bot_type LIKE 'Search%' THEN d.signature END) as search,
               COUNT(DISTINCT CASE WHEN s.bot_probability >= @botFloor AND (s.bot_type LIKE 'Tool%' OR s.bot_type = 'Tools') THEN d.signature END) as tools,
-              COUNT(DISTINCT CASE WHEN (s.bot_type = 'Internal' OR s.bot_name IN ('StyloBot Internal', 'Health Probe')) THEN d.signature END) as internal
+              COUNT(DISTINCT CASE WHEN (s.bot_type IN ('Internal', 'MonitoringBot') OR s.bot_name IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN d.signature END) as internal
             FROM detections d
             JOIN signatures s ON d.signature = s.signature
             WHERE {whereClause}
@@ -1310,21 +1310,21 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // are excluded like Internal raw rows).
         cmd.CommandText = $"""
             SELECT domain,
-                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN hit_count
-                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN 1 ELSE 0 END) as requests,
-                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN bot_count
-                            WHEN bot_probability >= @botFloor AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN 1 ELSE 0 END) as bots,
-                   CASE WHEN SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN hit_count
-                                      WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN 1 ELSE 0 END) = 0
+                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN hit_count
+                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN 1 ELSE 0 END) as requests,
+                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN bot_count
+                            WHEN bot_probability >= @botFloor AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN 1 ELSE 0 END) as bots,
+                   CASE WHEN SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN hit_count
+                                      WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN 1 ELSE 0 END) = 0
                         THEN 1 ELSE 0 END as is_internal,
-                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN ms_sum
-                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN COALESCE(processing_time_ms, 0) ELSE 0 END) /
-                     NULLIF(SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN hit_count
-                                     WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) AND processing_time_ms IS NOT NULL THEN 1 ELSE 0 END), 0) AS avg_ms,
-                   MAX(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN ms_max
-                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN processing_time_ms ELSE NULL END) AS max_ms,
-                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN bytes_sum
-                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe')) THEN COALESCE(response_bytes, 0) ELSE 0 END) AS bytes_out
+                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN ms_sum
+                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN COALESCE(processing_time_ms, 0) ELSE 0 END) /
+                     NULLIF(SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN hit_count
+                                     WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) AND processing_time_ms IS NOT NULL THEN 1 ELSE 0 END), 0) AS avg_ms,
+                   MAX(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN ms_max
+                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN processing_time_ms ELSE NULL END) AS max_ms,
+                   SUM(CASE WHEN fused = 1 AND (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN bytes_sum
+                            WHEN (bot_type IS NOT 'Internal' AND COALESCE(bot_name, '') NOT IN ('StyloBot Internal', 'Health Probe', 'Uptime-Kuma', 'kuma-monitor')) THEN COALESCE(response_bytes, 0) ELSE 0 END) AS bytes_out
             FROM detections
             {where}
             GROUP BY domain
