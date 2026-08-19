@@ -39,6 +39,7 @@ public sealed class TrafficController : Controller
     private readonly SignatureAggregateCache? _cache;
     private readonly IOptions<DashboardMaterializerOptions> _materializerOpts;
     private readonly DashboardMaterializerCoordinator? _coordinator;
+    private readonly Dashboard.IDashboardPathSuppressor? _pathSuppressor;
 
     public TrafficController(
         IDashboardEventStore eventStore,
@@ -48,7 +49,8 @@ public sealed class TrafficController : Controller
         IOptions<ThreatsOptions> threatsOpts,
         SignatureAggregateCache? cache = null,
         IOptions<DashboardMaterializerOptions>? materializerOpts = null,
-        DashboardMaterializerCoordinator? coordinator = null)
+        DashboardMaterializerCoordinator? coordinator = null,
+        Dashboard.IDashboardPathSuppressor? pathSuppressor = null)
     {
         // IDashboardEventStore is the canonical, share-with-the-rest-of-the-dashboard
         // change-detection mechanism (feedback_centralised_change_detection). The
@@ -64,6 +66,7 @@ public sealed class TrafficController : Controller
         _cache = cache;
         _materializerOpts = materializerOpts ?? Microsoft.Extensions.Options.Options.Create(new DashboardMaterializerOptions());
         _coordinator = coordinator;
+        _pathSuppressor = pathSuppressor;
     }
 
     [HttpGet("")]
@@ -232,6 +235,20 @@ public sealed class TrafficController : Controller
             // The overlay never fails the page — the envelope's/rollup's rows remain the base.
         }
 
+        // Display-only path suppression (operator directive 2026-08-19): ONE filter at
+        // the rollup — the composed/live endpoints slice — so suppressed paths
+        // (membership/sales, demo mode) leave the list AND the aggregate counters
+        // below (the directive: totals must not leak). Never per-widget.
+        if (_pathSuppressor is not null && endpointsData.Count > 0)
+        {
+            var suppressedEndpoints = endpointsData.Where(e => _pathSuppressor.ShouldSuppressPath(e.Path)).ToList();
+            if (suppressedEndpoints.Count > 0)
+            {
+                HttpContext.Items["sb.commercial.suppressed-endpoints"] = suppressedEndpoints;
+                endpointsData = endpointsData.Except(suppressedEndpoints).ToList();
+            }
+        }
+
         // P0 (operator 2026-08-08): endpoints MUST pre-render on the initial page load,
         // exactly like every other widget. The middleware shell path seeds
         // DashboardEndpointsFirstPaintContext; the MVC TrafficController path never did,
@@ -302,6 +319,27 @@ public sealed class TrafficController : Controller
             country: filters.Country, botType: filters.BotType, threat: filters.Threat);
 
         var counters = BuildCounters(summary, priorSummary, topBots, priorBots);
+        // The aggregate correction (the directive: "aggregate counters included"): the
+        // summary totals include the suppressed paths' requests — subtract their
+        // counts (from the same window's endpoint slice, stashed above). Display-only.
+        if (HttpContext.Items["sb.commercial.suppressed-endpoints"] is List<DashboardEndpointStats> suppressed)
+        {
+            long suppressedTotal = 0, suppressedBots = 0;
+            foreach (var e in suppressed)
+            {
+                suppressedTotal += e.TotalCount;
+                suppressedBots += (long)Math.Round(e.TotalCount * e.BotRate);
+            }
+            if (suppressedTotal > 0)
+            {
+                counters = counters with
+                {
+                    Total = Math.Max(0, counters.Total - (int)suppressedTotal),
+                    Bots = Math.Max(0, counters.Bots - (int)suppressedBots),
+                    Humans = Math.Max(0, counters.Humans - (int)(suppressedTotal - suppressedBots)),
+                };
+            }
+        }
         // THE LIVE-TIER OVERLAY (dash- 2026-08-16, the delay defect): the recent
         // window's LIVE buckets at the read — over the envelope's folds — so the graph's
         // latest point is minutes-fresh, not the last re-roll's. The overlay never fails
