@@ -31,6 +31,11 @@ namespace Mostlylucid.BotDetection.UI.TagHelpers;
 [HtmlTargetElement("sb-live-updates", TagStructure = TagStructure.WithoutEndTag)]
 public class SbLiveUpdatesTagHelper : TagHelper
 {
+    // Request-keyed dedupe across render contexts (see the guard in Process —
+    // the Items-key guard alone didn't survive the site's synthetic-context renders).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _emittedRequests = new();
+    private const int MaxTrackedRequests = 4096;
+
     private const string AssetCssPath       = "/_content/Mostlylucid.BotDetection.UI/vendor/css/sb-live-updates.css";
     private const string PolicyStackCardCssPath = "/_content/Mostlylucid.BotDetection.UI/css/sb-policy-stack-card.css";
     private const string AssetJsPath        = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
@@ -118,19 +123,30 @@ public class SbLiveUpdatesTagHelper : TagHelper
         var nonce = _httpContextAccessor.HttpContext?.Items["CspNonce"]?.ToString();
         var nonceAttr = !string.IsNullOrEmpty(nonce) ? $" nonce=\"{nonce}\"" : "";
 
-        // Per-request emission guard (P0 2026-08-13): the dashboard shell and the page
-        // view both emit <sb-live-updates /> (e.g. Traffic/Index.cshtml + the dashboard
-        // shell Index.cshtml), so an unguarded page emitted TWO live-updates scripts, two
-        // policy-stack scripts, two toggle buttons and two stylesheet links. Every script
-        // instance opened its OWN SignalR hub connection (4 connections observed per page
-        // load) and the duplicated id="sb-live-toggle" broke the pause toggle. The first
+        // Per-request emission guard (P0 2026-08-13, hardened 2026-08-19): the dashboard
+        // shell and the page view both emit <sb-live-updates /> (e.g. Traffic/Index.cshtml
+        // + the dashboard shell Index.cshtml + _TrafficPanels), so an unguarded page
+        // emitted duplicates — every script instance opened its OWN SignalR hub connection
+        // and the duplicated id="sb-live-toggle" broke the pause toggle. The first
         // invocation wins; later invocations render nothing. Params are page-uniform (hub
         // URL + base path come from the same options), so the first instance's config
         // applies. No HttpContext (tag-helper unit tests) skips the guard.
-        if (_httpContextAccessor.HttpContext?.Items["sb.liveupdates.emitted"] is true)
-            return;
-        if (_httpContextAccessor.HttpContext is not null)
-            _httpContextAccessor.HttpContext.Items["sb.liveupdates.emitted"] = true;
+        //
+        // The Items-key guard ALONE was insufficient: the site's render pipeline renders
+        // partials through a synthetic DefaultHttpContext (RazorViewRenderer), so the key
+        // never propagated and the traffic page emitted THREE vendor script trios —
+        // verified live 2026-08-19: the double/triple htmx init broke the hx-post form
+        // interception (period pills fell through to the native POST+302 full reload).
+        // Keyed on the request's TraceIdentifier (shared across synthetic contexts),
+        // bounded (the entry is removed when the counter exceeds the cap).
+        if (_httpContextAccessor.HttpContext is { } ctx)
+        {
+            var traceId = ctx.TraceIdentifier;
+            if (!string.IsNullOrEmpty(traceId) && !_emittedRequests.TryAdd(traceId, 0))
+                return;
+            if (_emittedRequests.Count > MaxTrackedRequests)
+                _emittedRequests.Clear();
+        }
 
         output.TagName = null;
 
