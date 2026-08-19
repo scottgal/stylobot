@@ -44,12 +44,11 @@
         --sb-brand-muted:  color-mix(in oklch, var(--color-base-content) 55%, transparent);
         --sb-brand-strong: var(--color-base-content);
     }
-    .sb-link { color: var(--sb-accent); text-decoration: none; }
-    .sb-link:hover { text-decoration: underline; }
-    .sb-connected { background: var(--sb-signal-pos); }
-    .sb-disconnected { background: var(--sb-signal-danger); }
-    .sb-connecting { background: var(--sb-signal-warn); animation: pulse 1.5s infinite; }
-    @@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    /* Connection-state dots + .sb-link consolidated (D3, uxreview 2026-08-19):
+       the vendor sb-live-updates.css owns .sb-connected/-disconnected/-connecting/
+       -paused (--color-* theme vars) and sb-components.css owns .sb-link — the
+       triplicated copies here (--sb-signal-* + a differently-named pulse keyframe)
+       drifted and conflicted. One source per rule. */
     /* DaisyUI's .modal renders display:grid covering the viewport at z-index 999
        even when the <dialog> has no [open] attribute. Forcing display:none on
        a closed dialog removes the click-intercept layer entirely. */
