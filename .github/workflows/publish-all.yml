@@ -208,11 +208,28 @@ jobs:
     - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
       with:
         dotnet-version: '10.0.x'
-    - name: Restore, Build, Pack
+    # Packs UI together with the two packages its nuspec DEPENDS ON. Neither
+    # OpenApi nor PrometheusPack was packed or pushed by ANY workflow before
+    # 2026-08-20, so every release published a UI package with dangling
+    # dependencies and `dotnet add package mostlylucid.botdetection.ui` failed
+    # for every customer with NU1101 on both ids (confirmed live against
+    # nuget.org, then verified fixed by a local restore with both present).
+    # Same explicit -p:Version as UI, so the published versions satisfy the
+    # dependency constraint exactly; all three land in ./artifacts and the
+    # existing push step publishes them together.
+    - name: Restore, Build, Pack (UI + its OpenApi/Prometheus dependencies)
+      env:
+        PKG_VERSION: ${{ needs.validate-version.outputs.version }}
       run: |
         dotnet restore ci.slnf
-        dotnet build src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-restore -p:Version=${{ needs.validate-version.outputs.version }}
-        dotnet pack src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-build -o ./artifacts -p:Version=${{ needs.validate-version.outputs.version }}
+        for proj in \
+          src/Mostlylucid.BotDetection.OpenApi/Mostlylucid.BotDetection.OpenApi.csproj \
+          src/Mostlylucid.BotDetection.PrometheusPack/Mostlylucid.BotDetection.PrometheusPack.csproj \
+          src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj
+        do
+          dotnet build "$proj" -c Release --no-restore -p:Version="$PKG_VERSION"
+          dotnet pack  "$proj" -c Release --no-build   -o ./artifacts -p:Version="$PKG_VERSION"
+        done
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:

@@ -106,11 +106,28 @@ jobs:
           git tag "botdetection-v${VERSION}"
         fi
 
-    - name: Restore, Build, Pack UI
+    # UI + the two packages it DEPENDS ON. OpenApi and PrometheusPack were never
+    # packed or pushed by any workflow (2026-08-20), while the published UI nuspec
+    # declares hard dependencies on both at the same version — so every release
+    # shipped a UI package with dangling dependencies and
+    #   dotnet add package mostlylucid.botdetection.ui
+    # failed for every customer with NU1101 on both ids. Confirmed live against
+    # nuget.org on 2026-08-20; adding them here and verifying a local restore then
+    # succeeded end-to-end. They pack into the SAME artifacts-ui folder so the
+    # existing push step publishes all three together — MinVer gives them the same
+    # version as UI from the shared botdetection-v tag, which is exactly what the
+    # dependency constraint requires.
+    - name: Restore, Build, Pack UI (+ its OpenApi/Prometheus dependencies)
       run: |
-        dotnet restore src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj
-        dotnet build src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-restore
-        dotnet pack src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-build -o ./artifacts-ui
+        for proj in \
+          src/Mostlylucid.BotDetection.OpenApi/Mostlylucid.BotDetection.OpenApi.csproj \
+          src/Mostlylucid.BotDetection.PrometheusPack/Mostlylucid.BotDetection.PrometheusPack.csproj \
+          src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj
+        do
+          dotnet restore "$proj"
+          dotnet build   "$proj" -c Release --no-restore
+          dotnet pack    "$proj" -c Release --no-build -o ./artifacts-ui
+        done
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
