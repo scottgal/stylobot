@@ -192,8 +192,13 @@ base_writes="$(sample_db_writes)"
 log "baseline: db_rows=$base_rows db_bytes=$base_bytes rss=$base_rss restarts=$base_restarts oom=$base_oom running=$base_running db_writes=$base_writes"
 
 K6_RAW="$OUTDIR/$LABEL-raw.json"
-k6 run scripts/soak/k6-plateau.js --duration "${DURATION_HOURS}h" \
+# NO --duration flag here — confirmed 2026-08-21 that it conflicts with the
+# script's own options.scenarios (freshness_probe never ran in the 3h
+# baseline, not even a metric-name registration). Duration control lives
+# entirely inside k6-plateau.js now, driven by DURATION_HOURS via --env.
+k6 run scripts/soak/k6-plateau.js \
   --env TARGET="$TARGET" --env API_KEY="$API_KEY" --env MAX_RPS="$RPS" \
+  --env DURATION_HOURS="$DURATION_HOURS" \
   --out "json=$K6_RAW" \
   > "$OUTDIR/$LABEL-k6.log" 2>&1 &
 K6_PID=$!

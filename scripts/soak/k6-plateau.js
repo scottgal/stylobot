@@ -119,7 +119,19 @@ const SIGNIFICANT_TRAFFIC_FRACTION = parseFloat(__ENV.SIGNIFICANT_TRAFFIC_FRACTI
 const freshnessMs = new Trend('freshness_ms');
 const freshnessTimeout = new Rate('freshness_timeout');
 
-// Build ramp stages: 10 → 20 → 50 → 100 → 150 → 200 → MAX_RPS, 2 min each
+// Total requested run length, in seconds. Passed via --env, NEVER via the k6
+// CLI --duration flag: --duration alongside a script-defined options.scenarios
+// is a real conflict (confirmed 2026-08-21 — a 3h run's freshness_probe
+// scenario never executed even once, not even a zero-point registration, and
+// --duration was the only thing touching scenario timing outside the script
+// itself). Keeping ALL duration control inside the script, driven by one env
+// var both scenarios read, removes that class of bug entirely rather than
+// guessing at k6's exact CLI-vs-scenarios precedence rules.
+const TOTAL_DURATION_S = parseFloat(__ENV.DURATION_HOURS || '0') * 3600;
+
+// Build ramp stages: 10 → 20 → 50 → 100 → 150 → 200 → MAX_RPS, 2 min each,
+// then hold at the final level for whatever's left of TOTAL_DURATION_S (this
+// is what the removed CLI --duration flag used to do).
 function buildStages() {
   const levels = [10, 20, 50, 100, 150, 200];
   if (MAX_RPS > 200) levels.push(MAX_RPS);
@@ -129,6 +141,13 @@ function buildStages() {
     if (level > MAX_RPS) break;
     stages.push({ duration: '30s', target: level });  // ramp up
     stages.push({ duration: '90s', target: level });  // hold plateau
+  }
+  if (TOTAL_DURATION_S > 0) {
+    const rampedS = stages.reduce((sum, s) => sum + parseInt(s.duration), 0);
+    const remaining = TOTAL_DURATION_S - rampedS;
+    if (remaining > 0) {
+      stages.push({ duration: `${Math.round(remaining)}s`, target: stages.length ? stages[stages.length - 1].target : MAX_RPS });
+    }
   }
   return stages;
 }
@@ -154,7 +173,10 @@ export const options = {
       executor: 'constant-arrival-rate',
       rate: 1,
       timeUnit: '1s',
-      duration: buildStages().reduce((sum, s) => sum + 120, 0) + 's', // covers the plateau run
+      // Same TOTAL_DURATION_S as the plateau scenario (see above) — both
+      // scenarios must run for the SAME wall-clock length or one silently
+      // stops probing/loading before the other finishes.
+      duration: (TOTAL_DURATION_S > 0 ? TOTAL_DURATION_S : buildStages().reduce((sum, s) => sum + parseInt(s.duration), 0)) + 's',
       // Worst case per iteration: db_only_detections never resolves (60s) +
       // conforming_dashboard never resolves (15s) = 75s held. At rate 1/s
       // that needs ~75-80 concurrent VUs in the all-timeout worst case.
