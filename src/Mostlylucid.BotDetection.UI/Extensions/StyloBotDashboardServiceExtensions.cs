@@ -439,12 +439,6 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.IClassificationThresholdProvider,
             Mostlylucid.BotDetection.UI.Services.LocalClassificationThresholdProvider>();
 
-        // Pack Metrics B1 -- /dashboard/insights page composer. Pure read; goes
-        // through IMeterStream only (no DB). Stateless, peer-singleton with the
-        // other dashboard presenters above. The IMeterStream binding itself is
-        // owned by PrometheusPack (AddPrometheusPack registers Local or Remote).
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.InsightsPageBuilder>();
-
         // Pack Metrics B8 -- policy-stack summary endpoint composer. Pure read;
         // both dependencies (IPolicyRuleStore, IPolicyDecisionLog) are optional
         // per feedback_remote_mode_optional_di: rule store null -> endpoint 404,
