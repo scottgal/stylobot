@@ -1230,16 +1230,26 @@ else
             .withAutomaticReconnect([0, 2000, 5000, 10000])
             .build();
 
-        conn.on('invalidated', function(keys) {
-            if (!keys || !Array.isArray(keys)) return;
-            // Refresh if this signature or 'summary' is invalidated
-            for (var i = 0; i < keys.length; i++) {
-                if (keys[i] === sigId || keys[i] === 'summary' || keys[i] === 'signature') {
+        // BUG FIX (2026-08-21): this handler was registered on 'invalidated', a hub
+        // method that has never existed on IStyloBotDashboardHub (confirmed via git
+        // blame: this code dates to 2026-02-24, six months of never firing). The real
+        // methods the server invokes are BroadcastInvalidation(signal) -- a single
+        // string -- and BroadcastDirty(beacon) -- {tick, dirtyKinds[]}. This page has
+        // no data-sb-widget wiring for sb-live-updates.js's OOB-swap coordinator to
+        // target (confirmed: no data-sb-widget attribute anywhere in this view), so
+        // this connection's full-page reload was the ONLY live-refresh path for the
+        // signature-detail page specifically -- and it silently never worked.
+        function reloadIfRelevant(dirtyKinds) {
+            if (!dirtyKinds || !Array.isArray(dirtyKinds)) return;
+            for (var i = 0; i < dirtyKinds.length; i++) {
+                if (dirtyKinds[i] === sigId || dirtyKinds[i] === 'summary' || dirtyKinds[i] === 'signature') {
                     window.location.reload();
                     return;
                 }
             }
-        });
+        }
+        conn.on('BroadcastInvalidation', function(signal) { reloadIfRelevant([signal]); });
+        conn.on('BroadcastDirty', function(beacon) { reloadIfRelevant(beacon && beacon.dirtyKinds); });
 
         conn.start().catch(function(err) {
             console.debug('SignalR connection failed for signature detail:', err);
