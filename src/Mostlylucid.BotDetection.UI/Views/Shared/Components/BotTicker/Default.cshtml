@@ -94,6 +94,7 @@
 
 <script nonce="@cspNonce">
 var hubPath = '@Html.Raw(hubPath)';
+var tickerApiBase = '@Html.Raw(dashBase)';
 document.addEventListener('alpine:init', () => {
     // Normalize PascalCase API keys to camelCase
     function toCamel(obj) {
@@ -137,22 +138,44 @@ document.addEventListener('alpine:init', () => {
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
 
-                // Beacon-only: SignalR sends lightweight invalidation signals.
-                // The ticker shows server-rendered initial state; live scrolling
-                // updates are handled by the HTMX coordinator on dashboard pages.
-                this.connection.on('BroadcastInvalidation', () => {});
+                // Beacon-only (the hub NEVER carries per-detection payloads, by
+                // design): on invalidation, pull the current data through the
+                // same read surface every other dashboard widget uses instead of
+                // waiting on a push that was never wired up (was a silent no-op
+                // -- this ticker rendered "Waiting for detections..." forever
+                // regardless of real traffic).
+                this.connection.on('BroadcastInvalidation', () => { this.refresh(); });
 
                 // Connection state handlers
                 this.connection.onclose(() => { this.connected = false; });
                 this.connection.onreconnecting(() => { this.connected = false; });
-                this.connection.onreconnected(() => { this.connected = true; });
+                this.connection.onreconnected(() => { this.connected = true; this.refresh(); });
 
                 await this.connection.start();
                 this.connected = true;
+                await this.refresh();
 
             } catch (error) {
                 console.error('[BotTicker] Connection failed:', error);
                 this.connected = false;
+            }
+        },
+
+        async refresh() {
+            try {
+                const res = await fetch(
+                    tickerApiBase + '/api/detections?limit=' + this.maxDetections,
+                    { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const rows = toCamel(await res.json());
+                this.detections = rows.map((d) => ({
+                    ...d,
+                    _id: ++tickerId,
+                    _isNew: false,
+                    timestamp: d.timestamp ? new Date(d.timestamp) : new Date()
+                }));
+            } catch (error) {
+                console.error('[BotTicker] Refresh failed:', error);
             }
         },
 
@@ -166,34 +189,6 @@ document.addEventListener('alpine:init', () => {
                 script.onerror = reject;
                 document.head.appendChild(script);
             });
-        },
-
-        addDetection(detection) {
-            // Only show interesting detections: bots OR medium+ risk
-            const dominated = detection.isBot ||
-                              (detection.botProbability || 0) >= 0.4 ||
-                              ['Medium', 'High', 'VeryHigh'].includes(detection.riskBand);
-
-            if (!dominated) return;
-
-            // Add to front with unique ID and new-entry animation flag
-            this.detections.unshift({
-                ...detection,
-                _id: ++tickerId,
-                _isNew: true,
-                timestamp: detection.timestamp ? new Date(detection.timestamp) : new Date()
-            });
-
-            // Remove new animation class after transition
-            setTimeout(() => {
-                const d = this.detections.find(d => d._id === tickerId);
-                if (d) d._isNew = false;
-            }, 600);
-
-            // Keep only recent detections
-            if (this.detections.length > this.maxDetections) {
-                this.detections = this.detections.slice(0, this.maxDetections);
-            }
         },
 
         formatTime(timestamp) {

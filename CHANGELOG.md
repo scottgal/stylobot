@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fix: the embeddable `<bot-ticker>`, `<bot-detection-header>`, and
+  `<bot-detection-details>` widgets never showed live data.** All three had a
+  deliberate-no-op `connection.on('BroadcastInvalidation', () => {})` and their
+  push-callback methods (`addDetection`, `updateYourDetection`/`addToTicker`,
+  `updateFromDetection`) had zero callers anywhere, so `<bot-ticker>` rendered a
+  permanent "R LIVE — Waiting for detections…" banner and the other two showed a
+  "LIVE"/"SignalR Connected" badge that never actually refreshed — every
+  installer's first impression, forever, regardless of real traffic. The hub is
+  deliberately beacon-only (no per-detection payloads ever cross SignalR, by
+  design — see `IStyloBotDashboardHub`'s own doc comment), so the fix pulls fresh
+  data through the existing `/api/detections` read surface on connect and on
+  every invalidation beacon, the same pattern the rest of the dashboard already
+  uses — no new hub message, no new endpoint.
+
 - **Dead code removal: the `/dashboard/insights` global meter page.** The route has
   301-redirected to `/traffic` since the M2 legacy-IA cutover, so
   `InsightsPageBuilder`/`InsightsPageViewModel`/`MeterTableViewModel`/

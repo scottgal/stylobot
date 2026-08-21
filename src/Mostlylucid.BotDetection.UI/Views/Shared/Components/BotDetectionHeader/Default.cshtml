@@ -136,6 +136,7 @@
 
 <script nonce="@cspNonce">
 var hubPath = '@Html.Raw(hubPath)';
+var headerApiBase = '@Html.Raw(dashBase)';
 document.addEventListener('alpine:init', () => {
     // PascalCase to camelCase helper
     function toCamel(obj) {
@@ -196,20 +197,58 @@ document.addEventListener('alpine:init', () => {
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
 
-                // Beacon-only: SignalR sends lightweight invalidation signals.
-                // The header shows YOUR detection from the initial page render.
-                // Live ticker updates are handled by the HTMX coordinator on dashboard pages.
-                this.connection.on('BroadcastInvalidation', () => {});
+                // Beacon-only (the hub never carries per-detection payloads, by
+                // design): on invalidation, pull fresh data through the same read
+                // surface every other dashboard widget uses. Was a silent no-op --
+                // "YOUR detection from the initial page render" never updated
+                // again and the ticker strip stayed empty forever regardless of
+                // real traffic.
+                this.connection.on('BroadcastInvalidation', () => { this.refreshAll(); });
 
                 this.connection.onclose(() => { this.connected = false; });
                 this.connection.onreconnecting(() => { this.connected = false; });
-                this.connection.onreconnected(() => { this.connected = true; });
+                this.connection.onreconnected(() => { this.connected = true; this.refreshAll(); });
 
                 await this.connection.start();
                 this.connected = true;
+                await this.refreshAll();
             } catch (error) {
                 console.error('[StyloBot] Connection failed:', error);
                 this.connected = false;
+            }
+        },
+
+        async refreshAll() {
+            await Promise.all([this.refreshMine(), this.refreshTicker()]);
+        },
+
+        async refreshMine() {
+            if (!this.signature) return;
+            try {
+                const res = await fetch(
+                    headerApiBase + '/api/detections?signatureId=' + encodeURIComponent(this.signature) + '&limit=1',
+                    { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const rows = toCamel(await res.json());
+                if (rows.length > 0) this.updateYourDetection(rows[0]);
+            } catch (error) {
+                console.error('[StyloBot] refreshMine failed:', error);
+            }
+        },
+
+        async refreshTicker() {
+            try {
+                const res = await fetch(
+                    headerApiBase + '/api/detections?limit=' + this.maxTickerItems,
+                    { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const rows = toCamel(await res.json());
+                // API returns newest-first; addToTicker unshifts each item to the
+                // front, so feed it oldest-first to land in the same newest-first
+                // order in tickerItems.
+                rows.slice().reverse().forEach((d) => this.addToTicker(d));
+            } catch (error) {
+                console.error('[StyloBot] refreshTicker failed:', error);
             }
         },
 

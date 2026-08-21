@@ -143,7 +143,20 @@
 
 <script nonce="@cspNonce">
 var hubPath = '@Html.Raw(hubPath)';
+var detectionBarApiBase = '@Html.Raw(dashBase)';
 document.addEventListener('alpine:init', () => {
+    // PascalCase to camelCase helper (the detections API already serializes
+    // camelCase, but this is idempotent and matches the other two components).
+    function toCamel(obj) {
+        if (Array.isArray(obj)) return obj.map(toCamel);
+        if (obj !== null && typeof obj === 'object') {
+            return Object.fromEntries(
+                Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
+            );
+        }
+        return obj;
+    }
+
     Alpine.data('detectionBar', () => ({
         // State from server
         signature: '@initialSignature',
@@ -186,13 +199,16 @@ document.addEventListener('alpine:init', () => {
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
 
-                // Beacon-only: SignalR sends lightweight invalidation signals.
-                // The compact bar shows YOUR detection from the initial page render.
-                this.connection.on('BroadcastInvalidation', () => {});
+                // Beacon-only (the hub never carries per-detection payloads, by
+                // design): on invalidation, pull this signature's latest detection
+                // through the same read surface every other dashboard widget uses.
+                // Was a silent no-op -- "LIVE"/"SignalR Connected" rendered
+                // permanently even though nothing was ever actually refreshed.
+                this.connection.on('BroadcastInvalidation', () => { this.refresh(); });
 
                 this.connection.onclose(() => { this.connected = false; });
                 this.connection.onreconnecting(() => { this.connected = false; });
-                this.connection.onreconnected(() => { this.connected = true; });
+                this.connection.onreconnected(() => { this.connected = true; this.refresh(); });
 
                 await this.connection.start();
                 this.connected = true;
@@ -201,6 +217,20 @@ document.addEventListener('alpine:init', () => {
             } catch (error) {
                 console.error('[DetectionBar] Connection failed:', error);
                 this.connected = false;
+            }
+        },
+
+        async refresh() {
+            if (!this.signature) return;
+            try {
+                const res = await fetch(
+                    detectionBarApiBase + '/api/detections?signatureId=' + encodeURIComponent(this.signature) + '&limit=1',
+                    { credentials: 'same-origin' });
+                if (!res.ok) return;
+                const rows = toCamel(await res.json());
+                if (rows.length > 0) this.updateFromDetection(rows[0]);
+            } catch (error) {
+                console.error('[DetectionBar] Refresh failed:', error);
             }
         },
 
