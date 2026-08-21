@@ -91,6 +91,29 @@ public interface IDashboardEventStore
         => Task.FromResult<IReadOnlyList<DashboardEndpointStats>>([]);
 
     /// <summary>
+    ///     Time-series history for a SINGLE signature (the signature-detail page's
+    ///     sparkline): average bot probability / confidence / processing time per bucket,
+    ///     read straight through from persisted detections -- never a maintained shadow
+    ///     copy. Bucket keys use the same convention as <see cref="GetTimeSeriesAsync"/>
+    ///     (gap-filled, zero-activity buckets present with <c>TotalCount = 0</c>).
+    ///     <para>
+    ///     Default implementation returns an empty list. FOSS SQLite queries the
+    ///     <c>detections</c> table directly (no live/DB gap to bridge -- writes land
+    ///     synchronously). The commercial Postgres store additionally unions its live
+    ///     epoch tier over the recent window the same way <see cref="GetTimeSeriesAsync"/>'s
+    ///     <see cref="GetLiveTimeSeriesAsync"/> overlay does, so a signature's most recent
+    ///     activity is never missing just because it hasn't been absorbed into Postgres yet.
+    ///     </para>
+    /// </summary>
+    Task<IReadOnlyList<DashboardSignatureTimeSeriesPoint>> GetSignatureTimeSeriesAsync(
+        string signature,
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<DashboardSignatureTimeSeriesPoint>>([]);
+
+    /// <summary>
     ///     Get top bot signatures ordered by hit count descending.
     ///     When startTime/endTime are provided, only detections within that range are considered.
     ///     <paramref name="domains"/> restricts to detections whose <c>domain</c> column matches one

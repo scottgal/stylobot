@@ -284,6 +284,20 @@ public sealed record DashboardTimeSeriesPoint
 }
 
 /// <summary>
+///     Time-series data point for a SINGLE signature's history (the sparkline widget).
+///     Deliberately a distinct shape from <see cref="DashboardTimeSeriesPoint"/>: bot/human
+///     split is degenerate for one signature (every row is the same classification), so
+///     there is no honest way to reuse that record's BotCount/HumanCount fields here --
+///     see <c>GetSignatureTimeSeriesAsync</c> on <see cref="IDashboardEventStore"/>.
+/// </summary>
+public sealed record DashboardSignatureTimeSeriesPoint(
+    DateTime Timestamp,
+    int TotalCount,
+    double AvgBotProbability,
+    double AvgConfidence,
+    double AvgProcessingTimeMs);
+
+/// <summary>
 ///     Filter criteria for dashboard queries.
 /// </summary>
 public sealed record DashboardFilter

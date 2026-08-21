@@ -985,6 +985,85 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     }
 
     /// <summary>
+    ///     Signature-scoped sibling of <see cref="GetTimeSeriesAsync"/> for the
+    ///     signature-detail page's sparkline. FOSS writes land in <c>detections</c>
+    ///     synchronously (no absorption/write-behind delay), so a plain bucketed read
+    ///     of the table is already gap-free here -- unlike the commercial Postgres store,
+    ///     which additionally has to union its live epoch tier over the recent window
+    ///     (see the interface doc on <see cref="IDashboardEventStore.GetSignatureTimeSeriesAsync"/>).
+    /// </summary>
+    public async Task<IReadOnlyList<DashboardSignatureTimeSeriesPoint>> GetSignatureTimeSeriesAsync(
+        string signature,
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(signature)) return [];
+
+        await EnsureInitializedAsync();
+        var bucketSeconds = Math.Max((int)bucketSize.TotalSeconds, 1);
+
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                strftime('%Y-%m-%dT%H:%M:%SZ',
+                         (CAST(strftime('%s', timestamp) AS INTEGER) / @bucket) * @bucket,
+                         'unixepoch') AS bucket,
+                COUNT(*) AS total,
+                AVG(bot_probability) AS avg_prob,
+                AVG(confidence) AS avg_conf,
+                AVG(processing_time_ms) AS avg_ms
+            FROM detections
+            WHERE signature = @sig AND timestamp >= @start AND timestamp < @end
+            GROUP BY bucket
+            ORDER BY bucket
+            """;
+        cmd.Parameters.AddWithValue("@sig", signature);
+        cmd.Parameters.AddWithValue("@start", startTime.ToString("O"));
+        cmd.Parameters.AddWithValue("@end", endTime.ToString("O"));
+        cmd.Parameters.AddWithValue("@bucket", bucketSeconds);
+
+        var dbPoints = new Dictionary<string, DashboardSignatureTimeSeriesPoint>(StringComparer.Ordinal);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var bucket = reader.GetString(0);
+            if (!DateTime.TryParse(bucket, System.Globalization.CultureInfo.InvariantCulture,
+                                  System.Globalization.DateTimeStyles.RoundtripKind, out var ts))
+                continue;
+
+            dbPoints[bucket] = new DashboardSignatureTimeSeriesPoint(
+                Timestamp: ts,
+                TotalCount: reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                AvgBotProbability: reader.IsDBNull(2) ? 0.0 : Math.Round(reader.GetDouble(2), 4),
+                AvgConfidence: reader.IsDBNull(3) ? 0.0 : Math.Round(reader.GetDouble(3), 4),
+                AvgProcessingTimeMs: reader.IsDBNull(4) ? 0.0 : Math.Round(reader.GetDouble(4), 2));
+        }
+
+        // Gap-fill exactly like GetTimeSeriesAsync -- align down to the bucket boundary,
+        // then walk every bucket in [start,end) so a quiet minute is a real zero-activity
+        // point, not a missing one the chart has to skip.
+        var startUtc = startTime.ToUniversalTime();
+        var alignedTicks = (startUtc.Ticks / bucketSize.Ticks) * bucketSize.Ticks;
+        var current = new DateTime(alignedTicks, DateTimeKind.Utc);
+
+        var points = new List<DashboardSignatureTimeSeriesPoint>();
+        while (current < endTime)
+        {
+            var key = current.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
+            points.Add(dbPoints.TryGetValue(key, out var p)
+                ? p
+                : new DashboardSignatureTimeSeriesPoint(current, 0, 0.0, 0.0, 0.0));
+            current = current.Add(bucketSize);
+        }
+        return points;
+    }
+
+    /// <summary>
     ///     True when a <c>sessions</c> table exists in this connection's database. The last_path
     ///     enrichment in <see cref="GetTopBotsAsync"/> reads it; co-located deployments (website /
     ///     all-in-one) share one DB file so it is present, but the stylobot gateway with --enable-api

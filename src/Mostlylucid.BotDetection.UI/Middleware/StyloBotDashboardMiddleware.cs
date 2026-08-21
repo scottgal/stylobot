@@ -3526,43 +3526,38 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Read-through: the durable detections table is the single source for sparkline
-        // history (the parasitic-store fix, 2026-08-21). SignatureAggregateCache no longer
-        // maintains its own ScoreHistory/ProcessingTimeHistory/ConfidenceHistory ring
-        // buffers -- those diverged from this exact data by construction (three separate
-        // seeding paths, each capable of disagreeing with the others and with the DB).
-        List<double> processingTimes, botProbabilities, confidences;
+        // Read-through: the signature-scoped time-series union is the single source for
+        // sparkline history (the parasitic-store fix, 2026-08-21). SignatureAggregateCache
+        // no longer maintains its own ScoreHistory/ProcessingTimeHistory/ConfidenceHistory
+        // ring buffers -- those diverged from this exact data by construction (three
+        // separate seeding paths, each capable of disagreeing with the others and with the
+        // DB). 60 one-minute buckets matches the dashboard's established HitTrend window.
+        var seriesEnd = DateTime.UtcNow;
+        var seriesStart = seriesEnd.AddMinutes(-60);
+        var series = await _eventStore.GetSignatureTimeSeriesAsync(
+            decodedSignature, seriesStart, seriesEnd, TimeSpan.FromMinutes(1));
+
+        if (series.Count == 0 || series.All(p => p.TotalCount == 0))
         {
-            var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
+            // Return 200 with empty arrays instead of 404.
+            // 404s feed the responseBehavior detector - the dashboard calls sparkline
+            // for every signature in the top-bots list, so unknown signatures would
+            // generate hundreds of 404s that poison the user's own detection score.
+            context.Response.ContentType = "application/json";
+            var emptySparkline = new
             {
-                SignatureId = decodedSignature,
-                Limit = 50
-            });
-
-            if (detections.Count == 0)
-            {
-                // Return 200 with empty arrays instead of 404.
-                // 404s feed the responseBehavior detector - the dashboard calls sparkline
-                // for every signature in the top-bots list, so unknown signatures would
-                // generate hundreds of 404s that poison the user's own detection score.
-                context.Response.ContentType = "application/json";
-                var emptySparkline = new
-                {
-                    signatureId = decodedSignature,
-                    botProbabilityHistory = Array.Empty<double>(),
-                    processingTimeHistory = Array.Empty<double>(),
-                    confidenceHistory = Array.Empty<double>()
-                };
-                await JsonSerializer.SerializeAsync(context.Response.Body, emptySparkline, CamelCaseJson);
-                return;
-            }
-
-            // Detections come newest-first; reverse for chronological sparkline
-            detections.Reverse();
-            processingTimes = detections.Select(d => d.ProcessingTimeMs).ToList();
-            botProbabilities = detections.Select(d => d.BotProbability).ToList();
-            confidences = detections.Select(d => d.Confidence).ToList();
+                signatureId = decodedSignature,
+                botProbabilityHistory = Array.Empty<double>(),
+                processingTimeHistory = Array.Empty<double>(),
+                confidenceHistory = Array.Empty<double>()
+            };
+            await JsonSerializer.SerializeAsync(context.Response.Body, emptySparkline, CamelCaseJson);
+            return;
         }
+
+        var processingTimes = series.Select(p => p.AvgProcessingTimeMs).ToList();
+        var botProbabilities = series.Select(p => p.AvgBotProbability).ToList();
+        var confidences = series.Select(p => p.AvgConfidence).ToList();
 
         var sparkline = new
         {
@@ -6616,11 +6611,14 @@ public class StyloBotDashboardMiddleware
         string? userAgent = detections[0].UserAgentRaw ?? detections[0].UserAgent;
         string? protocol = null;
         DateTime firstSeen = detections[^1].Timestamp;
-        // Reverse detections (DESC -> ASC) so the history chart renders oldest -> newest,
-        // matching the visitor cache's ring-buffer ordering.
-        List<double> botProbHistory = detections.AsEnumerable().Reverse().Select(d => d.BotProbability).ToList();
-        List<double> confHistory = detections.AsEnumerable().Reverse().Select(d => d.Confidence).ToList();
-        List<double> procTimeHistory = detections.AsEnumerable().Reverse().Select(d => (double)d.ProcessingTimeMs).ToList();
+        // History charts read the same signature-scoped time-series union the sparkline
+        // API endpoint uses (the parasitic-store fix, 2026-08-21) -- 60 one-minute
+        // buckets, matching the dashboard's established HitTrend window.
+        var historySeries = await _eventStore.GetSignatureTimeSeriesAsync(
+            decodedSignature, DateTime.UtcNow.AddMinutes(-60), DateTime.UtcNow, TimeSpan.FromMinutes(1));
+        List<double> botProbHistory = historySeries.Select(p => p.AvgBotProbability).ToList();
+        List<double> confHistory = historySeries.Select(p => p.AvgConfidence).ToList();
+        List<double> procTimeHistory = historySeries.Select(p => p.AvgProcessingTimeMs).ToList();
         // ProjectedVisitor is a per-call projection; the underlying lock happens inside
         // SignatureAggregateCache.Project so the fields read here are already stable.
         // History (bot probability / confidence / processing time) is NOT overlaid from

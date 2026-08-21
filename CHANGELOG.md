@@ -7,18 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Fix: the signature-detail sparkline read its own shadow history.**
-  `SignatureAggregateCache` kept a per-signature `ScoreHistory`/`ProcessingTimeHistory`
-  /`ConfidenceHistory` ring buffer purely to feed the signature-detail page's charts,
-  fed from the per-detection write path — a second copy of data the `detections` table
-  already holds, with no way to guarantee it agreed with a cold-started or remote-mode
-  read. Removed the ring buffers and their `GetSparkline` accessor; the detail page (and
-  its `/dashboard/api/sparkline/{id}` endpoint) now reads bot-probability/confidence/
-  processing-time history directly from `detections` — a plain SQL read on a page view,
-  not a hot per-request path. The separate per-minute **HitTrend** ring buffer (Top Bots'
-  activity trend) is unrelated and unchanged: it stays LFU-resident, updated in memory
-  once per live detection, never a DB write or DB read to compute — exactly the
-  low-latency, per-fingerprint projection it was designed to be.
+- **Fix: the signature-detail sparkline read its own shadow history — replaced with a
+  signature-scoped time-series union.** `SignatureAggregateCache` kept a per-signature
+  `ScoreHistory`/`ProcessingTimeHistory`/`ConfidenceHistory` ring buffer purely to feed
+  the signature-detail page's charts, fed from the per-detection write path — a second
+  copy of data the `detections` table already holds, with no way to guarantee it agreed
+  with a cold-started or remote-mode read. Removed the ring buffers and `GetSparkline`;
+  added `IDashboardEventStore.GetSignatureTimeSeriesAsync(signature, window, bucketSize)`
+  — a signature-scoped sibling of the existing audience-scoped `GetTimeSeriesAsync`,
+  returning the new `DashboardSignatureTimeSeriesPoint` (avg bot probability / confidence
+  / processing time per bucket — a distinct shape from `DashboardTimeSeriesPoint` since
+  bot/human counts are degenerate for a single signature). FOSS SQLite implements it as a
+  plain bucketed `AVG()`/`COUNT()` query (no live-tier gap to bridge — writes land
+  synchronously); the commercial Postgres store additionally unions its live epoch tier
+  the same way its audience-scoped time-series already does, so the sparkline never goes
+  stale waiting for the write-behind absorption sweep. The signature-detail page and its
+  `/dashboard/api/sparkline/{id}` endpoint both read through this now. The separate
+  per-minute **HitTrend** ring buffer (Top Bots' activity trend) is unrelated and
+  unchanged: it stays LFU-resident, updated in memory once per live detection, never a DB
+  write or DB read to compute — exactly the low-latency, per-fingerprint projection it
+  was designed to be.
 
 - **Fix: the embeddable `<bot-ticker>`, `<bot-detection-header>`, and
   `<bot-detection-details>` widgets never showed live data.** All three had a
