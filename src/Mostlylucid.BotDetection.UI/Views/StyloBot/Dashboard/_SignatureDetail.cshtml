@@ -34,6 +34,10 @@
     ViewData["Title"] = signatureDisplayName ?? "Not Found";
     var bp = Model.BasePath;
     var navBp = Model.ResolvedNavBasePath;
+    // Gates the correction-editor auto-load below: an anonymous viewer can never use
+    // that endpoint (it 401s regardless of FOSS/commercial edition), so probing it on
+    // every page load is pure noise in every keyless viewer's console.
+    var isAuthenticated = ViewContext.HttpContext.User?.Identity?.IsAuthenticated ?? false;
 
     // The header is a triplet: NAME · UA · TRUST. Name is LLM-renameable / archetype-
     // driven and can be wrong; the UA chip is the raw claim (Chrome 119 / macOS,
@@ -171,8 +175,11 @@ else
         @* Operator "correct decision" control (commercial). Lazy-loads the correction
            editor fragment from the gateway; under FOSS the endpoint returns 402 and the
            swap leaves this empty span, so nothing renders. Same degrade-clean pattern as
-           the effective-policy panel and the given-name editor above. *@
-        @if (!string.IsNullOrEmpty(Model.FingerprintId))
+           the effective-policy panel and the given-name editor above. Gated on
+           isAuthenticated -- an anonymous viewer gets a 401 from this endpoint no matter
+           the edition, so there is nothing useful to lazy-load and firing it anyway was
+           pure console noise on every keyless page view. *@
+        @if (!string.IsNullOrEmpty(Model.FingerprintId) && isAuthenticated)
         {
             <span class="fp-correction inline-flex items-center"
                   hx-get="@($"/api/v1/commercial/fingerprints/{Uri.EscapeDataString(Model.FingerprintId)}/correction/edit")"
@@ -1124,23 +1131,53 @@ else
             var fg = isDark ? '#94a3b8' : '#475569';
             var gridColor = isDark ? 'rgba(148,163,184,0.1)' : 'rgba(15,23,42,0.08)';
 
+            // "No signal data" must always be a loud callout, never a quiet empty
+            // state (operator's standing rule) -- a chart-init failure (ApexCharts
+            // not yet defined because of a script load-order race, a CSP block, a
+            // bad data shape, anything) is INDISTINGUISHABLE from "this signature
+            // has no activity" if it just leaves the container blank. Retry briefly
+            // in case ApexCharts is still loading, then render a visible failure
+            // state distinct from the legitimate no-data case (which the @@if gates
+            // above already handle by omitting these cards entirely).
+            function renderChartSafely(containerId, buildFn, retriesLeft) {
+                var el = document.getElementById(containerId);
+                if (!el) return;
+                if (typeof ApexCharts === 'undefined') {
+                    if (retriesLeft > 0) {
+                        setTimeout(function () { renderChartSafely(containerId, buildFn, retriesLeft - 1); }, 100);
+                        return;
+                    }
+                    console.error('[SignatureDetail] ApexCharts never became available for #' + containerId);
+                    el.innerHTML = '<div class="text-xs text-error p-2">Chart library failed to load -- this is a display bug, not missing data.</div>';
+                    return;
+                }
+                try {
+                    buildFn(el);
+                } catch (err) {
+                    console.error('[SignatureDetail] Chart render failed for #' + containerId + ':', err);
+                    el.innerHTML = '<div class="text-xs text-error p-2">Chart failed to render -- this is a display bug, not missing data.</div>';
+                }
+            }
+
             // Bot Probability & Confidence chart
             var pcData = JSON.parse(document.getElementById('prob-conf-data').textContent);
             if (pcData.probability && pcData.probability.length >= 1) {
-                new ApexCharts(document.getElementById('prob-conf-chart'), {
-                    chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
-                    series: [
-                        { name: 'Bot Probability', data: pcData.probability },
-                        { name: 'Confidence', data: pcData.confidence }
-                    ],
-                    colors: ['#ef4444', '#5ba3a3'],
-                    stroke: { width: 2, curve: 'smooth' },
-                    xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
-                    yaxis: { min: 0, max: 1, labels: { style: { colors: fg, fontSize: '10px' }, formatter: function(v) { return (v * 100).toFixed(0) + '%'; } } },
-                    grid: { borderColor: gridColor, strokeDashArray: 3 },
-                    legend: { position: 'top', fontSize: '10px', labels: { colors: fg } },
-                    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: function(v) { return (v * 100).toFixed(1) + '%'; } } }
-                }).render();
+                renderChartSafely('prob-conf-chart', function (el) {
+                    new ApexCharts(el, {
+                        chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
+                        series: [
+                            { name: 'Bot Probability', data: pcData.probability },
+                            { name: 'Confidence', data: pcData.confidence }
+                        ],
+                        colors: ['#ef4444', '#5ba3a3'],
+                        stroke: { width: 2, curve: 'smooth' },
+                        xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
+                        yaxis: { min: 0, max: 1, labels: { style: { colors: fg, fontSize: '10px' }, formatter: function(v) { return (v * 100).toFixed(0) + '%'; } } },
+                        grid: { borderColor: gridColor, strokeDashArray: 3 },
+                        legend: { position: 'top', fontSize: '10px', labels: { colors: fg } },
+                        tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: function(v) { return (v * 100).toFixed(1) + '%'; } } }
+                    }).render();
+                }, 20);
             }
 
             // Processing Time chart -- line + dots, no per-point labels (those badges
@@ -1162,19 +1199,21 @@ else
 
             var ptData = JSON.parse(document.getElementById('proc-time-data').textContent);
             if (ptData && ptData.length >= 1) {
-                new ApexCharts(document.getElementById('proc-time-chart'), {
-                    chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
-                    series: [{ name: 'Processing Time', data: ptData }],
-                    colors: ['#daa564'],
-                    stroke: { width: 2, curve: 'smooth' },
-                    markers: { size: 3, strokeWidth: 0, hover: { size: 5 } },
-                    dataLabels: { enabled: false },
-                    xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
-                    yaxis: { logarithmic: true, labels: { style: { colors: fg, fontSize: '10px' }, formatter: fmtLatency } },
-                    grid: { borderColor: gridColor, strokeDashArray: 3 },
-                    legend: { show: false },
-                    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: fmtLatency } }
-                }).render();
+                renderChartSafely('proc-time-chart', function (el) {
+                    new ApexCharts(el, {
+                        chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
+                        series: [{ name: 'Processing Time', data: ptData }],
+                        colors: ['#daa564'],
+                        stroke: { width: 2, curve: 'smooth' },
+                        markers: { size: 3, strokeWidth: 0, hover: { size: 5 } },
+                        dataLabels: { enabled: false },
+                        xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
+                        yaxis: { logarithmic: true, labels: { style: { colors: fg, fontSize: '10px' }, formatter: fmtLatency } },
+                        grid: { borderColor: gridColor, strokeDashArray: 3 },
+                        legend: { show: false },
+                        tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: fmtLatency } }
+                    }).render();
+                }, 20);
             }
         })();
         </script>

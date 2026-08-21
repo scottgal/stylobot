@@ -134,6 +134,12 @@
     // so a repeat beacon at the same tick skips already-fresh widgets.
     var widgetTicks = {};
 
+    // Non-null while a document.startViewTransition() is in flight (a Promise
+    // that resolves once it settles). The browser allows only one active
+    // transition at a time; flush() checks this to avoid a second concurrent
+    // call throwing InvalidStateError.
+    var pendingViewTransition = null;
+
     // Set by flush() just before it fires an htmx.ajax call so the
     // htmx:afterSettle listener can stamp the refreshed widgets with the
     // tick that was current when the request was issued.
@@ -318,8 +324,23 @@
 
             // Wrap in a view-transition when the browser supports it.
             // Feature-detect; don't assume support (Chrome 111+; Safari 18+).
-            if (document.startViewTransition) {
-                document.startViewTransition(doAjax);
+            // The browser allows only ONE active transition at a time -- calling
+            // startViewTransition while a prior one hasn't settled throws
+            // InvalidStateError synchronously and its callback (doAjax, the actual
+            // data refresh) never runs, so a burst of beacons was silently dropping
+            // refreshes as well as spamming the console. Skip the visual transition
+            // for this refresh (still run doAjax directly) when one is already in
+            // flight, rather than fight the browser for a second concurrent one.
+            if (document.startViewTransition && !pendingViewTransition) {
+                try {
+                    var transition = document.startViewTransition(doAjax);
+                    pendingViewTransition = transition.finished
+                        .catch(function () { /* transition itself failing doesn't matter here */ })
+                        .then(function () { pendingViewTransition = null; });
+                } catch (e) {
+                    pendingViewTransition = null;
+                    doAjax();
+                }
             } else {
                 doAjax();
             }
