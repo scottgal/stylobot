@@ -143,19 +143,13 @@ public static class WidgetRenderHelpers
     /// <summary>
     ///     Splices the live per-minute hit-trend ring buffer from <see cref="SignatureAggregateCache"/>
     ///     onto any row whose <see cref="DashboardTopBotEntry.HitTrend"/> came back empty from the
-    ///     event store. HitTrend has exactly ONE source of truth -- the runtime ring buffer; the DB
-    ///     deliberately never stores per-minute counts (only the all-time <c>HitCount</c> column) -- so
-    ///     this is surfacing that one source in a render path that was missing it, not forking state.
-    ///     Mirrors the overlay <c>Mostlylucid.BotDetection.Api.Endpoints.ReadEndpoints.HandleTopBots</c>
-    ///     already applies to the standalone REST JSON endpoint; every dashboard render path (SSR
-    ///     ViewComponent, MVC page composer, SignalR/batch live-update) needs the SAME overlay applied
-    ///     here. The PRIMARY sparkline source is the store: the gateway's Postgres backend
-    ///     now projects each fingerprint's per-minute trend from the persisted rows (the
-    ///     2026-08-13 sparkline fix — never in-memory-only). This overlay only fills the
-    ///     remaining gaps (stores that don't project, or the last live minute before raw
-    ///     rows land). <paramref name="signatureCache"/> is optional -- absent on a genuine
-    ///     remote-mode viewer host with no local cache to overlay from, in which case rows
-    ///     pass through unchanged (the established remote-mode-optional-DI pattern).
+    ///     event store. HitTrend has exactly ONE source of truth -- the runtime ring buffer, projected
+    ///     per fingerprint in the LFU, updated live per-request in memory only (never a DB write, never
+    ///     a DB read to compute it). The DB deliberately never stores per-minute counts (only the
+    ///     all-time <c>HitCount</c> column) -- so this is surfacing that one source in a render path
+    ///     that was missing it, not forking state. <paramref name="signatureCache"/> is optional --
+    ///     absent on a genuine remote-mode viewer host with no local cache to overlay from, in which
+    ///     case rows pass through unchanged (the established remote-mode-optional-DI pattern).
     /// </summary>
     public static IReadOnlyList<DashboardTopBotEntry> OverlayLiveHitTrend(
         IReadOnlyList<DashboardTopBotEntry> bots,

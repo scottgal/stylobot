@@ -3526,39 +3526,13 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Try SignatureAggregateCache first (write-through, always up to date)
-        var sparklineFromCache = _signatureCache.GetSparkline(decodedSignature);
-        if (sparklineFromCache != null)
-        {
-            var cachedSparkline = new
-            {
-                signatureId,
-                botProbabilityHistory = sparklineFromCache
-            };
-            context.Response.ContentType = "application/json";
-            await JsonSerializer.SerializeAsync(context.Response.Body, cachedSparkline, CamelCaseJson);
-            return;
-        }
-
-        // Fall back to SignatureAggregateCache (has richer history with processing times)
-        var signatureCache = context.RequestServices
-            .GetService(typeof(SignatureAggregateCache)) as SignatureAggregateCache;
-        var visitor = signatureCache?.GetVisitor(decodedSignature);
-
+        // Read-through: the durable detections table is the single source for sparkline
+        // history (the parasitic-store fix, 2026-08-21). SignatureAggregateCache no longer
+        // maintains its own ScoreHistory/ProcessingTimeHistory/ConfidenceHistory ring
+        // buffers -- those diverged from this exact data by construction (three separate
+        // seeding paths, each capable of disagreeing with the others and with the DB).
         List<double> processingTimes, botProbabilities, confidences;
-
-        // ProjectedVisitor is a per-call projection (SignatureAggregateCache.Project copies
-        // the ring buffers under the aggregate's SyncRoot before returning), so the
-        // history queues are already stable snapshots -- no lock needed here.
-        if (visitor != null)
         {
-            processingTimes = visitor.ProcessingTimeHistory.ToList();
-            botProbabilities = visitor.BotProbabilityHistory.ToList();
-            confidences = visitor.ConfidenceHistory.ToList();
-        }
-        else
-        {
-            // Fallback: build sparkline from DB detections
             var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
             {
                 SignatureId = decodedSignature,
@@ -6624,16 +6598,8 @@ public class StyloBotDashboardMiddleware
         // lower bound, not a full count). A dedicated GetSignatureAggregateAsync method
         // on IDashboardEventStore would remove this fallback; tracked separately.
         int hitCount = detections.Count;
-        List<double>? sparkline = null;
         SignatureAggregate? agg = _signatureCache.TryGet(decodedSignature, out var a) ? a : null;
-        if (agg != null)
-        {
-            if (agg.HitCount > hitCount) hitCount = agg.HitCount;
-            lock (agg.SyncRoot)
-            {
-                sparkline = agg.ScoreHistory.Count > 0 ? agg.ScoreHistory.ToList() : null;
-            }
-        }
+        if (agg != null && agg.HitCount > hitCount) hitCount = agg.HitCount;
 
         // Optional enrichment from SignatureAggregateCache (paths / UA / protocol /
         // per-request ring buffers). On remote-mode hosts the cache may be empty so
@@ -6657,15 +6623,15 @@ public class StyloBotDashboardMiddleware
         List<double> procTimeHistory = detections.AsEnumerable().Reverse().Select(d => (double)d.ProcessingTimeMs).ToList();
         // ProjectedVisitor is a per-call projection; the underlying lock happens inside
         // SignatureAggregateCache.Project so the fields read here are already stable.
+        // History (bot probability / confidence / processing time) is NOT overlaid from
+        // the cache -- the detections table above is the single source for it (the
+        // parasitic-store fix, 2026-08-21); the cache's own ring buffers were removed.
         if (visitor != null)
         {
             if (visitor.Paths.Count > 0) paths = visitor.Paths.ToList();
             if (!string.IsNullOrEmpty(visitor.UserAgent)) userAgent = visitor.UserAgent;
             if (!string.IsNullOrEmpty(visitor.Protocol)) protocol = visitor.Protocol;
             if (visitor.FirstSeen != default && visitor.FirstSeen < firstSeen) firstSeen = visitor.FirstSeen;
-            if (visitor.BotProbabilityHistory.Count > 0) botProbHistory = visitor.BotProbabilityHistory.ToList();
-            if (visitor.ConfidenceHistory.Count > 0) confHistory = visitor.ConfidenceHistory.ToList();
-            if (visitor.ProcessingTimeHistory.Count > 0) procTimeHistory = visitor.ProcessingTimeHistory.ToList();
         }
         if (paths.Count == 0)
         {
@@ -6837,7 +6803,7 @@ public class StyloBotDashboardMiddleware
             ThreatScore = latest.ThreatScore,
             ThreatBand = latest.ThreatBand,
             RiskJustification = latest.RiskJustification,
-            SparklineData = sparkline,
+            SparklineData = botProbHistory.Count > 0 ? botProbHistory : null,
             Paths = paths,
             EndpointStats = endpointStats,
             UserAgent = userAgent,
@@ -7441,7 +7407,6 @@ public class StyloBotDashboardMiddleware
 
         var visitorCache = context.RequestServices.GetService<SignatureAggregateCache>();
         var visitor = visitorCache?.GetVisitor(signature);
-        var sparkline = _signatureCache.GetSparkline(signature);
 
         var registry = context.RequestServices.GetRequiredService<UI.Dashboard.IDashboardRowRegistry>();
         var model = new SignatureDetailModel

@@ -373,20 +373,6 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
-    ///     Get sparkline score history for a specific signature.
-    /// </summary>
-    public List<double>? GetSparkline(string signature)
-    {
-        if (!_entries.TryGetValue(signature, out var agg))
-            return null;
-
-        lock (agg.SyncRoot)
-        {
-            return agg.ScoreHistory.ToList();
-        }
-    }
-
-    /// <summary>
     ///     Try to get aggregate data for a specific signature from the hot tier.
     ///     Does NOT fall through to the durable store -- callers that want the
     ///     transparent layered read use <see cref="GetOrLoadAsync"/> instead.
@@ -661,14 +647,6 @@ public sealed class SignatureAggregateCache
             // the risk derivation above feeds to the composer's friendly-pin.
             IsVerifiedBot: warmVerified);
 
-        // Score history walks oldest-to-newest so the sparkline reads left-to-right.
-        foreach (var d in detections.Reverse())
-        {
-            agg.ScoreHistory.AddLast(d.BotProbability);
-            while (agg.ScoreHistory.Count > ScoreHistorySize)
-                agg.ScoreHistory.RemoveFirst();
-        }
-
         _entries[signature] = agg;
         _sortDirty = true;
         return agg;
@@ -834,9 +812,14 @@ public sealed class SignatureAggregateCache
                 ProcessingTimeMs = agg.ProcessingTimeMs,
                 MaxProcessingTimeMs = agg.MaxProcessingTimeMs,
                 MinProcessingTimeMs = agg.MinProcessingTimeMs,
-                ProcessingTimeHistory = new Queue<double>(agg.ProcessingTimeHistory),
-                BotProbabilityHistory = new Queue<double>(agg.ScoreHistory),
-                ConfidenceHistory = new Queue<double>(agg.ConfidenceHistory),
+                // History (bot probability / confidence / processing time) is NOT
+                // maintained here anymore -- the shadow ring buffers that used to feed
+                // these were the parasitic store (2026-08-21); the one real consumer
+                // (the signature-detail page) now reads history straight from the
+                // detections table instead of through this projection.
+                ProcessingTimeHistory = new Queue<double>(),
+                BotProbabilityHistory = new Queue<double>(),
+                ConfidenceHistory = new Queue<double>(),
                 LastRequestId = agg.LastRequestId,
                 ThreatScore = verdict?.ThreatScore,
                 ThreatBand = verdict?.ThreatBand,
@@ -1009,10 +992,7 @@ public sealed class SignatureAggregateCache
             RadarShape = detection.RadarShape,
         };
 
-        // No lock needed - object is not yet visible to other threads
-        agg.ScoreHistory.AddLast(detection.BotProbability);
-        agg.ProcessingTimeHistory.Enqueue(detection.ProcessingTimeMs);
-        agg.ConfidenceHistory.Enqueue(detection.Confidence);
+        // No lock needed - object is not yet visible to other threads. In-memory only.
         agg.RecordHit(detection.Timestamp.ToUniversalTime());
 
         return agg;
@@ -1155,14 +1135,6 @@ public sealed class SignatureAggregateCache
             if (string.IsNullOrEmpty(existing.EntityId) && !string.IsNullOrEmpty(detection.EntityId))
                 existing.EntityId = detection.EntityId;
 
-            // Sparkline ring: still fed from the per-detection probability so the
-            // per-row score history reads left-to-right. This is a transient trend
-            // series, not the headline verdict (which is read through the fingerprint
-            // LFU via GetResolvedVerdict), so it stays on the aggregate.
-            existing.ScoreHistory.AddLast(detection.BotProbability);
-            while (existing.ScoreHistory.Count > ScoreHistorySize)
-                existing.ScoreHistory.RemoveFirst();
-
             // ProjectedVisitor-equivalents -- maintained under the same SyncRoot
             // lock so visitor-card / signature-detail reads see consistent state.
             existing.LastPath = detection.Path;
@@ -1185,10 +1157,6 @@ public sealed class SignatureAggregateCache
                 existing.MaxProcessingTimeMs = detection.ProcessingTimeMs;
             if (existing.MinProcessingTimeMs == 0 || detection.ProcessingTimeMs < existing.MinProcessingTimeMs)
                 existing.MinProcessingTimeMs = detection.ProcessingTimeMs;
-            existing.ProcessingTimeHistory.Enqueue(detection.ProcessingTimeMs);
-            while (existing.ProcessingTimeHistory.Count > 20) existing.ProcessingTimeHistory.Dequeue();
-            existing.ConfidenceHistory.Enqueue(detection.Confidence);
-            while (existing.ConfidenceHistory.Count > 20) existing.ConfidenceHistory.Dequeue();
 
             existing.RecordHit(detection.Timestamp.ToUniversalTime());
         }
@@ -1422,15 +1390,6 @@ public sealed class SignatureAggregate
     public double MinProcessingTimeMs;
 
     /// <summary>
-    ///     Ring buffer of recent processing times (last 20 detections) -- powers
-    ///     the per-row sparkline column on the visitor card.
-    /// </summary>
-    public Queue<double> ProcessingTimeHistory = new();
-
-    /// <summary>Ring buffer of recent confidence values (last 20 detections).</summary>
-    public Queue<double> ConfidenceHistory = new();
-
-    /// <summary>
     ///     Behavioural grouper's resolved key when this row represents a collapsed
     ///     group (members &gt; 1). Null when standalone or grouper not configured.
     ///     Projected onto group rows by <c>CollapseGroupable</c>.
@@ -1442,9 +1401,6 @@ public sealed class SignatureAggregate
 
     /// <summary>LFU access counter - incremented on read, periodically aged.</summary>
     public long AccessCount;
-
-    /// <summary>Ring buffer of recent bot probability scores for sparkline.</summary>
-    public readonly LinkedList<double> ScoreHistory = new();
 
     /// <summary>
     ///     Per-minute hit count over the last 60 minutes. Index 0 is the most recent
@@ -1459,7 +1415,7 @@ public sealed class SignatureAggregate
     /// <summary>
     ///     Record one hit at the supplied UTC timestamp. Caller must already hold
     ///     <see cref="SyncRoot"/> (CreateNew runs before the aggregate is published,
-    ///     Update wraps in lock).
+    ///     Update wraps in lock). In-memory only -- never a DB write.
     /// </summary>
     internal void RecordHit(DateTime utcTimestamp)
     {
