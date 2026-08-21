@@ -43,10 +43,21 @@ public sealed class VisitorsControllerWindowTests
     [Fact]
     public async Task Index_reads_the_traffic_envelope_at_the_clicked_period()
     {
+        // NAMED ARGUMENTS DELIBERATELY (operator directive, 2026-08-21): this exact call
+        // used to pass "window" positionally with one extra leading null, silently binding
+        // the "7d" token into the `_internal` parameter instead of `window` -- Index.Signature
+        // still compiled, the test still ran, and it asserted against the wrong parameter
+        // for months (the OTHER two tests in this file had the identical off-by-one and
+        // happened to pass anyway, because their expected value coincided with the
+        // window=null fallback). Positional args beside a same-typed neighbour are exactly
+        // the shape that silently shifts under a signature change and compiles clean either
+        // way -- named arguments make the binding explicit and immune to it.
         DashboardPageWindow? captured = null;
         var controller = NewController(new Mock<IDashboardContentCache>(), w => captured = w);
 
-        await controller.Index(null, null, null, null, null, null, "7d", CancellationToken.None);
+        await controller.Index(
+            filter: null, country: null, botType: null, threat: null, fingerprint: null,
+            window: "7d", _internal: null, ct: CancellationToken.None);
 
         Assert.NotNull(captured);
         Assert.Equal(120, captured.BucketMinutes);
@@ -59,7 +70,9 @@ public sealed class VisitorsControllerWindowTests
         DashboardPageWindow? captured = null;
         var controller = NewController(new Mock<IDashboardContentCache>(), w => captured = w);
 
-        await controller.Index(null, null, null, null, null, null, null, CancellationToken.None);
+        await controller.Index(
+            filter: null, country: null, botType: null, threat: null, fingerprint: null,
+            window: null, _internal: null, ct: CancellationToken.None);
 
         Assert.NotNull(captured);
         Assert.Equal(20, captured.BucketMinutes);
@@ -72,7 +85,9 @@ public sealed class VisitorsControllerWindowTests
         DashboardPageWindow? captured = null;
         var controller = NewController(new Mock<IDashboardContentCache>(), w => captured = w);
 
-        await controller.Index(null, null, null, null, null, null, "bogus", CancellationToken.None);
+        await controller.Index(
+            filter: null, country: null, botType: null, threat: null, fingerprint: null,
+            window: "bogus", _internal: null, ct: CancellationToken.None);
 
         Assert.NotNull(captured);
         Assert.Equal(20, captured.BucketMinutes);
@@ -103,7 +118,9 @@ public sealed class VisitorsControllerWindowTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
 
-        await controller.Index(null, null, null, null, null, null, "24h", CancellationToken.None);
+        await controller.Index(
+            filter: null, country: null, botType: null, threat: null, fingerprint: null,
+            window: "24h", _internal: null, ct: CancellationToken.None);
 
         cache.Verify(c => c.GetCurrentAsync(
             It.IsAny<DashboardPageManifest>(), It.IsAny<DashboardPageWindow>(), It.IsAny<CancellationToken>()),
