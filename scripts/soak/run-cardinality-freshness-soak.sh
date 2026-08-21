@@ -55,10 +55,12 @@
 #     integer, managed heap size in bytes. ALREADY WIRED gateway-side
 #     (stream-, 2026-08-21) via OpenTelemetry .AddRuntimeInstrumentation() on
 #     the same /metrics Prometheus endpoint the process/RSS instrumentation
-#     already uses — this is a SCRAPE, not a feature to build. Example (exact
-#     metric name grep-matched, not hardcoded — confirm against a live
-#     /metrics before trusting it verbatim):
-#       curl -s http://localhost:8290/metrics | grep -iE 'gc_heap_size|runtime_dotnet.*gc.*heap' | grep -v '^#' | awk '{print $NF}' | head -1
+#     already uses — this is a SCRAPE, not a feature to build. CONFIRMED
+#     against a live scrape (deploy-, 2026-08-21): OTel .NET semantic-
+#     conventions naming, "dotnet_gc_*" (NOT "runtime_dotnet_*"). The relevant
+#     series is per-generation (gen0/gen1/gen2/loh/poh) — sum across labels
+#     for a total:
+#       curl -s http://localhost:8290/metrics | grep '^dotnet_gc_last_collection_heap_size_bytes' | awk '{sum+=$NF} END{print sum+0}'
 #     Needed to tell a real bulk drain apart from a Gen2 GC returning
 #     segments to the OS — RSS alone can't (operator, 2026-08-21). Without it
 #     the MEMORY SHAPE gate's drops are reported with "NO DATA" for the
