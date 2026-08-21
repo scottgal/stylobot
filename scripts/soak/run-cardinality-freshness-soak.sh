@@ -24,6 +24,13 @@
 #     2026-08-20, cgroup v1 host — memory.usage_in_bytes not v2's
 #     memory.current), used below as the default:
 #       rss=$(ssh -o BatchMode=yes claude2@192.168.0.15 "docker exec stylobot-loadtest-gateway cat /sys/fs/cgroup/memory/memory.usage_in_bytes" 2>/dev/null | tr -d "\r\n"); meta=$(ssh -o BatchMode=yes claude2@192.168.0.15 "docker inspect stylobot-loadtest-gateway --format=\"{{.RestartCount}} {{.State.OOMKilled}}\"" 2>/dev/null | tr -d "\r"); rc=$(echo "$meta" | awk "{print \$1}"); oomv=$(echo "$meta" | awk "{print \$2}"); oom=0; [ "$oomv" = "true" ] && oom=1; echo "$rss $rc $oom"
+#     4TH FIELD (running, 1/0) is OPTIONAL — add `{{.State.Running}}` to the
+#     docker inspect format (convert true/false to 1/0) to enable the CRASH
+#     GATE, which catches a death that is NEITHER an OOM-kill NOR a restart
+#     (e.g. SIGSEGV/exit 139 — found for real in the 2026-08-21 baseline run,
+#     where OOM GATE reported a misleading PASS because the container simply
+#     stopped and never came back). Without it, defaults to "running", i.e.
+#     the crash gate has nothing to check — an explicit NO DATA, not a lie.
 #     TOPOLOGY GAP (overview-, 2026-08-20): the :8290 rig has NO separate
 #     website process — TrafficController/dashboard UI is compiled into and
 #     served BY this same gateway container (3 services total: gateway,
@@ -124,7 +131,19 @@ sample_container() {
   if [ -n "${CONTAINER_STATS_CMD:-}" ]; then
     out="$(eval "$CONTAINER_STATS_CMD" 2>/dev/null || true)"
   fi
-  echo "$out" | tr '\n' ' ' | awk '{ if ($1 != "" && $2 != "" && $3 != "") print $1, $2, $3; else print "0 0 0" }'
+  # 4th field (running, 1/0) is OPTIONAL for backward compat with an
+  # already-wired 3-field CONTAINER_STATS_CMD — defaults to 1 (assume
+  # running) when absent, so existing commands keep working unmodified; the
+  # CRASH GATE below simply has nothing to check without it. Add
+  # `{{.State.Running}}` (true/false, convert to 1/0) to upgrade a command.
+  echo "$out" | tr '\n' ' ' | awk '{
+    if ($1 != "" && $2 != "" && $3 != "") {
+      running = ($4 != "") ? $4 : 1
+      print $1, $2, $3, running
+    } else {
+      print "0 0 0 1"
+    }
+  }'
 }
 
 # THE MOST IMPORTANT ASSERTION (operator, 2026-08-20): absorption exists to
@@ -148,7 +167,7 @@ sample_db_writes() {
 }
 
 if [ "$POSITIVE_CONTROL" = "true" ]; then
-  read -r base_rss _ _ <<< "$(sample_container)"
+  read -r base_rss _ _ _ <<< "$(sample_container)"
   if [ "$base_rss" = "0" ]; then
     echo "POSITIVE_CONTROL requested but CONTAINER_STATS_CMD gave no baseline RSS — cannot derive a cap." >&2
     exit 1
@@ -168,9 +187,9 @@ log "load driver: scripts/soak/k6-plateau.js (extended: X-Forwarded-For cardinal
 log "REGRESSION_GATE=$REGRESSION_GATE (db-only known-defect divergence is a hard gate only when true)"
 
 read -r base_rows base_bytes <<< "$(sample_db)"
-read -r base_rss base_restarts base_oom <<< "$(sample_container)"
+read -r base_rss base_restarts base_oom base_running <<< "$(sample_container)"
 base_writes="$(sample_db_writes)"
-log "baseline: db_rows=$base_rows db_bytes=$base_bytes rss=$base_rss restarts=$base_restarts oom=$base_oom db_writes=$base_writes"
+log "baseline: db_rows=$base_rows db_bytes=$base_bytes rss=$base_rss restarts=$base_restarts oom=$base_oom running=$base_running db_writes=$base_writes"
 
 K6_RAW="$OUTDIR/$LABEL-raw.json"
 k6 run scripts/soak/k6-plateau.js --duration "${DURATION_HOURS}h" \
@@ -182,17 +201,20 @@ K6_PID=$!
 # python3, not bash `$(())`: DURATION_HOURS may be fractional (e.g. a short
 # pilot at 0.25h) and bash integer arithmetic rejects a "." token outright.
 SAMPLES=$(python3 -c "import sys; print(max(1, int(float(sys.argv[1]) * 60 / float(sys.argv[2]))))" "$DURATION_HOURS" "$SAMPLE_MINUTES")
-echo -e "elapsed_min\tdb_rows\tdb_bytes\trss_bytes\trestarts\toom_killed\tdb_writes" > "$OUTDIR/$LABEL-samples.tsv"
+echo -e "elapsed_min\tdb_rows\tdb_bytes\trss_bytes\trestarts\toom_killed\tdb_writes\trunning" > "$OUTDIR/$LABEL-samples.tsv"
 
 for ((s = 1; s <= SAMPLES; s++)); do
   sleep $((SAMPLE_MINUTES * 60))
   read -r rows bytes <<< "$(sample_db)"
-  read -r rss restarts oom <<< "$(sample_container)"
+  read -r rss restarts oom running <<< "$(sample_container)"
   writes="$(sample_db_writes)"
-  echo -e "$((s * SAMPLE_MINUTES))\t$rows\t$bytes\t$rss\t$restarts\t$oom\t$writes" >> "$OUTDIR/$LABEL-samples.tsv"
-  log "sample $s: db_rows=$rows rss=$rss restarts=$restarts oom=$oom db_writes=$writes"
+  echo -e "$((s * SAMPLE_MINUTES))\t$rows\t$bytes\t$rss\t$restarts\t$oom\t$writes\t$running" >> "$OUTDIR/$LABEL-samples.tsv"
+  log "sample $s: db_rows=$rows rss=$rss restarts=$restarts oom=$oom running=$running db_writes=$writes"
   if [ "$oom" != "0" ] || { [ "$restarts" != "0" ] && [ "$restarts" != "$base_restarts" ]; }; then
     log "OOM/RESTART DETECTED mid-run — recording, not aborting (soak must keep sampling through the failure)."
+  fi
+  if [ "$running" = "0" ]; then
+    log "CONTAINER NOT RUNNING mid-run (crashed without OOM/restart, e.g. SIGSEGV) — recording, not aborting."
   fi
 done
 
@@ -210,15 +232,30 @@ rss = []
 db_writes = []
 restarts_seen = False
 oom_seen = False
+crashed_seen = False
+crash_at_elapsed_min = None
 with open(samples_path) as f:
     for row in csv.DictReader(f, delimiter="\t"):
-        rss.append(int(row["rss_bytes"]))
+        is_running = not ("running" in row and row["running"] not in ("", None) and int(row["running"]) == 0)
+        if not is_running and not crashed_seen:
+            crash_at_elapsed_min = row["elapsed_min"]
+        if not is_running:
+            crashed_seen = True
+        # A crashed sample's rss/db_writes are sampler-failure artifacts (the
+        # container is dead — e.g. a 0 reading), NOT real measurements. Feeding
+        # them into the trend/shape/write-amp math would misread "the process
+        # died" as "memory dropped" or "writes went flat" — exactly the
+        # confound a real 2026-08-21 baseline run hit. Once crashed, stop
+        # appending to the series entirely; the CRASH GATE reports the death,
+        # everything else is judged only on the genuinely-alive window.
+        if is_running:
+            rss.append(int(row["rss_bytes"]))
+            if "db_writes" in row and row["db_writes"] not in ("", None):
+                db_writes.append(int(row["db_writes"]))
         if int(row["restarts"]) > 0:
             restarts_seen = True
         if int(row["oom_killed"]) != 0:
             oom_seen = True
-        if "db_writes" in row and row["db_writes"] not in ("", None):
-            db_writes.append(int(row["db_writes"]))
 
 rss_nonzero = [v for v in rss if v > 0]
 if len(rss_nonzero) >= 2:
@@ -330,6 +367,25 @@ elif restarts_seen:
     overall_fail = True
 else:
     print("OOM GATE: PASS — zero OOM kills, zero restarts")
+
+# ── CRASH GATE (added 2026-08-21 after a real baseline run hit this exact ──
+# gap): OOM GATE alone is blind to a crash that is neither an OOM-kill nor a
+# restart — e.g. SIGSEGV, exit 139, container dies and never comes back. The
+# 4th sample_container() field (running) exists for exactly this. A crash
+# here INVALIDATES every sample after it — they measure a dead container, not
+# the system under test — so every other verdict in this report is annotated
+# accordingly rather than left to imply full-run coverage it doesn't have.
+if crashed_seen:
+    print(f"CRASH GATE: FAIL — container stopped running at ~{crash_at_elapsed_min}min "
+          f"without an OOM-kill or a restart (e.g. SIGSEGV/exit 139) — samples after this point "
+          f"measure a DEAD container and invalidate every OTHER verdict in this report for the "
+          f"remainder of the run; treat this run as informative-but-truncated, not a clean result")
+    overall_fail = True
+elif "running" not in open(samples_path).readline():
+    print("CRASH GATE: NO DATA — CONTAINER_STATS_CMD is not yet reporting a 4th (running) field; "
+          "add {{.State.Running}} to it to enable this check")
+else:
+    print("CRASH GATE: PASS — container stayed up (running=1) for every sample")
 
 # ── Write-amplification gate (operator, 2026-08-20): THE MOST IMPORTANT ──
 # assertion — absorption exists to decouple request activity from DB write
