@@ -98,13 +98,20 @@ jobs:
       with:
         dotnet-version: '10.0.x'
 
-    - name: Create MinVer tag from allbot tag
+    - name: Extract version
+      id: get_version
       run: |
+        # Handle both botdetection-v* and allbot-v* tags (see build-and-publish's
+        # own copy of this step above -- this job runs independently so it needs
+        # its own VERSION, it can't read the other job's step output).
         TAG=${GITHUB_REF#refs/tags/}
-        if [[ "$TAG" == allbot-v* ]]; then
+        if [[ "$TAG" == botdetection-v* ]]; then
+          VERSION=${TAG#botdetection-v}
+        else
           VERSION=${TAG#allbot-v}
-          git tag "botdetection-v${VERSION}"
         fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Publishing version: $VERSION"
 
     # UI + the two packages it DEPENDS ON. OpenApi and PrometheusPack were never
     # packed or pushed by any workflow (2026-08-20), while the published UI nuspec
@@ -114,10 +121,18 @@ jobs:
     # failed for every customer with NU1101 on both ids. Confirmed live against
     # nuget.org on 2026-08-20; adding them here and verifying a local restore then
     # succeeded end-to-end. They pack into the SAME artifacts-ui folder so the
-    # existing push step publishes all three together — MinVer gives them the same
-    # version as UI from the shared botdetection-v tag, which is exactly what the
-    # dependency constraint requires.
+    # existing push step publishes all three together.
+    #
+    # -p:Version is REQUIRED, not cosmetic: OpenApi's MinVerTagPrefix is
+    # "allbot-v" and PrometheusPack's is "botdetection-prometheuspack-v" -- NEITHER
+    # matches this job's "botdetection-v" tag, so without an explicit override
+    # each falls back to its own independent MinVer-computed version (verified
+    # locally: both pack as an unrelated version, not the UI's). An explicit
+    # -p:Version pin is the only way to guarantee all three land at the exact
+    # version the UI nuspec's dependency constraint requires.
     - name: Restore, Build, Pack UI (+ its OpenApi/Prometheus dependencies)
+      env:
+        PKG_VERSION: ${{ steps.get_version.outputs.VERSION }}
       run: |
         for proj in \
           src/Mostlylucid.BotDetection.OpenApi/Mostlylucid.BotDetection.OpenApi.csproj \
@@ -125,8 +140,8 @@ jobs:
           src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj
         do
           dotnet restore "$proj"
-          dotnet build   "$proj" -c Release --no-restore
-          dotnet pack    "$proj" -c Release --no-build -o ./artifacts-ui
+          dotnet build   "$proj" -c Release --no-restore -p:Version="$PKG_VERSION"
+          dotnet pack    "$proj" -c Release --no-build -o ./artifacts-ui -p:Version="$PKG_VERSION"
         done
 
     - name: Login to NuGet (OIDC)
