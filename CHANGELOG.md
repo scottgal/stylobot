@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Dead code removal: the `/dashboard/insights` global meter page.** The route has
+  301-redirected to `/traffic` since the M2 legacy-IA cutover, so
+  `InsightsPageBuilder`/`InsightsPageViewModel`/`MeterTableViewModel`/
+  `SbMeterTableViewComponent` (+ their partial and DI registration) were unreachable
+  in every install — compiled, singleton-registered at startup, never called. Removed
+  entirely; `IMeterStream` and the health-summary providers that legitimately use it
+  are untouched.
+
 ## [8.11.0] - 2026-08-19
 
 8.11.0 ships the dashboard read-path rework (internal-traffic exclusion end to end,
@@ -35,7 +43,13 @@ catalog priority, content-cache rewrite races, the licensing-surface excision).
   dims while disconnected), `3e17dc1c` (table clip → scroll ≤640px),
   `40e029ea`/`0be54661` (connection-state dots, one source).
 - **Visitors map + period fidelity.** `59ef7c94` — the visitors map inits on
-  DOMContentLoaded.
+  DOMContentLoaded; `34e4ff3f` fixes a load-order race left over from that init (the
+  world-merc data landed on an earlier jsVectorMap instance while the final instance
+  never received it) — the init now re-registers the vendored map data on the live
+  instance before constructing, with a plain-init fallback.
+- **Endpoints empty-state + a11y contrast.** `d66623a2` — the endpoints empty state is
+  window- and filter-aware ("no data in this window" vs. "no endpoints match this
+  filter"), and the active status-chip contrast is strengthened against the idle chips.
 
 ### API-key fail-closed enforcement (FOSS side)
 
