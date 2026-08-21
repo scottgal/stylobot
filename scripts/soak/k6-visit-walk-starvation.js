@@ -139,22 +139,44 @@ function keepHotPoolSaturated(rounds) {
 }
 
 // ---- Stage 4: advance the clock through ticksPerHotWindow + margin ticks ----
+// IMPORTANT (stream-, confirmed 2026-08-21): advanceClock's HTTP response returns as
+// soon as the timer boundaries fire, NOT after the tick handlers finish -- each tick
+// runs via fire-and-forget (`_ = FireTickSafelyAsync(...)`, deliberate, so one slow
+// subscriber can't stall the others). A single big jump (e.g. one call covering all
+// TOTAL_TICKS_TO_ADVANCE) DOES fire every intervening tick boundary correctly and in
+// order, so it's valid to call this once with the full duration rather than looping --
+// but either way, do not assume the sweep's work is done the instant the call returns.
+// Stage 5 below polls for the actual effect instead of trusting synchronous completion.
 function advanceThroughTicks() {
   for (let t = 0; t < TOTAL_TICKS_TO_ADVANCE; t++) {
     advanceClock(`${SWEEP_CADENCE_MINUTES}m`);
     keepHotPoolSaturated(1);
-    sleep(1); // let the tick's async sweep actually run before the next advance
+    sleep(1); // best-effort pacing only -- NOT a completion guarantee, see stage 5
   }
 }
 
 // ---- Stage 5: poll for the T0 probe markers on the DB-only surface ----
+// Bounded retry loop (not a single check): the tick handlers that persist a probe's
+// aggregate row run fire-and-forget relative to advanceClock's response, so a marker
+// can legitimately take a short while after the last advance to actually land. The
+// ceiling here (POLL_ATTEMPTS * POLL_INTERVAL_SECONDS) is a short grace window for
+// that async settling, NOT a substitute for TOTAL_TICKS_TO_ADVANCE -- the tick-count
+// bound is what the fix's correctness claim rests on; this poll just avoids a false
+// negative from checking a fraction of a second too early.
+const POLL_ATTEMPTS = 10;
+const POLL_INTERVAL_SECONDS = 2;
+
 function checkColdProbesDrained(markers) {
   for (const marker of markers) {
-    const res = http.get(`${TARGET}/api/v1/detections?limit=500`, {
-      headers: { 'X-SB-Api-Key': API_KEY },
-      tags: { traffic_type: 'drain_check' },
-    });
-    const drained = res.status === 200 && res.body && res.body.includes(marker);
+    let drained = false;
+    for (let attempt = 0; attempt < POLL_ATTEMPTS && !drained; attempt++) {
+      const res = http.get(`${TARGET}/api/v1/detections?limit=500`, {
+        headers: { 'X-SB-Api-Key': API_KEY },
+        tags: { traffic_type: 'drain_check' },
+      });
+      drained = res.status === 200 && res.body && res.body.includes(marker);
+      if (!drained && attempt < POLL_ATTEMPTS - 1) sleep(POLL_INTERVAL_SECONDS);
+    }
     coldProbeDrained.add(drained ? 1 : 0);
   }
 }
