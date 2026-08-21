@@ -166,6 +166,32 @@ public class UnboundedStoreCapTests
             $"expected <= 100_000, got {store.ActiveSignatureCount}");
     }
 
+    // 7b. SessionStore._cache (Analysis) — the actual memory-heavy payload (a
+    // List<SessionRequest> per signature) must itself be capped in lockstep with
+    // ActiveSignaturesMaxEntries. Before this fix, EvictActiveSignaturesIfNeeded only
+    // pruned the _activeSignatures shadow index and never touched _cache, so under
+    // growing-cardinality one-shot signatures the cache grew without bound (self-healing
+    // only via a ~35min sliding TTL, which cannot keep pace with a sustained arrival
+    // rate) -- the FOSS-side half of the 2026-08-21 OOM P0.
+    [Fact]
+    public void SessionStore_cache_bounded_under_growing_cardinality_flood()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var store = new SessionStore(cache, NullLogger<SessionStore>.Instance,
+            activeSignaturesMaxEntries: 1_000);
+
+        for (var i = 0; i < 5_000; i++)
+            store.RecordRequestAsync($"sig-{i}",
+                new SessionRequest(RequestState.PageView, DateTimeOffset.UtcNow, "/", 200))
+                .GetAwaiter().GetResult();
+
+        // The real bound is on _cache itself, not just the shadow index -- TTL alone
+        // cannot be relied on to reclaim entries fast enough under sustained
+        // growing-cardinality traffic within a single run.
+        Assert.True(cache.Count <= 1_100,
+            $"expected _cache entry count to be capped near ActiveSignaturesMaxEntries (1000), got {cache.Count}");
+    }
+
     [Fact]
     public async Task SessionStore_activeSignatures_removed_when_session_slot_evicted()
     {

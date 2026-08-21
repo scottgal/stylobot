@@ -126,6 +126,54 @@ public sealed class SessionPersistenceServiceTickTests
         store.ResolvedEntities.Should().HaveCount(2);
     }
 
+    /// <summary>
+    ///     Measures the second-order effect of the 2026-08-21 SessionStore._cache cap fix
+    ///     (EvictActiveSignaturesIfNeeded now removes the cache slot, which finalizes the
+    ///     session synchronously instead of waiting for TTL expiry). Finalization writes to
+    ///     this same 500-slot persistence channel (<see cref="ChannelCapacity"/>) -- flagged
+    ///     by the operator as worth measuring rather than assuming: does concentrating
+    ///     finalizations into cap-triggered bursts (instead of spreading them across TTL
+    ///     expiry) overwhelm the channel faster than a Tick10s drain can keep up, if nothing
+    ///     drains it during the flood? This is a measurement fixture, not a pass/fail
+    ///     regression gate -- the real numbers go in the commit message / P0 thread.
+    /// </summary>
+    private readonly Xunit.Abstractions.ITestOutputHelper _output;
+
+    public SessionPersistenceServiceTickTests(Xunit.Abstractions.ITestOutputHelper output)
+    {
+        _output = output;
+    }
+
+    [Fact]
+    public void Growing_cardinality_flood_without_a_drain_tick_measures_channel_drop_rate()
+    {
+        var coordinator = new RecordingScheduleCoordinator();
+        using var sut = NewService(coordinator, out var store, out var sessionStore);
+
+        // Default ActiveSignaturesMaxEntries (20,000) -- the production default, not a
+        // scaled-down test value, so the burst size this produces is the real one.
+        const int floodCount = 25_000;
+        for (var i = 0; i < floodCount; i++)
+            sessionStore.RecordRequestAsync(
+                $"sig-{i}",
+                new SessionRequest(RequestState.PageView, DateTimeOffset.UtcNow, "/", 200))
+                .GetAwaiter().GetResult();
+
+        // No tick fired -- this is the worst case: a sustained flood with no drain in
+        // between, same as the load-test rig's growing-cardinality driver.
+        var dropped = sut.DroppedSessionCount;
+        var queued = sut.QueueDepth;
+        var persisted = store.AddedSessions.Count;
+
+        _output.WriteLine(
+            $"Flooded {floodCount} one-shot signatures, no drain tick: " +
+            $"DroppedSessionCount={dropped}, QueueDepth={queued}, AddedSessions={persisted}");
+
+        // Sanity only -- every finalized session is either persisted or dropped, never both
+        // and never lost untracked (the "silent drops are never silent" doctrine).
+        Assert.True(queued <= 500, $"QueueDepth ({queued}) must never exceed ChannelCapacity (500)");
+    }
+
     private static void FireSessionFinalized(SessionStore source, SessionSnapshot snapshot)
     {
         // SessionStore.SessionFinalized is a public event; firing it via

@@ -763,13 +763,18 @@ public sealed class SessionStore
     // Two bounds keep it in step with the session cache:
     //  1) a PostEvictionCallback registered on the session slot (see RecordRequestAsync)
     //     removes the shadow entry when the session slot actually leaves the cache;
-    //  2) ActiveSignaturesMaxEntries is a hard safety cap in case callbacks lag or are
-    //     dropped, evicting the coldest slice so memory can never run away.
+    //  2) ActiveSignaturesMaxEntries is a hard safety cap enforced on THIS index AND,
+    //     via EvictActiveSignaturesIfNeeded, on _cache itself (see that method) — the
+    //     real memory-heavy payload lives in _cache, not here.
     private readonly ConcurrentDictionary<string, FingerprintContext?> _activeSignatures = new();
 
-    // Safety cap on the shadow index. The session cache is the real bound; this only
-    // guards against callback lag under extreme cardinality. Default 20,000 —
-    // at 56k sigs/30min the old 100k cap would OOM at ~70min. Configurable via
+    // Hard cap on resident sessions, enforced on _cache itself (not just the shadow
+    // index above) — see EvictActiveSignaturesIfNeeded. _cache's own sliding-expiration
+    // TTL (~35 min) is NOT a real bound: under sustained growing-cardinality traffic,
+    // resident entries = arrival rate x TTL, which grows without limit as arrival rate
+    // grows (the 2026-08-21 OOM P0's FOSS-side driver — one-shot signatures accumulating
+    // faster than TTL expiry could reclaim them). Default 20,000 — at 56k sigs/30min the
+    // old 100k cap would OOM at ~70min. Configurable via
     // BotDetection:SessionStore:ActiveSignaturesMaxEntries.
     private readonly int _activeSignaturesMaxEntries;
 
@@ -946,9 +951,13 @@ public sealed class SessionStore
     }
 
     /// <summary>
-    ///     Hard safety cap on the shadow index. Callback-driven removal is the primary
-    ///     bound; this only fires if callbacks lag under extreme cardinality. Drops the
-    ///     coldest slice (arbitrary enumeration order — memory bound, not hit-rate).
+    ///     Hard cap enforced on _cache itself, not just the shadow index. Removing the
+    ///     session slot (rather than only the shadow entry) fires
+    ///     <see cref="OnSessionSlotEvicted"/>, which finalizes the session (>= 3 requests)
+    ///     and then removes the shadow entry too — so this single call bounds both
+    ///     collections in lockstep instead of relying on _cache's sliding-expiration TTL
+    ///     to eventually catch up, which it cannot under sustained growing-cardinality
+    ///     traffic (arrival rate x TTL has no ceiling on its own).
     /// </summary>
     private void EvictActiveSignaturesIfNeeded()
     {
@@ -964,7 +973,10 @@ public sealed class SessionStore
         foreach (var kv in _activeSignatures)
         {
             if (drops++ >= overflow) break;
-            _activeSignatures.TryRemove(kv.Key, out _);
+            // Remove the session slot, not just the shadow entry -- this is the real
+            // bound on _cache. OnSessionSlotEvicted finalizes the session and clears
+            // the shadow entry as a side effect of the slot leaving the cache.
+            _cache.Remove($"session:current:{kv.Key}");
         }
     }
 
