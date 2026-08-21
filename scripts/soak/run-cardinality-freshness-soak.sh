@@ -321,6 +321,7 @@ if len(heap_nonzero) >= 2:
 elif not any(v is not None for v in managed_heap):
     print("MANAGED HEAP RAW: NO DATA — MANAGED_HEAP_STATS_CMD not wired for this run")
 
+memory_trend_verdict = None  # 'fail_climbing' | 'fail_rising' | 'pass' | None (inconclusive/no-data)
 if len(rss_nonzero) >= 4:
     # Inflection = the sample index of the running maximum stops advancing for
     # good, i.e. warm-up ends where the peak-so-far first stays flat across
@@ -330,27 +331,55 @@ if len(rss_nonzero) >= 4:
     for i, v in enumerate(rss):
         if v > rss[running_max_idx]:
             running_max_idx = i
-    # steady-state window: from the point warm-up growth stopped dominating
-    # (half-way between the running max and the end) to the end.
-    inflection = running_max_idx + max(1, (len(rss) - running_max_idx) // 4)
-    steady = rss[min(inflection, len(rss) - 2):]
-    if len(steady) >= 3:
-        n = len(steady)
-        xs = list(range(n))
-        mean_x = sum(xs) / n
-        mean_y = sum(steady) / n
-        num = sum((xs[i] - mean_x) * (steady[i] - mean_y) for i in range(n))
-        den = sum((x - mean_x) ** 2 for x in xs) or 1
-        slope = num / den
-        print(f"MEMORY TREND: steady-state slope = {slope:+.1f} bytes/sample over {n} samples "
-              f"(warm-up excluded via inflection at sample {inflection})")
-        if slope > 0:
-            print("MEMORY TREND: FAIL — rising, non-plateauing trend in steady state (do not wait for OOM to call it)")
+    # NEVER PLATEAUED (fixed 2026-08-21 against a real run): if the running
+    # maximum is still advancing at (or one sample from) the END of the
+    # observed data, the series never turned down within this run — there is
+    # no "steady state" to find a slope in, and falling through to
+    # INCONCLUSIVE would silently miss exactly the "climbing without
+    # dropping" unbounded/OOM case this gate exists to catch. Verified
+    # against the 2026-08-21 OOM-crash run: running_max_idx landed on the
+    # LAST alive sample (the process was still climbing at the moment it
+    # died), and the old inflection logic reported INCONCLUSIVE on a run that
+    # crashed from genuine memory exhaustion 5 minutes after the data ends.
+    never_plateaued = running_max_idx >= len(rss) - 2
+    if never_plateaued:
+        first, last = rss[0], rss[-1]
+        print(f"MEMORY TREND: NEVER PLATEAUED — the running maximum is still climbing at sample "
+              f"{running_max_idx} of {len(rss) - 1} (no post-peak window exists to judge a steady-"
+              f"state slope). Raw trend over the whole alive window: {first} -> {last} "
+              f"({last - first:+d} bytes).")
+        if last > first:
+            print("MEMORY TREND: FAIL — climbing without ever dropping is the unbounded/OOM class; "
+                  "do not wait for the crash to call it")
+            memory_trend_verdict = "fail_climbing"
             overall_fail = True
         else:
-            print("MEMORY TREND: PASS — steady-state slope is flat or decaying")
+            print("MEMORY TREND: INCONCLUSIVE — never plateaued, but also not net-rising; too short "
+                  "a window to judge")
     else:
-        print("MEMORY TREND: INCONCLUSIVE — not enough post-inflection samples yet")
+        # steady-state window: from the point warm-up growth stopped dominating
+        # (half-way between the running max and the end) to the end.
+        inflection = running_max_idx + max(1, (len(rss) - running_max_idx) // 4)
+        steady = rss[min(inflection, len(rss) - 2):]
+        if len(steady) >= 3:
+            n = len(steady)
+            xs = list(range(n))
+            mean_x = sum(xs) / n
+            mean_y = sum(steady) / n
+            num = sum((xs[i] - mean_x) * (steady[i] - mean_y) for i in range(n))
+            den = sum((x - mean_x) ** 2 for x in xs) or 1
+            slope = num / den
+            print(f"MEMORY TREND: steady-state slope = {slope:+.1f} bytes/sample over {n} samples "
+                  f"(warm-up excluded via inflection at sample {inflection})")
+            if slope > 0:
+                print("MEMORY TREND: FAIL — rising, non-plateauing trend in steady state (do not wait for OOM to call it)")
+                memory_trend_verdict = "fail_rising"
+                overall_fail = True
+            else:
+                print("MEMORY TREND: PASS — steady-state slope is flat or decaying")
+                memory_trend_verdict = "pass"
+        else:
+            print("MEMORY TREND: INCONCLUSIVE — not enough post-inflection samples yet")
 else:
     print("MEMORY TREND: NO DATA — CONTAINER_STATS_CMD not wired for this run")
 
@@ -381,7 +410,15 @@ else:
 if len(rss) >= 5:
     deltas_full = [rss[i] - rss[i - 1] for i in range(1, len(rss))]
     abs_deltas = sorted(abs(d) for d in deltas_full)
-    noise_floor = abs_deltas[len(abs_deltas) // 2]
+    # 25th percentile, NOT median (fixed 2026-08-21 against a real run):
+    # on a genuinely climbing series, the median delta already includes half
+    # of the run's real ramp-up swings, so it over-estimates "typical noise"
+    # and can mask real drops smaller than the ramp itself. Verified against
+    # the 2026-08-21 OOM-crash run's actual data: median-based significance
+    # (548.7MB) missed BOTH real dips (232.7MB, 187.5MB, confirmed by eye in
+    # the raw numbers); 25th-percentile-based significance (~181MB) catches
+    # both. Still self-derived from the series, never a chosen byte count.
+    noise_floor = abs_deltas[len(abs_deltas) // 4]
     significant = max(noise_floor * 3, 1)
 
     drops = []
@@ -425,14 +462,34 @@ if len(rss) >= 5:
     if len(drops) >= 2:
         print("MEMORY SHAPE: FAIL — SAWTOOTH (recurring climb-then-drop under a cap) — the visible "
               "signature of a threshold/periodic-drain mechanism, not the required flat/stable curve")
+        memory_shape_verdict = "fail_sawtooth"
         overall_fail = True
     elif len(drops) == 1:
         print("MEMORY SHAPE: single drop observed — treated as warm-up settling, not a recurring "
               "sawtooth (see MEMORY TREND for the steady-state slope check)")
+        memory_shape_verdict = "single_drop"
     else:
         print("MEMORY SHAPE: PASS — no recurring climb-then-drop pattern")
+        memory_shape_verdict = "pass"
 else:
     print("MEMORY SHAPE: NO DATA — not enough samples to assess curve shape")
+    memory_shape_verdict = None
+
+# ── Combined severity (operator, 2026-08-21): "most severe condition wins" ──
+# MEMORY TREND and MEMORY SHAPE are independent checks answering different
+# questions (is it trending up / is it oscillating) — a run can trip BOTH,
+# and that combination is categorically worse than either alone: an
+# oscillating pattern that is ALSO net-climbing toward exhaustion, not just
+# oscillating under a stable cap. Never let the milder single-condition
+# language stand as the whole story when both are true.
+if memory_trend_verdict == "fail_climbing" and memory_shape_verdict == "fail_sawtooth":
+    print("MEMORY SEVERITY: ★ WORST CASE — SAWTOOTH-TO-EXHAUSTION: oscillating under load AND net "
+          "climbing to the point the run's data ends (or crashes) without ever plateauing. This is "
+          "not 'a sawtooth' alone; it is a threshold mechanism failing to keep up with load, headed "
+          "toward the same OOM class MEMORY TREND's climbing-without-dropping check exists to catch.")
+elif memory_trend_verdict in ("fail_climbing", "fail_rising") and memory_shape_verdict in ("fail_sawtooth", "single_drop"):
+    print(f"MEMORY SEVERITY: both trend ({memory_trend_verdict}) and shape ({memory_shape_verdict}) "
+          f"show concerning signal — read both lines above together, not in isolation.")
 
 if oom_seen:
     print("OOM GATE: FAIL — OOMKilled observed during the run")
