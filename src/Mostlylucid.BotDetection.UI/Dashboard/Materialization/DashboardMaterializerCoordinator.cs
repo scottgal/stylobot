@@ -273,12 +273,44 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         return AwaitWarmAndClearAsync(envelope, lazy);
     }
 
+    /// <summary>
+    ///     Bounds how long this coordinator WAITS on a single envelope's compose (see
+    ///     <see cref="DashboardMaterializerOptions.ComposeTimeoutMs"/> for the full rationale
+    ///     -- the 20h prod-wedge fix, 2026-08-21). Does not cancel the underlying
+    ///     <c>_cache.WarmAsync</c> call (it may not support cancellation at all, and the
+    ///     coordinator has no way to force an external store call to abort); it only stops
+    ///     WAITING on it past the bound, so a hung compose can never poison
+    ///     <see cref="_inFlightWarms"/> for the process lifetime or block the tick loop's
+    ///     <c>Task.WhenAll</c> from ever returning.
+    /// </summary>
+    private async Task<DashboardPageResult> AwaitWithComposeTimeoutAsync(
+        DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
+    {
+        var timeoutMs = _options.ComposeTimeoutMs;
+        if (timeoutMs <= 0) return await lazy.Value.ConfigureAwait(false);
+
+        var winner = await Task.WhenAny(lazy.Value, Task.Delay(timeoutMs)).ConfigureAwait(false);
+        if (winner != lazy.Value)
+        {
+            _logger?.LogWarning(
+                "DashboardMaterializerCoordinator: compose for {PageKey} ({Envelope}) exceeded ComposeTimeoutMs={TimeoutMs}ms; abandoning the wait so this envelope is not poisoned forever. The underlying compose may still be running in the background.",
+                envelope.PageKey, envelope, timeoutMs);
+            // The abandoned task may still complete (or fault) later, off in the background --
+            // observe it so that never surfaces as an unobserved-task exception.
+            ObserveFault(lazy.Value);
+            throw new TimeoutException(
+                $"Dashboard compose for '{envelope.PageKey}' exceeded ComposeTimeoutMs={timeoutMs}ms and was abandoned.");
+        }
+
+        return await lazy.Value.ConfigureAwait(false);
+    }
+
     private async Task<DashboardPageResult> AwaitWarmAndClearAsync(
         DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
     {
         try
         {
-            var result = await lazy.Value.ConfigureAwait(false);
+            var result = await AwaitWithComposeTimeoutAsync(envelope, lazy).ConfigureAwait(false);
             // Stage 2b: record the real warm timestamp AFTER a successful compute (never on
             // a skip) so DashboardRefreshCadence's due-time check always measures from the
             // last GENUINE warm, whether it came from the tick loop or a MarkDirtyAsync force.

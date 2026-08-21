@@ -56,6 +56,95 @@ public sealed class DashboardMaterializerCoordinatorTests
         await coord.StopAsync(default);
     }
 
+    /// <summary>
+    ///     The 20h prod-wedge fix (2026-08-21, overview-'s stack-evidence hypothesis): a
+    ///     compose that never completes must not poison <c>_inFlightWarms</c> for the process
+    ///     lifetime, and must not block the tick loop's <c>Task.WhenAll</c> from ever
+    ///     returning (which, via ScheduleCoordinator's single-flight-per-subscriber semantics,
+    ///     would silently skip every subsequent Tick10s for this subscriber forever -- the
+    ///     climbing skip-count symptom). Bounds the whole test itself so a regression fails
+    ///     fast instead of hanging the test run.
+    /// </summary>
+    [Fact]
+    public async Task Hung_compose_faults_the_tick_instead_of_hanging_it_forever()
+    {
+        var hungGate = new TaskCompletionSource<DashboardPageResult>();
+        long tick = 1;
+        var cache = new DashboardContentCache(
+            (_, _, _) => hungGate.Task, // never completes -- simulates the stuck-await symptom
+            () => tick,
+            Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions
+            {
+                PrewarmDefaultEnvelope = false,
+                ComposeTimeoutMs = 50, // small bound so the test runs fast
+            }),
+            sched);
+
+        await cache.GetAsync(Traffic, Window(), tick, default); // makes the envelope live
+        await coord.StartAsync(default);
+        tick = 2;
+
+        var raceTimeout = Task.Delay(TimeSpan.FromSeconds(10));
+        var raised = sched.RaiseTickAsync(TickCadence.Tick10s);
+        var winner = await Task.WhenAny(raised, raceTimeout);
+
+        Assert.True(winner == raised,
+            "The tick invocation hung past a generous 10s test timeout -- the ComposeTimeoutMs bound did not free it.");
+        await raised; // observe/rethrow if it faulted for an unexpected reason
+
+        await coord.StopAsync(default);
+    }
+
+    /// <summary>
+    ///     Companion to the hang test above: once a hung compose's wait is abandoned, the
+    ///     envelope must NOT stay poisoned -- the next attempt (a later tick, here) has to
+    ///     start a genuinely fresh compose rather than being handed the same abandoned
+    ///     <c>Lazy&lt;Task&gt;</c> forever.
+    /// </summary>
+    [Fact]
+    public async Task Envelope_recomposes_on_a_later_tick_after_the_first_compose_timed_out()
+    {
+        var composeCalls = 0;
+        var hungGate = new TaskCompletionSource<DashboardPageResult>();
+        long tick = 1;
+        var cache = new DashboardContentCache(
+            (_, _, _) =>
+            {
+                composeCalls++;
+                return composeCalls == 1 ? hungGate.Task : Task.FromResult(Result());
+            },
+            () => tick,
+            Options.Create(new DashboardMaterializerOptions()));
+        var sched = new FakeScheduleCoordinator();
+        var coord = new DashboardMaterializerCoordinator(
+            cache, new FakeCursor(() => tick), new DefaultDashboardPageManifestSource(),
+            Options.Create(new DashboardMaterializerOptions
+            {
+                PrewarmDefaultEnvelope = false,
+                ComposeTimeoutMs = 50,
+                GlobalMinIntervalSeconds = 0, // don't let the due-gate suppress the retry tick
+            }),
+            sched);
+
+        await cache.GetAsync(Traffic, Window(), tick, default);
+        await coord.StartAsync(default);
+
+        tick = 2;
+        await Task.WhenAny(sched.RaiseTickAsync(TickCadence.Tick10s), Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, composeCalls);
+
+        tick = 3;
+        await Task.WhenAny(sched.RaiseTickAsync(TickCadence.Tick10s), Task.Delay(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal(2, composeCalls); // a genuinely fresh compose, not the same abandoned task
+
+        await coord.StopAsync(default);
+    }
+
     [Fact]
     public async Task No_live_envelopes_means_no_compute_when_prewarm_is_off()
     {

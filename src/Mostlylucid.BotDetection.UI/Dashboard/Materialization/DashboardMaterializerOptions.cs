@@ -336,4 +336,35 @@ public sealed class DashboardMaterializerOptions
 
     /// <summary>Poll interval for the first-paint stash wait.</summary>
     public int FirstPaintStashPollMs { get; set; } = 100;
+
+    /// <summary>
+    ///     Hard bound (ms) on how long <see cref="DashboardMaterializerCoordinator"/> WAITS on
+    ///     a single envelope's compose before abandoning it (the 20h prod-wedge fix,
+    ///     2026-08-21). <c>_inFlightWarms</c> exists to coalesce concurrent composes for the
+    ///     same envelope onto one <c>Task</c> -- but if that task never completes (the
+    ///     underlying store call hangs with no internal timeout of its own), NOTHING evicts
+    ///     the entry: the coordinator's own cleanup runs in a <c>finally</c> after the await,
+    ///     which never runs if the await never resolves. Every subsequent caller for that
+    ///     envelope was then handed the SAME never-completing task, forever -- and because the
+    ///     tick loop's wave awaits every item via <c>Task.WhenAll</c>, one hung compose blocked
+    ///     the entire tick invocation from ever returning, which made <c>ScheduleCoordinator</c>
+    ///     skip every subsequent Tick10s for this subscriber indefinitely (the climbing
+    ///     skip-count symptom, and the "no OS thread executing anything materializer-related"
+    ///     stack evidence -- an async continuation parked on a Task nothing will ever signal).
+    ///     <para>
+    ///         This does NOT cancel the underlying compose (it may have no cancellation support
+    ///         at all) -- it only bounds how long THIS COORDINATOR waits on it. Past this bound,
+    ///         the wait is abandoned (faulted with <see cref="TimeoutException"/>, observed so
+    ///         it never surfaces as an unobserved-task exception if/when it eventually
+    ///         completes) and the <c>_inFlightWarms</c> entry is evicted immediately, so the
+    ///         NEXT caller for that envelope starts a fresh compose rather than joining the
+    ///         abandoned one. The envelope is not permanently poisoned even though one zombie
+    ///         task may linger in the background.
+    ///     </para>
+    ///     Default 20000ms: comfortably under <see cref="MaxTickDurationMs"/> (30s) so a single
+    ///     hung item can never itself exhaust an entire tick's wave-loop budget the way an
+    ///     unbounded wait could. &lt;= 0 disables the bound (restores the pre-fix
+    ///     wait-forever behavior) -- not recommended.
+    /// </summary>
+    public int ComposeTimeoutMs { get; set; } = 20_000;
 }
