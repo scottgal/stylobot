@@ -51,9 +51,22 @@
 #     does not (a batched upsert can touch many rows in one statement).
 #     Without it the write-amplification gate reports NO DATA, which is a
 #     real coverage gap in the run, not a neutral skip.
+#   * MANAGED_HEAP_STATS_CMD: a command whose stdout is a SINGLE cumulative
+#     integer, managed heap size in bytes. ALREADY WIRED gateway-side
+#     (stream-, 2026-08-21) via OpenTelemetry .AddRuntimeInstrumentation() on
+#     the same /metrics Prometheus endpoint the process/RSS instrumentation
+#     already uses — this is a SCRAPE, not a feature to build. Example (exact
+#     metric name grep-matched, not hardcoded — confirm against a live
+#     /metrics before trusting it verbatim):
+#       curl -s http://localhost:8290/metrics | grep -iE 'gc_heap_size|runtime_dotnet.*gc.*heap' | grep -v '^#' | awk '{print $NF}' | head -1
+#     Needed to tell a real bulk drain apart from a Gen2 GC returning
+#     segments to the OS — RSS alone can't (operator, 2026-08-21). Without it
+#     the MEMORY SHAPE gate's drops are reported with "NO DATA" for the
+#     managed-heap correlation line, not silently omitted.
 #
 # Env overrides mirror run-compression-soak.sh: TARGET, API_KEY, SOAK_HOST,
-# SSH_USER, SSH_PASS, DB_STATS_CMD, DB_WRITE_STATS_CMD, SAMPLE_MINUTES, OUTDIR.
+# SSH_USER, SSH_PASS, DB_STATS_CMD, DB_WRITE_STATS_CMD, MANAGED_HEAP_STATS_CMD,
+# SAMPLE_MINUTES, OUTDIR.
 #   CONTAINER_STATS_CMD  (required for the memory-trend + OOM assertions;
 #                         script degrades to DB-only reporting without it)
 #   REGRESSION_GATE       (default false — see below)
@@ -146,6 +159,24 @@ sample_container() {
   }'
 }
 
+# Managed heap size (bytes), alongside RSS: an RSS drop alone cannot be told
+# apart from a Gen2 GC returning segments to the OS vs a real bulk drain
+# (operator, 2026-08-21 — intolerable ambiguity for the v9 comparison).
+# ALREADY WIRED gateway-side (stream-, 2026-08-21): OpenTelemetry
+# .AddRuntimeInstrumentation() feeds the same /metrics Prometheus endpoint
+# RSS-adjacent process instrumentation already uses (GatewayHost/Program.cs
+# ~390). No new gateway code — this is a scrape, not a feature. Metric name
+# is grep-matched, not hardcoded exact, since the OTel Prometheus exporter's
+# naming convention wasn't independently confirmed (grep covers both the
+# process_runtime_dotnet_gc_* and older dotnet_gc_* conventions).
+sample_managed_heap() {
+  local out=""
+  if [ -n "${MANAGED_HEAP_STATS_CMD:-}" ]; then
+    out="$(eval "$MANAGED_HEAP_STATS_CMD" 2>/dev/null || true)"
+  fi
+  echo "$out" | tr -d '\n\r ' | awk '{ if ($0 != "") print $0; else print "0" }'
+}
+
 # THE MOST IMPORTANT ASSERTION (operator, 2026-08-20): absorption exists to
 # decouple request activity from DB WRITE load. Row count / DB size growth
 # does not prove this — a batched upsert can still touch many rows per
@@ -189,7 +220,8 @@ log "REGRESSION_GATE=$REGRESSION_GATE (db-only known-defect divergence is a hard
 read -r base_rows base_bytes <<< "$(sample_db)"
 read -r base_rss base_restarts base_oom base_running <<< "$(sample_container)"
 base_writes="$(sample_db_writes)"
-log "baseline: db_rows=$base_rows db_bytes=$base_bytes rss=$base_rss restarts=$base_restarts oom=$base_oom running=$base_running db_writes=$base_writes"
+base_heap="$(sample_managed_heap)"
+log "baseline: db_rows=$base_rows db_bytes=$base_bytes rss=$base_rss restarts=$base_restarts oom=$base_oom running=$base_running db_writes=$base_writes managed_heap=$base_heap"
 
 K6_RAW="$OUTDIR/$LABEL-raw.json"
 # NO --duration flag here — confirmed 2026-08-21 that it conflicts with the
@@ -206,15 +238,16 @@ K6_PID=$!
 # python3, not bash `$(())`: DURATION_HOURS may be fractional (e.g. a short
 # pilot at 0.25h) and bash integer arithmetic rejects a "." token outright.
 SAMPLES=$(python3 -c "import sys; print(max(1, int(float(sys.argv[1]) * 60 / float(sys.argv[2]))))" "$DURATION_HOURS" "$SAMPLE_MINUTES")
-echo -e "elapsed_min\tdb_rows\tdb_bytes\trss_bytes\trestarts\toom_killed\tdb_writes\trunning" > "$OUTDIR/$LABEL-samples.tsv"
+echo -e "elapsed_min\tdb_rows\tdb_bytes\trss_bytes\trestarts\toom_killed\tdb_writes\trunning\tmanaged_heap_bytes" > "$OUTDIR/$LABEL-samples.tsv"
 
 for ((s = 1; s <= SAMPLES; s++)); do
   sleep $((SAMPLE_MINUTES * 60))
   read -r rows bytes <<< "$(sample_db)"
   read -r rss restarts oom running <<< "$(sample_container)"
   writes="$(sample_db_writes)"
-  echo -e "$((s * SAMPLE_MINUTES))\t$rows\t$bytes\t$rss\t$restarts\t$oom\t$writes\t$running" >> "$OUTDIR/$LABEL-samples.tsv"
-  log "sample $s: db_rows=$rows rss=$rss restarts=$restarts oom=$oom running=$running db_writes=$writes"
+  heap="$(sample_managed_heap)"
+  echo -e "$((s * SAMPLE_MINUTES))\t$rows\t$bytes\t$rss\t$restarts\t$oom\t$writes\t$running\t$heap" >> "$OUTDIR/$LABEL-samples.tsv"
+  log "sample $s: db_rows=$rows rss=$rss restarts=$restarts oom=$oom running=$running db_writes=$writes managed_heap=$heap"
   if [ "$oom" != "0" ] || { [ "$restarts" != "0" ] && [ "$restarts" != "$base_restarts" ]; }; then
     log "OOM/RESTART DETECTED mid-run — recording, not aborting (soak must keep sampling through the failure)."
   fi
@@ -234,6 +267,7 @@ overall_fail = False
 
 # ── Memory trend: slope after the warm-up inflection, not a fixed window ──
 rss = []
+managed_heap = []
 db_writes = []
 restarts_seen = False
 oom_seen = False
@@ -257,6 +291,10 @@ with open(samples_path) as f:
             rss.append(int(row["rss_bytes"]))
             if "db_writes" in row and row["db_writes"] not in ("", None):
                 db_writes.append(int(row["db_writes"]))
+            if "managed_heap_bytes" in row and row["managed_heap_bytes"] not in ("", None):
+                managed_heap.append(int(row["managed_heap_bytes"]))
+            else:
+                managed_heap.append(None)
         if int(row["restarts"]) > 0:
             restarts_seen = True
         if int(row["oom_killed"]) != 0:
@@ -271,6 +309,15 @@ if len(rss_nonzero) >= 2:
     first, last = rss_nonzero[0], rss_nonzero[-1]
     ratio = (last / first) if first else float("inf")
     print(f"MEMORY RAW: first={first} last={last} delta={last-first:+d} ({ratio:.2f}x over {len(rss_nonzero)} samples)")
+
+heap_nonzero = [v for v in managed_heap if v is not None and v > 0]
+if len(heap_nonzero) >= 2:
+    hfirst, hlast = heap_nonzero[0], heap_nonzero[-1]
+    hratio = (hlast / hfirst) if hfirst else float("inf")
+    print(f"MANAGED HEAP RAW: first={hfirst} last={hlast} delta={hlast-hfirst:+d} "
+          f"({hratio:.2f}x over {len(heap_nonzero)} samples)")
+elif not any(v is not None for v in managed_heap):
+    print("MANAGED HEAP RAW: NO DATA — MANAGED_HEAP_STATS_CMD not wired for this run")
 
 if len(rss_nonzero) >= 4:
     # Inflection = the sample index of the running maximum stops advancing for
@@ -336,22 +383,43 @@ if len(rss) >= 5:
     significant = max(noise_floor * 3, 1)
 
     drops = []
+    drop_spans = []  # (peak_idx, trough_idx) for the managed-heap correlation below
     i = 1
     while i < len(rss) - 1:
         if rss[i] >= rss[i - 1] and rss[i] > rss[i + 1]:
             peak = rss[i]
+            peak_idx = i
             j = i + 1
             while j < len(rss) - 1 and rss[j] >= rss[j + 1]:
                 j += 1
             drop = peak - rss[j]
             if drop >= significant:
                 drops.append(drop)
+                drop_spans.append((peak_idx, j))
             i = j
         else:
             i += 1
 
     print(f"MEMORY SHAPE: {len(drops)} significant peak-to-trough drop(s) "
           f"(noise floor={noise_floor}, significance bar={significant:.0f} bytes); drops={drops}")
+
+    # Managed-heap correlation (operator, 2026-08-21 — RSS alone can't tell a
+    # real drain from a Gen2 GC segment return). NOT an automated classifier —
+    # reported for a human to read alongside the RSS drop, since "heap dropped
+    # too" is consistent with EITHER a real drain or a GC-driven heap
+    # compaction; the distinguishing detail (was live DATA actually removed)
+    # needs the write-amplification/freshness signal alongside this, not this
+    # number in isolation.
+    for (peak_idx, trough_idx), rss_drop in zip(drop_spans, drops):
+        heap_peak = managed_heap[peak_idx] if peak_idx < len(managed_heap) else None
+        heap_trough = managed_heap[trough_idx] if trough_idx < len(managed_heap) else None
+        if heap_peak is not None and heap_trough is not None:
+            heap_delta = heap_trough - heap_peak  # negative = heap also dropped over this span
+            print(f"MEMORY SHAPE: drop at sample {peak_idx}->{trough_idx} — RSS -{rss_drop} bytes, "
+                  f"managed heap {heap_peak}->{heap_trough} ({heap_delta:+d} bytes over the same span)")
+        else:
+            print(f"MEMORY SHAPE: drop at sample {peak_idx}->{trough_idx} — RSS -{rss_drop} bytes, "
+                  f"managed heap NO DATA for this span (MANAGED_HEAP_STATS_CMD not wired)")
     if len(drops) >= 2:
         print("MEMORY SHAPE: FAIL — SAWTOOTH (recurring climb-then-drop under a cap) — the visible "
               "signature of a threshold/periodic-drain mechanism, not the required flat/stable curve")
