@@ -111,6 +111,39 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 LABEL="cardinality-freshness-${STAMP}"
 mkdir -p "$OUTDIR"
 
+# MINIMUM VIABLE DURATION (2026-08-22, after Run A ran 69min and was
+# STRUCTURALLY INCAPABLE of writing a single dashboard_detections row no
+# matter what happened — absorb- found the only two write paths are gated on
+# CompressionHotWindow and SessionRowHorizon, both far longer than 69min).
+# "A number in a note gets forgotten. A precondition in the rig does not."
+# (overview-). Derived from the rig's OWN configured windows, not hardcoded —
+# defaults match FOSS's documented defaults (PostgreSQLStorageOptions.cs:304,
+# :79) but MUST be overridden via env if the rig's actual config differs.
+# The rig FAILS TO START rather than run an experiment that cannot produce
+# the evidence it's being asked for.
+COMPRESSION_HOT_WINDOW_MINUTES="${COMPRESSION_HOT_WINDOW_MINUTES:-120}"
+# Margin: buffer for the fold tick to actually run AFTER the window closes,
+# not an arbitrary pad — matches the ~2h10m figure already in
+# .styloagent/scratch/soak-harness/shed-loop-gap-analysis.md.
+MIN_VIABLE_MARGIN_MINUTES="${MIN_VIABLE_MARGIN_MINUTES:-10}"
+MIN_VIABLE_MINUTES=$((COMPRESSION_HOT_WINDOW_MINUTES + MIN_VIABLE_MARGIN_MINUTES))
+REQUESTED_MINUTES=$(python3 -c "print(round(float('$DURATION_HOURS')*60))")
+if [ "$REQUESTED_MINUTES" -lt "$MIN_VIABLE_MINUTES" ] && [ "${ALLOW_SHORT_RUN:-false}" != "true" ]; then
+  echo "REFUSING: requested duration ${REQUESTED_MINUTES}min is below the minimum viable duration" >&2
+  echo "  (${MIN_VIABLE_MINUTES}min = COMPRESSION_HOT_WINDOW_MINUTES=${COMPRESSION_HOT_WINDOW_MINUTES} + margin=${MIN_VIABLE_MARGIN_MINUTES})." >&2
+  echo "  dashboard_detections cannot receive a single row below this duration — the run would be" >&2
+  echo "  structurally incapable of demonstrating DB-write coverage regardless of correctness." >&2
+  echo "  Set ALLOW_SHORT_RUN=true to proceed anyway ONLY for harness-validation runs that are not" >&2
+  echo "  meant to demonstrate DB-write coverage (e.g. a quick pilot to check the corpus/probes run" >&2
+  echo "  at all) — never for a run whose verdict will be reported as evidence of anything." >&2
+  exit 4
+fi
+if [ "${ALLOW_SHORT_RUN:-false}" = "true" ] && [ "$REQUESTED_MINUTES" -lt "$MIN_VIABLE_MINUTES" ]; then
+  echo "ALLOW_SHORT_RUN=true: proceeding at ${REQUESTED_MINUTES}min, below the ${MIN_VIABLE_MINUTES}min" >&2
+  echo "  minimum. This run CANNOT demonstrate DB-write coverage — do not report its verdict as" >&2
+  echo "  evidence of anything beyond harness/corpus sanity." >&2
+fi
+
 if [ -z "${API_KEY:-}" ]; then
   API_KEY="$(infisical secrets get gateway-debug-api-key --env=staging --path=/stylobot-gateway --plain 2>/dev/null || true)"
 fi
@@ -232,6 +265,21 @@ read -r base_rss base_restarts base_oom base_running <<< "$(sample_container)"
 base_writes="$(sample_db_writes)"
 base_heap="$(sample_managed_heap)"
 log "baseline: db_rows=$base_rows db_bytes=$base_bytes rss=$base_rss restarts=$base_restarts oom=$base_oom running=$base_running db_writes=$base_writes managed_heap=$base_heap"
+# LOUD, not silent (2026-08-22, after Run A's CRASH GATE had nothing to fire
+# on because CONTAINER_STATS_CMD never reported a real 4th field — the
+# sampler silently defaulted every sample to running=1, including the ones
+# after the container was actually gone). If CONTAINER_STATS_CMD is wired
+# but its raw output doesn't actually carry a 4th field, warn about it NOW,
+# at baseline, not discovered hours later when a crash goes uncaught.
+if [ -n "${CONTAINER_STATS_CMD:-}" ]; then
+  raw_field_count="$(eval "$CONTAINER_STATS_CMD" 2>/dev/null | tr '\n' ' ' | awk '{print NF}')"
+  if [ "${raw_field_count:-0}" -lt 4 ]; then
+    log "★ WARNING: CONTAINER_STATS_CMD produced only $raw_field_count field(s), not the 4 the CRASH"
+    log "  GATE needs (rss restarts oom running). The 'running' column will silently default to 1 for"
+    log "  every sample, so a crash that isn't an OOM-kill or a restart will NOT be caught. Add"
+    log "  {{.State.Running}} to the docker inspect format string before trusting this run's OOM gate."
+  fi
+fi
 
 K6_RAW="$OUTDIR/$LABEL-raw.json"
 # NO --duration flag here — confirmed 2026-08-21 that it conflicts with the
