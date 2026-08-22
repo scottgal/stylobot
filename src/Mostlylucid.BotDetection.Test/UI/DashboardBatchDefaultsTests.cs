@@ -25,6 +25,44 @@ public class DashboardBatchDefaultsTests
         Assert.False(fake.GeoCalled);
     }
 
+    /// <summary>
+    ///     Dispatch-proof for the LiveTimeBuckets/LiveEndpointStats fold (dash-/foss- 2026-08-22
+    ///     DIM-gap fix). A stub returning a non-null bundle field is not enough proof the real
+    ///     read path fired -- a default could satisfy that. This asserts the underlying
+    ///     GetLiveTimeSeriesAsync/GetLiveEndpointStatsAsync CallCount, proving actual dispatch,
+    ///     and that requesting one does NOT fire the other (independent kinds).
+    /// </summary>
+    [Fact]
+    public async Task FanOut_dispatches_LiveTimeBuckets_and_LiveEndpointStats_only_when_requested()
+    {
+        var start = new DateTime(2026, 08, 22, 0, 0, 0, DateTimeKind.Utc);
+        var fake = new FakeStore();
+        IDashboardEventStore store = fake;
+
+        var reqBothLive = new DashboardBatchRequest(
+            StartTime: start, EndTime: start.AddHours(1),
+            Datasets: [new DatasetRequest(DatasetKind.LiveTimeBuckets), new DatasetRequest(DatasetKind.LiveEndpointStats)]);
+        var bundle = await store.ComposeBatchAsync(reqBothLive, default);
+
+        Assert.Equal(1, fake.LiveTimeBucketsCallCount);
+        Assert.Equal(1, fake.LiveEndpointStatsCallCount);
+        Assert.NotNull(bundle.LiveTimeBuckets);
+        Assert.NotNull(bundle.LiveEndpointStats);
+
+        // Requesting only ONE of the two must not fire the other.
+        var fakeOnlyBuckets = new FakeStore();
+        IDashboardEventStore storeOnlyBuckets = fakeOnlyBuckets;
+        var reqOnlyBuckets = new DashboardBatchRequest(
+            StartTime: start, EndTime: start.AddHours(1),
+            Datasets: [new DatasetRequest(DatasetKind.LiveTimeBuckets)]);
+        var bundleOnlyBuckets = await storeOnlyBuckets.ComposeBatchAsync(reqOnlyBuckets, default);
+
+        Assert.Equal(1, fakeOnlyBuckets.LiveTimeBucketsCallCount);
+        Assert.Equal(0, fakeOnlyBuckets.LiveEndpointStatsCallCount);
+        Assert.NotNull(bundleOnlyBuckets.LiveTimeBuckets);
+        Assert.Null(bundleOnlyBuckets.LiveEndpointStats);
+    }
+
     [Fact]
     public async Task TimeBuckets_throws_when_no_time_window()
     {
@@ -171,6 +209,26 @@ public class DashboardBatchDefaultsTests
     {
         public bool GeoCalled;
         public int LastTopBotsCount;
+        public int LiveTimeBucketsCallCount;
+        public int LiveEndpointStatsCallCount;
+
+        public Task<IReadOnlyList<DashboardTimeSeriesPoint>> GetLiveTimeSeriesAsync(
+            DateTime startTime, DateTime endTime, TimeSpan bucketSize, string? audienceFilter = null)
+        {
+            LiveTimeBucketsCallCount++;
+            return Task.FromResult<IReadOnlyList<DashboardTimeSeriesPoint>>([
+                new DashboardTimeSeriesPoint { Timestamp = startTime, BotCount = 0, HumanCount = 0, TotalCount = 0 }
+            ]);
+        }
+
+        public Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
+            DateTime windowStart, DateTime windowEnd, string? audienceFilter = null)
+        {
+            LiveEndpointStatsCallCount++;
+            return Task.FromResult<IReadOnlyList<DashboardEndpointStats>>([
+                new DashboardEndpointStats { Method = "GET", Path = "/" }
+            ]);
+        }
 
         public Task<DashboardSummary> GetSummaryAsync(
             DateTime? startTime = null, DateTime? endTime = null,

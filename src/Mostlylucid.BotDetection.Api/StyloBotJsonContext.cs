@@ -121,6 +121,16 @@ namespace Mostlylucid.BotDetection.Api;
 [JsonSerializable(typeof(SingleResponse<DashboardSummary>))]
 [JsonSerializable(typeof(SingleResponse<DashboardCountryDetail>))]
 [JsonSerializable(typeof(SingleResponse<DashboardEndpointDetail>))]
+// Signature detail + timeseries surface (GET /api/v1/signatures/{id}, GET
+// /api/v1/signatures/{id}/timeseries) -- the DIM-gap reads (dash-/foss- 2026-08-22).
+[JsonSerializable(typeof(SingleResponse<DashboardSignatureEvent>))]
+[JsonSerializable(typeof(DashboardSignatureTimeSeriesPoint))]
+[JsonSerializable(typeof(PaginatedResponse<DashboardSignatureTimeSeriesPoint>))]
+// DatasetKind's 2 new members (LiveTimeBuckets, LiveEndpointStats) are transitively reachable
+// via DashboardBatchRequest -> DatasetRequest.Kind, but the tolerant DatasetKindJsonConverter
+// itself (replacing JsonStringEnumConverter<DatasetKind>) needs the enum registered directly
+// so AOT source-gen resolves a JsonTypeInfo for it independent of that transitive walk.
+[JsonSerializable(typeof(DatasetKind))]
 // Batch read surface (POST /api/v1/compose-batch). The request body + response wrapper
 // MUST be registered here: this context is source-gen-only (no reflection fallback), and
 // the minimal-API endpoint factory resolves the [FromBody] DashboardBatchRequest metadata
