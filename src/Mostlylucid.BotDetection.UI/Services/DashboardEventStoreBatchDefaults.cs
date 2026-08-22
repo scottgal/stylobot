@@ -29,6 +29,8 @@ public static class DashboardEventStoreBatchDefaults
         Task<List<DashboardCountryStats>>? geoTask = null;
         Task<List<DashboardEndpointStats>>? endpointsTask = null;
         Task<IReadOnlyList<DegradationSnapshot>>? degradationsTask = null;
+        Task<IReadOnlyList<DashboardTimeSeriesPoint>>? liveBucketsTask = null;
+        Task<IReadOnlyList<DashboardEndpointStats>>? liveEndpointsTask = null;
 
         foreach (var d in req.Datasets)
         {
@@ -60,18 +62,34 @@ public static class DashboardEventStoreBatchDefaults
                             nameof(req));
                     degradationsTask = store.GetDegradationHistoryAsync(req.StartTime.Value, req.EndTime.Value, ct);
                     break;
+                case DatasetKind.LiveTimeBuckets:
+                    if (req.StartTime is null || req.EndTime is null)
+                        throw new ArgumentException(
+                            "ComposeBatchAsync: a LiveTimeBuckets dataset requires both StartTime and EndTime (a time-series needs a window).",
+                            nameof(req));
+                    liveBucketsTask = store.GetLiveTimeSeriesAsync(req.StartTime.Value, req.EndTime.Value, TimeSpan.FromMinutes(d.BucketMinutes), req.AudienceFilter);
+                    break;
+                case DatasetKind.LiveEndpointStats:
+                    if (req.StartTime is null || req.EndTime is null)
+                        throw new ArgumentException(
+                            "ComposeBatchAsync: a LiveEndpointStats dataset requires both StartTime and EndTime (a window is needed).",
+                            nameof(req));
+                    liveEndpointsTask = store.GetLiveEndpointStatsAsync(req.StartTime.Value, req.EndTime.Value, req.AudienceFilter);
+                    break;
             }
         }
 
         // Await all launched reads together. Task.WhenAll observes every task so no
         // faulted read is left unobserved; the first exception is rethrown here.
-        var pending = new List<Task>(6);
+        var pending = new List<Task>(8);
         if (summaryTask is not null) pending.Add(summaryTask);
         if (bucketsTask is not null) pending.Add(bucketsTask);
         if (botsTask is not null) pending.Add(botsTask);
         if (geoTask is not null) pending.Add(geoTask);
         if (endpointsTask is not null) pending.Add(endpointsTask);
         if (degradationsTask is not null) pending.Add(degradationsTask);
+        if (liveBucketsTask is not null) pending.Add(liveBucketsTask);
+        if (liveEndpointsTask is not null) pending.Add(liveEndpointsTask);
         if (pending.Count > 0) await Task.WhenAll(pending);
 
         return new DashboardDatasetBundle(
@@ -80,6 +98,8 @@ public static class DashboardEventStoreBatchDefaults
             botsTask is null ? null : botsTask.Result,
             geoTask is null ? null : geoTask.Result,
             endpointsTask is null ? null : endpointsTask.Result,
-            degradationsTask is null ? null : degradationsTask.Result);
+            degradationsTask is null ? null : degradationsTask.Result,
+            liveBucketsTask is null ? null : liveBucketsTask.Result,
+            liveEndpointsTask is null ? null : liveEndpointsTask.Result);
     }
 }

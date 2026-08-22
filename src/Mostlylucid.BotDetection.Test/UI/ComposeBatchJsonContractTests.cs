@@ -111,4 +111,90 @@ public class ComposeBatchJsonContractTests
         roundTripped.Should().NotBeNull();
         roundTripped!.Data.Should().NotBeNull();
     }
+
+    /// <summary>
+    ///     The 2 new DatasetKind members (dash-/foss- 2026-08-22 DIM-gap fold) resolve in the
+    ///     AOT source-gen context, same shape as <see cref="DashboardBatchRequest_ResolvesInContext"/>.
+    /// </summary>
+    /// <summary>
+    ///     GET /api/v1/signatures/{id}'s response wrapper (dash-/foss- 2026-08-22).
+    /// </summary>
+    [Fact]
+    public void SignatureDetailResponse_ResolvesInContext()
+    {
+        StyloBotJsonContext.Default.GetTypeInfo(typeof(SingleResponse<DashboardSignatureEvent>))
+            .Should().NotBeNull("GET /api/v1/signatures/{id} returns this type at startup binding");
+    }
+
+    /// <summary>
+    ///     GET /api/v1/signatures/{id}/timeseries's response wrapper (dash-/foss- 2026-08-22).
+    /// </summary>
+    [Fact]
+    public void SignatureTimeseriesResponse_ResolvesInContext()
+    {
+        StyloBotJsonContext.Default.GetTypeInfo(typeof(PaginatedResponse<DashboardSignatureTimeSeriesPoint>))
+            .Should().NotBeNull("GET /api/v1/signatures/{id}/timeseries returns this type at startup binding");
+    }
+
+    [Fact]
+    public void DatasetKind_ResolvesInContext()
+    {
+        StyloBotJsonContext.Default.GetTypeInfo(typeof(DatasetKind))
+            .Should().NotBeNull(
+                "DatasetKind is the compose-batch request's discriminator; a null here is the " +
+                "--enable-api startup crash for any request naming LiveTimeBuckets/LiveEndpointStats");
+    }
+
+    [Fact]
+    public void ComposeBatchResponse_Roundtrips_WithLiveOverlayFields()
+    {
+        var bundle = new DashboardDatasetBundle(
+            Summary: null,
+            TimeBuckets: null,
+            BotAggregate: null,
+            Geo: null,
+            Endpoints: null,
+            Degradations: null,
+            LiveTimeBuckets: new[] { new DashboardTimeSeriesPoint { Timestamp = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc), TotalCount = 5, BotCount = 2, HumanCount = 3 } },
+            LiveEndpointStats: new[] { new DashboardEndpointStats { Method = "GET", Path = "/", TotalCount = 10, BotCount = 1 } });
+        var payload = new SingleResponse<DashboardDatasetBundle> { Data = bundle, Meta = new ResponseMeta() };
+
+        var json = JsonSerializer.Serialize(
+            payload, typeof(SingleResponse<DashboardDatasetBundle>), StyloBotJsonContext.Default);
+        var roundTripped = (SingleResponse<DashboardDatasetBundle>?)JsonSerializer.Deserialize(
+            json, typeof(SingleResponse<DashboardDatasetBundle>), StyloBotJsonContext.Default);
+
+        roundTripped.Should().NotBeNull();
+        roundTripped!.Data.LiveTimeBuckets.Should().ContainSingle().Which.TotalCount.Should().Be(5);
+        roundTripped.Data.LiveEndpointStats.Should().ContainSingle().Which.Method.Should().Be("GET");
+    }
+
+    /// <summary>
+    ///     Proves the compat fix actually holds: a request naming ONE unrecognized/future/rolled-back
+    ///     kind alongside a known kind must not fail the whole deserialization. The built-in
+    ///     JsonStringEnumConverter this replaced would throw JsonException on the unmatched string,
+    ///     failing the entire compose-batch request over a single unknown dataset.
+    /// </summary>
+    [Fact]
+    public void DatasetRequest_WithMixOfKnownAndUnrecognizedKinds_BothDeserializeWithoutThrowing()
+    {
+        const string json = """
+        {
+          "startTime": "2026-07-15T00:00:00Z",
+          "endTime": "2026-07-15T01:00:00Z",
+          "datasets": [
+            { "kind": "SummaryStats" },
+            { "kind": "SomeFutureKindThatDoesNotExistYet" }
+          ]
+        }
+        """;
+
+        var request = (DashboardBatchRequest?)JsonSerializer.Deserialize(
+            json, typeof(DashboardBatchRequest), StyloBotJsonContext.Default);
+
+        request.Should().NotBeNull();
+        request!.Datasets.Should().HaveCount(2);
+        request.Datasets[0].Kind.Should().Be(DatasetKind.SummaryStats);
+        request.Datasets[1].Kind.Should().Be(DatasetKind.Unrecognized);
+    }
 }

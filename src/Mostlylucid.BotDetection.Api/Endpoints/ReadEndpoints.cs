@@ -39,6 +39,8 @@ public static class ReadEndpoints
         group.MapGet("/timeseries", HandleTimeseries).WithName("GetTimeseries");
         group.MapGet("/countries", HandleCountries).WithName("GetCountries");
         group.MapGet("/countries/{code}", HandleCountryDetail).WithName("GetCountryDetail");
+        group.MapGet("/signatures/{id}", HandleSignatureDetail).WithName("GetSignatureDetail");
+        group.MapGet("/signatures/{id}/timeseries", HandleSignatureTimeseries).WithName("GetSignatureTimeseries");
         group.MapGet("/endpoints", HandleEndpoints).WithName("GetEndpoints");
         group.MapGet("/endpoints/{method}/{**path}", HandleEndpointDetail).WithName("GetEndpointDetail");
         group.MapGet("/topbots", HandleTopBots).WithName("GetTopBots");
@@ -382,6 +384,45 @@ public static class ReadEndpoints
         var detail = await store.GetCountryDetailAsync(code, since, until);
         if (detail is null) return TypedResults.NotFound();
         return TypedResults.Ok(new SingleResponse<DashboardCountryDetail> { Data = detail, Meta = new ResponseMeta() });
+    }
+
+    /// <summary>
+    ///     <c>GET /api/v1/signatures/{id}</c> -- single-signature lookup by primary-signature id,
+    ///     no recency window, no top-N limit (unlike <c>GET /api/v1/signatures</c>'s list read).
+    ///     Wires <see cref="IDashboardEventStore.TryGetSignatureAsync"/> directly; no reimplementation.
+    /// </summary>
+    private static async Task<Results<Ok<SingleResponse<DashboardSignatureEvent>>, NotFound>> HandleSignatureDetail(
+        string id,
+        [FromServices] IDashboardEventStore store,
+        CancellationToken ct)
+    {
+        var signature = await store.TryGetSignatureAsync(id, ct);
+        if (signature is null) return TypedResults.NotFound();
+        return TypedResults.Ok(new SingleResponse<DashboardSignatureEvent> { Data = signature, Meta = new ResponseMeta() });
+    }
+
+    /// <summary>
+    ///     <c>GET /api/v1/signatures/{id}/timeseries</c> -- the signature-detail sparkline's history
+    ///     (bot probability / confidence / processing time per bucket). Wires the already-correct,
+    ///     already-read-through <see cref="IDashboardEventStore.GetSignatureTimeSeriesAsync"/> directly.
+    ///     Default window matches the dashboard's established sparkline convention (60 one-minute
+    ///     buckets) when <paramref name="since"/>/<paramref name="until"/> are not supplied.
+    /// </summary>
+    private static async Task<Ok<PaginatedResponse<DashboardSignatureTimeSeriesPoint>>> HandleSignatureTimeseries(
+        string id,
+        [FromServices] IDashboardEventStore store,
+        CancellationToken ct,
+        DateTime? since = null, DateTime? until = null, int bucketMinutes = 1)
+    {
+        var end = until ?? DateTime.UtcNow;
+        var start = since ?? end.AddMinutes(-60);
+        var series = await store.GetSignatureTimeSeriesAsync(id, start, end, TimeSpan.FromMinutes(bucketMinutes), ct);
+        return TypedResults.Ok(new PaginatedResponse<DashboardSignatureTimeSeriesPoint>
+        {
+            Data = series,
+            Pagination = new PaginationInfo { Offset = 0, Limit = series.Count, Total = series.Count },
+            Meta = new ResponseMeta()
+        });
     }
 
     private static async Task<Ok<PaginatedResponse<DashboardEndpointStats>>> HandleEndpoints(
