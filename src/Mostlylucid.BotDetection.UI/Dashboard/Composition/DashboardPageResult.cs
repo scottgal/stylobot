@@ -80,6 +80,12 @@ public sealed class DashboardPageResult
     /// <summary>Site-health degradation history slice; null when <see cref="DatasetKind.DegradationHistory"/> was not requested.</summary>
     public IReadOnlyList<Mostlylucid.BotDetection.RateLimit.DegradationSnapshot>? Degradations => _bundle?.Degradations;
 
+    /// <summary>Live-tier time-series overlay slice; null when <see cref="DatasetKind.LiveTimeBuckets"/> was not requested.</summary>
+    public IReadOnlyList<DashboardTimeSeriesPoint>? LiveTimeBuckets => _bundle?.LiveTimeBuckets;
+
+    /// <summary>Live-tier endpoint-stats overlay slice; null when <see cref="DatasetKind.LiveEndpointStats"/> was not requested.</summary>
+    public IReadOnlyList<DashboardEndpointStats>? LiveEndpointStats => _bundle?.LiveEndpointStats;
+
     // -------------------------------------------------------------------
     // Stage 2a: additional row datasets that don't come from
     // IDashboardEventStore.ComposeBatchAsync (Clusters/TopBots/Sessions/Threats

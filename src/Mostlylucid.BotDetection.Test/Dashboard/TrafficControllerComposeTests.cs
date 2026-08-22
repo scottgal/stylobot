@@ -77,6 +77,12 @@ public sealed class TrafficControllerComposeTests
         // a non-null list to opt a test into the normal (already-warm) shape.
         public List<DashboardTimeSeriesPoint>? TimeBucketsOverride { get; set; } = new();
 
+        // Live-tier overlay slices (folded into the compose bundle 2026-08-22 per the
+        // render-once ruling). Set to a non-null list to prove the controller MERGES the
+        // LIVE values over the base -- the merge is the fix under test.
+        public List<DashboardTimeSeriesPoint>? LiveTimeBucketsOverride { get; set; } = new();
+        public List<DashboardEndpointStats>? LiveEndpointStatsOverride { get; set; } = new();
+
         // Prior-window calls are the two allowed per-widget calls that the
         // controller still issues directly. Track them so tests can assert
         // how many times each was called.
@@ -93,7 +99,9 @@ public sealed class TrafficControllerComposeTests
                 TimeBuckets: TimeBucketsOverride,
                 BotAggregate: new List<DashboardTopBotEntry>(),
                 Geo: new List<DashboardCountryStats>(),
-                Endpoints: new List<DashboardEndpointStats>());
+                Endpoints: new List<DashboardEndpointStats>(),
+                LiveTimeBuckets: LiveTimeBucketsOverride,
+                LiveEndpointStats: LiveEndpointStatsOverride);
             return Task.FromResult(bundle);
         }
 
@@ -125,6 +133,16 @@ public sealed class TrafficControllerComposeTests
         public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null) => throw new NotImplementedException();
         public Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null) => throw new NotImplementedException();
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null) => throw new NotImplementedException();
+        // The two live-tier reads must NEVER be called directly now that the overlay rides
+        // in ComposeBatchAsync (DatasetKind.LiveTimeBuckets / LiveEndpointStats) -- if the
+        // controller regresses to a direct call this throws instead of silently passing via
+        // the interface DIM default (the exact silent-empty class the fold fixed).
+        public Task<IReadOnlyList<DashboardTimeSeriesPoint>> GetLiveTimeSeriesAsync(
+            DateTime startTime, DateTime endTime, TimeSpan bucketSize, string? audienceFilter = null)
+            => throw new InvalidOperationException("Live time-series overlay must ride in ComposeBatchAsync (DatasetKind.LiveTimeBuckets), not a direct read.");
+        public Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
+            DateTime windowStart, DateTime windowEnd, string? audienceFilter = null)
+            => throw new InvalidOperationException("Live endpoint overlay must ride in ComposeBatchAsync (DatasetKind.LiveEndpointStats), not a direct read.");
         public Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(string signature, int topN = 25, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null) => throw new NotImplementedException();
         public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null) => throw new NotImplementedException();
@@ -159,15 +177,18 @@ public sealed class TrafficControllerComposeTests
         // Act
         _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
 
-        // Assert — the current window is composed once with its six datasets (five
-        // detection aggregates + site-health), and the prior window is a SECOND batched
-        // compose (top-bots + summary) — so both are batched, neither fans out.
+        // Assert — the current window is composed once with its eight datasets (five
+        // detection aggregates + site-health + the two live-tier overlays, folded in
+        // 2026-08-22 per the render-once ruling so Traffic's live overlay no longer costs
+        // two extra round trips), and the prior window is a SECOND batched compose
+        // (top-bots + summary) — so both are batched, neither fans out.
         Assert.Equal(2, store.ComposeBatchCallCount);
 
         var currentKinds = new[]
         {
             DatasetKind.SummaryStats, DatasetKind.TimeBuckets, DatasetKind.BotAggregate,
             DatasetKind.GeoBreakdown, DatasetKind.EndpointStats, DatasetKind.DegradationHistory,
+            DatasetKind.LiveTimeBuckets, DatasetKind.LiveEndpointStats,
         }.OrderBy(k => k).ToArray();
         Assert.Contains(store.BatchRequests,
             r => r.Datasets.Select(d => d.Kind).OrderBy(k => k).SequenceEqual(currentKinds));
@@ -287,5 +308,85 @@ public sealed class TrafficControllerComposeTests
         // gone by design (a host without the boot coordinator is misconfigured; the
         // page either contains the data or the host is broken — no self-heal window).
         Assert.Same(DashboardPageResult.Warming, controller.HttpContext.Items["sb.dashboard.pageresult"]);
+    }
+
+    [Fact]
+    public async Task TrafficController_live_overlay_merges_over_base_timeseries_from_compose()
+    {
+        // Render-once ruling (2026-08-22): Traffic's live time-series overlay rides in the
+        // SAME ComposeBatchAsync call (DatasetKind.LiveTimeBuckets) as the rest of the page.
+        // The merge must make the LIVE value win at a timestamp where both base and live
+        // have a bucket, and preserve the base value where only base has one. With the
+        // live reads on the store throwing, any regression to a direct per-widget read
+        // fails this test loudly instead of silently passing via the DIM default.
+        var now = DateTime.UtcNow;
+        var tLive = now.AddMinutes(-3);   // in the last 5-min bucket of the 6h window
+        var tBase = now.AddMinutes(-10);  // second-to-last bucket, base-only
+        var store = new RecordingEventStore
+        {
+            TimeBucketsOverride = new List<DashboardTimeSeriesPoint>
+            {
+                new() { Timestamp = tLive, BotCount = 5, HumanCount = 1, TotalCount = 6 },
+                new() { Timestamp = tBase, BotCount = 7, HumanCount = 1, TotalCount = 8 },
+            },
+            LiveTimeBucketsOverride = new List<DashboardTimeSeriesPoint>
+            {
+                // The EXACT same timestamp as the base point -- live must REPLACE it.
+                new() { Timestamp = tLive, BotCount = 42, HumanCount = 2, TotalCount = 44 },
+            },
+        };
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
+        var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
+        var model = Assert.IsType<Microsoft.AspNetCore.Mvc.ViewResult>(result).Model as TrafficPageModel;
+        Assert.NotNull(model);
+
+        var ts = model!.Timeseries;
+        Assert.NotEmpty(ts.Buckets);
+        // BuildSeries aligns Buckets[0] DOWN to the 5-min boundary, so the point index is
+        // exactly (t - Buckets[0]) / 5min -- same grid the builder uses.
+        int BucketIndexOf(DateTime t)
+        {
+            var idx = (int)Math.Floor((t - ts.Buckets[0]).TotalMinutes / 5.0);
+            return Math.Clamp(idx, 0, ts.Buckets.Count - 1);
+        }
+
+        var liveIdx = BucketIndexOf(tLive);
+        var baseIdx = BucketIndexOf(tBase);
+        Assert.Equal(42, ts.Bot[liveIdx]);  // LIVE value won the merge at the shared timestamp
+        Assert.Equal(7, ts.Bot[baseIdx]);   // base-only bucket preserved (a merge, not live-only)
+    }
+
+    [Fact]
+    public async Task TrafficController_live_endpoints_overlay_merges_from_compose()
+    {
+        // Same ruling for the endpoints overlay: the live endpoint rows ride in the compose
+        // bundle (DatasetKind.LiveEndpointStats) and must surface in TopEndpoints.
+        var store = new RecordingEventStore
+        {
+            LiveEndpointStatsOverride = new List<DashboardEndpointStats>
+            {
+                new() { Method = "GET", Path = "/live-only", TotalCount = 42, BotCount = 42, BotRate = 1.0 },
+            },
+        };
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
+        var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+
+        var result = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
+        var model = Assert.IsType<Microsoft.AspNetCore.Mvc.ViewResult>(result).Model as TrafficPageModel;
+        Assert.NotNull(model);
+
+        var row = Assert.Single(model!.TopEndpoints, r => r.Path == "/live-only");
+        Assert.Equal("GET", row.Method);
+        Assert.Equal(42, row.Hits);
     }
 }
