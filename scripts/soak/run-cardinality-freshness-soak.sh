@@ -9,6 +9,14 @@
 # X-Forwarded-For signature-cardinality growth and a freshness-probe scenario
 # (see k6-plateau.js comments) — never a hand-rolled driver.
 #
+# SELF-DEFENDING (2026-08-22, after "Run A" ran 69min producing zero DB rows
+# and nobody noticed for 14 hours): every sample prints an explicit PROGRESS
+# line (elapsed/total minutes, writes since baseline), and if DB_WRITE_STATS_CMD
+# is wired but db_writes stays flat for several consecutive checks, the run
+# ABORTS ITSELF (kills k6, exits 3) rather than silently continuing for hours
+# producing nothing. "A soak that produces no data and does not scream about
+# it is the same defect as a soak that goes green while prod OOMs" (operator).
+#
 #   scripts/soak/run-cardinality-freshness-soak.sh [DURATION_HOURS] [RPS]
 #
 # Preconditions (deploy- sets these on the rig, never staging/prod):
@@ -242,6 +250,20 @@ K6_PID=$!
 SAMPLES=$(python3 -c "import sys; print(max(1, int(float(sys.argv[1]) * 60 / float(sys.argv[2]))))" "$DURATION_HOURS" "$SAMPLE_MINUTES")
 echo -e "elapsed_min\tdb_rows\tdb_bytes\trss_bytes\trestarts\toom_killed\tdb_writes\trunning\tmanaged_heap_bytes" > "$OUTDIR/$LABEL-samples.tsv"
 
+# ZERO-WRITE-PROGRESS abort (2026-08-22, after Run A ran ~69min producing zero
+# rows and nobody noticed for 14h — "a soak that produces no data and doesn't
+# scream about it is the same defect as a soak that goes green while prod
+# OOMs"). Consecutive-zero-delta count, not a fixed calendar duration; the
+# window it takes to reach the abort bar scales with SAMPLE_MINUTES so a
+# faster/slower cadence gets a proportionally faster/slower detection, not a
+# hardcoded number of minutes. Only engages when DB_WRITE_STATS_CMD is
+# actually wired (an unwired sampler reports "0" by design, which must never
+# be mistaken for a dead write path).
+ZERO_WRITE_STREAK=0
+ZERO_WRITE_ABORT_STREAK=3   # engineering choice (how many checks before
+                            # aborting), not a correctness threshold.
+prev_writes="$base_writes"
+
 for ((s = 1; s <= SAMPLES; s++)); do
   sleep $((SAMPLE_MINUTES * 60))
   read -r rows bytes <<< "$(sample_db)"
@@ -249,13 +271,29 @@ for ((s = 1; s <= SAMPLES; s++)); do
   writes="$(sample_db_writes)"
   heap="$(sample_managed_heap)"
   echo -e "$((s * SAMPLE_MINUTES))\t$rows\t$bytes\t$rss\t$restarts\t$oom\t$writes\t$running\t$heap" >> "$OUTDIR/$LABEL-samples.tsv"
-  log "sample $s: db_rows=$rows rss=$rss restarts=$restarts oom=$oom running=$running db_writes=$writes managed_heap=$heap"
+  elapsed_total_min="$((s * SAMPLE_MINUTES))"
+  total_min=$(python3 -c "print(round(float('$DURATION_HOURS')*60))")
+  writes_since_baseline=$(python3 -c "print(int('$writes') - int('$base_writes'))" 2>/dev/null || echo "?")
+  log "PROGRESS $elapsed_total_min/${total_min}min: db_rows=$rows rss=$rss restarts=$restarts oom=$oom running=$running db_writes=$writes (+$writes_since_baseline since baseline) managed_heap=$heap"
   if [ "$oom" != "0" ] || { [ "$restarts" != "0" ] && [ "$restarts" != "$base_restarts" ]; }; then
     log "OOM/RESTART DETECTED mid-run — recording, not aborting (soak must keep sampling through the failure)."
   fi
   if [ "$running" = "0" ]; then
     log "CONTAINER NOT RUNNING mid-run (crashed without OOM/restart, e.g. SIGSEGV) — recording, not aborting."
   fi
+  if [ -n "${DB_WRITE_STATS_CMD:-}" ] && [ "$writes" = "$prev_writes" ]; then
+    ZERO_WRITE_STREAK=$((ZERO_WRITE_STREAK + 1))
+    log "★ ZERO WRITE PROGRESS: db_writes unchanged for $ZERO_WRITE_STREAK consecutive check(s) — the write path may be dead, not just quiet."
+    if [ "$ZERO_WRITE_STREAK" -ge "$ZERO_WRITE_ABORT_STREAK" ]; then
+      log "★★★ ABORTING: zero write progress for $ZERO_WRITE_STREAK consecutive checks — this was never a valid experiment, no point running it to completion. Kill k6, stop sampling, investigate the write path before rerunning."
+      kill "$K6_PID" 2>/dev/null || true
+      echo "ZERO-WRITE-PROGRESS ABORT at ${elapsed_total_min}min — write path produced nothing for $ZERO_WRITE_STREAK consecutive $SAMPLE_MINUTES-minute checks. See $OUTDIR/$LABEL.log for the full trace before this point." >&2
+      exit 3
+    fi
+  else
+    ZERO_WRITE_STREAK=0
+  fi
+  prev_writes="$writes"
 done
 
 wait "$K6_PID" || log "k6 exited nonzero — see $OUTDIR/$LABEL-k6.log"
