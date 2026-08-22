@@ -159,15 +159,18 @@ public sealed class TrafficControllerComposeTests
         // Act
         _ = await controller.Index(country: null, botType: null, window: "6h", from: null, to: null, threat: null, partial: null, null, default);
 
-        // Assert — the current window is composed once with its six datasets (five
-        // detection aggregates + site-health), and the prior window is a SECOND batched
-        // compose (top-bots + summary) — so both are batched, neither fans out.
+        // Assert — the current window is composed once with its eight datasets (five
+        // detection aggregates + site-health + the two live-tier overlays, folded in
+        // 2026-08-22 per the render-once ruling so Traffic's live overlay no longer costs
+        // two extra round trips), and the prior window is a SECOND batched compose
+        // (top-bots + summary) — so both are batched, neither fans out.
         Assert.Equal(2, store.ComposeBatchCallCount);
 
         var currentKinds = new[]
         {
             DatasetKind.SummaryStats, DatasetKind.TimeBuckets, DatasetKind.BotAggregate,
             DatasetKind.GeoBreakdown, DatasetKind.EndpointStats, DatasetKind.DegradationHistory,
+            DatasetKind.LiveTimeBuckets, DatasetKind.LiveEndpointStats,
         }.OrderBy(k => k).ToArray();
         Assert.Contains(store.BatchRequests,
             r => r.Datasets.Select(d => d.Kind).OrderBy(k => k).SequenceEqual(currentKinds));

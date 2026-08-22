@@ -38,8 +38,12 @@ public sealed class DashboardRowManifestSeedTests
         // here (not its own page, like Clusters/TopBots/Sessions/Threats) so UserAgents
         // shares the SAME window/audience/domain scope as Summary/Countries/Endpoints on
         // this manifest -- see DefaultDashboardPageManifestSource's seed comment.
+        // "live-time-overlay" / "live-endpoints-overlay" were added 2026-08-22 (render-once
+        // ruling): the Traffic page's live-tier overlays now ride in the SAME compose-batch
+        // call instead of two extra per-render round trips -- see TrafficLiveOverlayWidgets.
         Assert.Equal(
-            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health", DashboardRowWidgetKeys.UserAgentsRaw },
+            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health", DashboardRowWidgetKeys.UserAgentsRaw,
+                     "live-time-overlay", "live-endpoints-overlay" },
             traffic!.WidgetKeys);
     }
 }

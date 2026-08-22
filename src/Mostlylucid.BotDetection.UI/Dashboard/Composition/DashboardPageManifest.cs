@@ -64,7 +64,8 @@ public class DefaultDashboardPageManifestSource : IDashboardPageManifestSource
         // shell model reading the fixed-window DashboardAggregateCache snapshot directly.
         manifests["dashboard.traffic"] = new DashboardPageManifest(
             "dashboard.traffic",
-            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health", DashboardRowWidgetKeys.UserAgentsRaw });
+            new[] { "summary", "time-chart", "top-bots", "countries", "endpoints", "site-health", DashboardRowWidgetKeys.UserAgentsRaw,
+                     "live-time-overlay", "live-endpoints-overlay" });
 
         manifests["dashboard.site"] = new DashboardPageManifest(
             "dashboard.site",

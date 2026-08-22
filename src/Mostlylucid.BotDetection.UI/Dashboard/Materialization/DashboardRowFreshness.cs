@@ -73,6 +73,12 @@ public static class DashboardRowFreshness
             // the slower Aggregate base.
             ["top-bots"] = DashboardRowFreshnessClass.Live,
             ["visitors"] = DashboardRowFreshnessClass.Live,
+            // Live-tier overlays (render-once ruling, 2026-08-22): by definition need to be
+            // fresher than the aggregate base -- explicit here rather than relying on the
+            // unrecognized-key failsafe below, since "obviously live" deserves a named entry
+            // like every other row, not a silent default.
+            ["live-time-overlay"] = DashboardRowFreshnessClass.Live,
+            ["live-endpoints-overlay"] = DashboardRowFreshnessClass.Live,
             [DashboardRowWidgetKeys.TopBotsRaw] = DashboardRowFreshnessClass.Live,
             [DashboardRowWidgetKeys.SessionsRaw] = DashboardRowFreshnessClass.Live,
             [DashboardRowWidgetKeys.ThreatsRaw] = DashboardRowFreshnessClass.Live,

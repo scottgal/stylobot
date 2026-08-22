@@ -216,23 +216,20 @@ public sealed class TrafficController : Controller
         var countriesData = (IReadOnlyList<DashboardCountryStats>)(page.Geo ?? new List<DashboardCountryStats>());
         var endpointsData = (IReadOnlyList<DashboardEndpointStats>)(page.Endpoints ?? new List<DashboardEndpointStats>());
 
-        // THE LIVE-TIER OVERLAY (dash- 2026-08-16, the delay defect): the current hour's
+        // THE LIVE-TIER OVERLAY (dash- 2026-08-16, the delay defect; folded into the
+        // compose-batch bundle 2026-08-22 per the render-once ruling): the current hour's
         // LIVE session endpoint folds over the swept rollup's rows — the endpoints were
         // ~2h-old (the rollup-only compose). The live rows replace the same-key rollup
-        // rows for the recent window; the overlay never fails the page.
-        try
+        // rows for the recent window. This now rides IN the same ComposeBatchAsync call
+        // as everything else on the page (DatasetKind.LiveEndpointStats, requested via the
+        // "live-endpoints-overlay" manifest key) instead of a second round trip — null
+        // means the compose didn't carry it (host without a live tier, or the slice simply
+        // wasn't requested), never a failure signal, so this never fails the page.
+        if (page.LiveEndpointStats is { Count: > 0 } liveEndpoints)
         {
-            var liveEndpoints = await _eventStore.GetLiveEndpointStatsAsync(startTime, now, null);
-            if (liveEndpoints.Count > 0)
-            {
-                var byKey = endpointsData.ToDictionary(e => (e.Method, e.Path));
-                foreach (var e in liveEndpoints) byKey[(e.Method, e.Path)] = e;
-                endpointsData = byKey.Values.OrderByDescending(e => e.TotalCount).ToList();
-            }
-        }
-        catch
-        {
-            // The overlay never fails the page — the envelope's/rollup's rows remain the base.
+            var byKey = endpointsData.ToDictionary(e => (e.Method, e.Path));
+            foreach (var e in liveEndpoints) byKey[(e.Method, e.Path)] = e;
+            endpointsData = byKey.Values.OrderByDescending(e => e.TotalCount).ToList();
         }
 
         // Display-only path suppression (operator directive 2026-08-19): ONE filter at
@@ -340,14 +337,16 @@ public sealed class TrafficController : Controller
                 };
             }
         }
-        // THE LIVE-TIER OVERLAY (dash- 2026-08-16, the delay defect): the recent
-        // window's LIVE buckets at the read — over the envelope's folds — so the graph's
-        // latest point is minutes-fresh, not the last re-roll's. The overlay never fails
-        // the page (the envelope's folds remain the base); its data rides IN the served
-        // payload.
+        // THE LIVE-TIER OVERLAY (dash- 2026-08-16, the delay defect; folded into the
+        // compose-batch bundle 2026-08-22 per the render-once ruling): the recent window's
+        // LIVE buckets over the envelope's folds, so the graph's latest point is
+        // minutes-fresh, not the last re-roll's. Now rides IN the same ComposeBatchAsync
+        // call as everything else (DatasetKind.LiveTimeBuckets, "live-time-overlay" manifest
+        // key) instead of a second round trip — the overlay never fails the page, a null
+        // slice just means the compose didn't carry it.
         var baseBuckets = page.TimeBuckets?.ToList() ?? new List<DashboardTimeSeriesPoint>();
         var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(
-            await OverlayLiveTimeSeriesAsync(baseBuckets, startTime, now, bucketSize, ct),
+            MergeLiveTimeSeries(baseBuckets, page.LiveTimeBuckets),
             startTime, now, bucketSize);
         var botFamilies = BuildBotFamilies(visitors, windowMinutes);
 
@@ -432,25 +431,19 @@ public sealed class TrafficController : Controller
         catch { return new List<DashboardTimeSeriesPoint>(); }
     }
 
-    /// <summary>The live-tier overlay merge (2026-08-16): the recent window's LIVE
-    ///     minute-buckets replace the envelope's same-timestamp points (the recent
-    ///     segment's freshness at the read); the envelope's folds remain the base for
-    ///     everything else. Never fails the page.</summary>
-    private async Task<List<DashboardTimeSeriesPoint>> OverlayLiveTimeSeriesAsync(
-        List<DashboardTimeSeriesPoint> baseBuckets, DateTime start, DateTime end, TimeSpan bucketSize, CancellationToken ct)
+    /// <summary>The live-tier overlay merge (2026-08-16; source folded into the
+    ///     compose-batch bundle 2026-08-22): the recent window's LIVE minute-buckets
+    ///     replace the envelope's same-timestamp points (the recent segment's freshness
+    ///     at the compose), the envelope's folds remain the base for everything else. A
+    ///     null/empty live slice (no live tier on this host, or genuinely no live activity)
+    ///     just returns the base unchanged — never fails the page.</summary>
+    private static List<DashboardTimeSeriesPoint> MergeLiveTimeSeries(
+        List<DashboardTimeSeriesPoint> baseBuckets, IReadOnlyList<DashboardTimeSeriesPoint>? live)
     {
-        try
-        {
-            var live = await _eventStore.GetLiveTimeSeriesAsync(start, end, bucketSize, null);
-            if (live.Count == 0) return baseBuckets;
-            var byTime = baseBuckets.ToDictionary(p => p.Timestamp);
-            foreach (var p in live) byTime[p.Timestamp] = p;
-            return byTime.Values.OrderBy(p => p.Timestamp).ToList();
-        }
-        catch
-        {
-            return baseBuckets;
-        }
+        if (live is not { Count: > 0 }) return baseBuckets;
+        var byTime = baseBuckets.ToDictionary(p => p.Timestamp);
+        foreach (var p in live) byTime[p.Timestamp] = p;
+        return byTime.Values.OrderBy(p => p.Timestamp).ToList();
     }
 
     /// <summary>

@@ -281,6 +281,8 @@ public sealed class DefaultDashboardPageComposer : IDashboardPageComposer
         DatasetKind.GeoBreakdown => page.Geo,
         DatasetKind.EndpointStats => page.Endpoints,
         DatasetKind.DegradationHistory => page.Degradations,
+        DatasetKind.LiveTimeBuckets => page.LiveTimeBuckets,
+        DatasetKind.LiveEndpointStats => page.LiveEndpointStats,
         _ => null
     };
 

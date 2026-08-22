@@ -452,11 +452,10 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     /// <summary>
     ///     Time-series history for a single signature (the signature-detail page's
     ///     sparkline). Forwards to <c>GET /api/v1/signatures/{signature}/timeseries</c>
-    ///     -- a route the gateway does not yet expose (Part B of the DIM-gap fix;
-    ///     Part A adds the server-side route once the operator rules on new public
-    ///     FOSS API surface). Until then this call 404s and <see cref="GatewayApiClient.GetEnvelopeAsync{T}"/>
-    ///     degrades to an empty list, same as every other remote read against a
-    ///     missing endpoint.
+    ///     (wired 2026-08-22, DIM-gap fix). If the gateway store has no
+    ///     <c>TryGetSignatureAsync</c>/<c>GetSignatureTimeSeriesAsync</c> override this still
+    ///     returns an empty list via <see cref="GatewayApiClient.GetEnvelopeAsync{T}"/>'s normal
+    ///     degrade -- see the Postgres-store tracking note on <see cref="TryGetSignatureAsync"/>.
     /// </summary>
     public Task<IReadOnlyList<DashboardSignatureTimeSeriesPoint>> GetSignatureTimeSeriesAsync(
         string signature,
@@ -465,10 +464,14 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         TimeSpan bucketSize,
         CancellationToken ct = default)
     {
+        // Query param names must match HandleSignatureTimeseries's binding (since/until/
+        // bucketMinutes) exactly -- a mismatch here doesn't 404 or throw, minimal-API just
+        // ignores the unmatched params and falls back to their defaults, so the call
+        // "succeeds" while silently returning the wrong window/bucket size.
         var query = $"/api/v1/signatures/{Uri.EscapeDataString(signature)}/timeseries"
-            + $"?startTime={Uri.EscapeDataString(startTime.ToString("o"))}"
-            + $"&endTime={Uri.EscapeDataString(endTime.ToString("o"))}"
-            + $"&bucketSeconds={(int)bucketSize.TotalSeconds}";
+            + $"?since={Uri.EscapeDataString(startTime.ToString("o"))}"
+            + $"&until={Uri.EscapeDataString(endTime.ToString("o"))}"
+            + $"&bucketMinutes={Math.Max(1, (int)bucketSize.TotalMinutes)}";
         return GetOrFetchAsync<IReadOnlyList<DashboardSignatureTimeSeriesPoint>>(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardSignatureTimeSeriesPoint>>(query, ct);
@@ -477,8 +480,14 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     }
 
     /// <summary>
-    ///     Live-tier time-series overlay. Forwards to <c>GET /api/v1/timeseries/live</c>
-    ///     -- same not-yet-wired-server-side caveat as <see cref="GetSignatureTimeSeriesAsync"/>.
+    ///     Live-tier time-series overlay. Forwards to <c>GET /api/v1/timeseries/live</c> --
+    ///     a route the gateway does not expose and, per the render-once ruling (2026-08-22),
+    ///     never will: the Traffic page's live overlay is served through
+    ///     <see cref="ComposeBatchAsync"/>'s <c>DatasetKind.LiveTimeBuckets</c> instead (one
+    ///     compose call, not a second round trip). This method stays implemented and tested
+    ///     for interface completeness / any future direct caller, but <c>TrafficController</c>
+    ///     no longer calls it -- calling it directly still degrades to empty via the normal
+    ///     404 path, same as any other unmapped remote route.
     /// </summary>
     public Task<IReadOnlyList<DashboardTimeSeriesPoint>> GetLiveTimeSeriesAsync(
         DateTime startTime,
@@ -500,8 +509,9 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     }
 
     /// <summary>
-    ///     Live-tier endpoint-stats overlay. Forwards to <c>GET /api/v1/endpoints/live</c>
-    ///     -- same not-yet-wired-server-side caveat as <see cref="GetSignatureTimeSeriesAsync"/>.
+    ///     Live-tier endpoint-stats overlay. Forwards to <c>GET /api/v1/endpoints/live</c> --
+    ///     same "served via compose-batch instead, kept for interface completeness" status as
+    ///     <see cref="GetLiveTimeSeriesAsync"/> above.
     /// </summary>
     public Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
         DateTime windowStart,
@@ -522,11 +532,13 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
 
     /// <summary>
     ///     Single-signature lookup, no recency window. Forwards to
-    ///     <c>GET /api/v1/signatures/{signatureId}</c> -- no existing server-side
-    ///     implementation anywhere (verified by absorb-'s brief: even the Postgres
-    ///     store falls through to the same DIM default), so this is a stub route
-    ///     awaiting Part A. Mirrors <see cref="GetCountryDetailAsync"/>'s single-
-    ///     nullable-entity shape.
+    ///     <c>GET /api/v1/signatures/{signatureId}</c> (wired 2026-08-22, DIM-gap fix).
+    ///     ⚠ KNOWN GAP: the commercial Postgres-backed store (staging/prod) has no
+    ///     <c>TryGetSignatureAsync</c> override yet, so this still 404s there via the
+    ///     interface's DIM default even though the route itself now exists -- tracked
+    ///     separately, not fixed by this route landing. FOSS's own SQLite store does have
+    ///     the implementation (755a777b). Mirrors <see cref="GetCountryDetailAsync"/>'s
+    ///     single-nullable-entity shape.
     /// </summary>
     public Task<DashboardSignatureEvent?> TryGetSignatureAsync(string signatureId, CancellationToken ct = default)
     {
