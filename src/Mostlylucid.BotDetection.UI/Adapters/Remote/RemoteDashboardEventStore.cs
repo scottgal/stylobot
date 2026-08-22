@@ -449,6 +449,91 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         });
     }
 
+    /// <summary>
+    ///     Time-series history for a single signature (the signature-detail page's
+    ///     sparkline). Forwards to <c>GET /api/v1/signatures/{signature}/timeseries</c>
+    ///     -- a route the gateway does not yet expose (Part B of the DIM-gap fix;
+    ///     Part A adds the server-side route once the operator rules on new public
+    ///     FOSS API surface). Until then this call 404s and <see cref="GatewayApiClient.GetEnvelopeAsync{T}"/>
+    ///     degrades to an empty list, same as every other remote read against a
+    ///     missing endpoint.
+    /// </summary>
+    public Task<IReadOnlyList<DashboardSignatureTimeSeriesPoint>> GetSignatureTimeSeriesAsync(
+        string signature,
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        CancellationToken ct = default)
+    {
+        var query = $"/api/v1/signatures/{Uri.EscapeDataString(signature)}/timeseries"
+            + $"?startTime={Uri.EscapeDataString(startTime.ToString("o"))}"
+            + $"&endTime={Uri.EscapeDataString(endTime.ToString("o"))}"
+            + $"&bucketSeconds={(int)bucketSize.TotalSeconds}";
+        return GetOrFetchAsync<IReadOnlyList<DashboardSignatureTimeSeriesPoint>>(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardSignatureTimeSeriesPoint>>(query, ct);
+            return list ?? new List<DashboardSignatureTimeSeriesPoint>();
+        });
+    }
+
+    /// <summary>
+    ///     Live-tier time-series overlay. Forwards to <c>GET /api/v1/timeseries/live</c>
+    ///     -- same not-yet-wired-server-side caveat as <see cref="GetSignatureTimeSeriesAsync"/>.
+    /// </summary>
+    public Task<IReadOnlyList<DashboardTimeSeriesPoint>> GetLiveTimeSeriesAsync(
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        string? audienceFilter = null)
+    {
+        var query = "/api/v1/timeseries/live"
+            + $"?startTime={Uri.EscapeDataString(startTime.ToString("o"))}"
+            + $"&endTime={Uri.EscapeDataString(endTime.ToString("o"))}"
+            + $"&bucketSeconds={(int)bucketSize.TotalSeconds}";
+        if (!string.IsNullOrEmpty(audienceFilter))
+            query += $"&audienceFilter={Uri.EscapeDataString(audienceFilter)}";
+        return GetOrFetchAsync<IReadOnlyList<DashboardTimeSeriesPoint>>(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardTimeSeriesPoint>>(query);
+            return list ?? new List<DashboardTimeSeriesPoint>();
+        });
+    }
+
+    /// <summary>
+    ///     Live-tier endpoint-stats overlay. Forwards to <c>GET /api/v1/endpoints/live</c>
+    ///     -- same not-yet-wired-server-side caveat as <see cref="GetSignatureTimeSeriesAsync"/>.
+    /// </summary>
+    public Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
+        DateTime windowStart,
+        DateTime windowEnd,
+        string? audienceFilter = null)
+    {
+        var query = "/api/v1/endpoints/live"
+            + $"?windowStart={Uri.EscapeDataString(windowStart.ToString("o"))}"
+            + $"&windowEnd={Uri.EscapeDataString(windowEnd.ToString("o"))}";
+        if (!string.IsNullOrEmpty(audienceFilter))
+            query += $"&audienceFilter={Uri.EscapeDataString(audienceFilter)}";
+        return GetOrFetchAsync<IReadOnlyList<DashboardEndpointStats>>(query, async () =>
+        {
+            var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);
+            return list ?? new List<DashboardEndpointStats>();
+        });
+    }
+
+    /// <summary>
+    ///     Single-signature lookup, no recency window. Forwards to
+    ///     <c>GET /api/v1/signatures/{signatureId}</c> -- no existing server-side
+    ///     implementation anywhere (verified by absorb-'s brief: even the Postgres
+    ///     store falls through to the same DIM default), so this is a stub route
+    ///     awaiting Part A. Mirrors <see cref="GetCountryDetailAsync"/>'s single-
+    ///     nullable-entity shape.
+    /// </summary>
+    public Task<DashboardSignatureEvent?> TryGetSignatureAsync(string signatureId, CancellationToken ct = default)
+    {
+        var query = $"/api/v1/signatures/{Uri.EscapeDataString(signatureId)}";
+        return GetOrFetchAsync(query, () => _api.GetEnvelopeAsync<DashboardSignatureEvent>(query, ct)!);
+    }
+
     // === Write surface: not supported on the remote viewer ===
 
     public Task AddDetectionAsync(DashboardDetectionEvent detection)
