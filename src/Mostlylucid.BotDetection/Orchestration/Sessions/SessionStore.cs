@@ -55,6 +55,9 @@ public sealed class SessionStore : IDisposable
     /// </summary>
     public TypedSignalSink<SessionAggregate> Changes { get; }
 
+    /// <summary>Post-fold observations. Remote applies are intentionally silent.</summary>
+    public TypedSignalSink<SessionFoldObservation> Observations { get; }
+
     /// <summary>Retained for subscriber compatibility; dormant (see remarks).</summary>
     public TypedSignalSink<SessionFinalizingSignal> Lifecycle { get; }
 
@@ -91,6 +94,9 @@ public sealed class SessionStore : IDisposable
 
         const int sinkCap = 4096;
         Changes = new TypedSignalSink<SessionAggregate>(
+            new SignalSink(maxCapacity: sinkCap, maxAge: _options.Ttl),
+            maxCapacity: sinkCap, maxAge: _options.Ttl);
+        Observations = new TypedSignalSink<SessionFoldObservation>(
             new SignalSink(maxCapacity: sinkCap, maxAge: _options.Ttl),
             maxCapacity: sinkCap, maxAge: _options.Ttl);
         Lifecycle = new TypedSignalSink<SessionFinalizingSignal>(
@@ -130,6 +136,8 @@ public sealed class SessionStore : IDisposable
             // registry bounded on the Host axis; still notifies Changes.
             var transient = SessionAggregateMerge.FromFirstSample(sample);
             Changes.Raise(SessionSignalKeys.AggregateUpdated.Name, transient, sample.FingerprintId);
+            Observations.Raise(SessionSignalKeys.Observation.Name,
+                new SessionFoldObservation(transient, SessionFoldOrigin.LocalFragment), sample.FingerprintId);
             return transient;
         }
 
@@ -156,20 +164,61 @@ public sealed class SessionStore : IDisposable
             session = await coordinator.GetOrCreateSessionAsync(sample.FingerprintId, ct).ConfigureAwait(false);
         }
 
-        var previous = SessionAggregateMolecule.FromSession(session, sample.FingerprintId, sample.SiteId);
+        var previous = session.LocalAggregate
+            ?? SessionAggregateMolecule.FromSession(session, sample.FingerprintId, sample.SiteId);
         var merged = previous is null
             ? SessionAggregateMerge.FromFirstSample(sample)
             : SessionAggregateMerge.Merge(previous, sample);
 
+        session.SetLocalAggregate(merged);
+        var folded = Fold(session, merged);
         session.Contribute(new SessionContribution(
             RequestId: sample.RequestId ?? $"{sample.FingerprintId}:{merged.SampleCount}",
             At: sample.Timestamp,
-            Signals: new[] { SessionAggregateMolecule.ToSignal(merged) }));
+            Signals: new[] { SessionAggregateMolecule.ToSignal(folded) }));
 
         _lastActivity[(sample.SiteId, sample.FingerprintId)] = sample.Timestamp;
 
-        Changes.Raise(SessionSignalKeys.AggregateUpdated.Name, merged, sample.FingerprintId);
-        return merged;
+        Changes.Raise(SessionSignalKeys.AggregateUpdated.Name, folded, sample.FingerprintId);
+        Observations.Raise(SessionSignalKeys.Observation.Name,
+            new SessionFoldObservation(folded, SessionFoldOrigin.LocalFragment), sample.FingerprintId);
+        return folded;
+    }
+
+    /// <summary>
+    /// Applies an already-folded cumulative contribution silently. The cursor is
+    /// retained by the bounded Session, so duplicate, reordered and stale input is
+    /// a no-op and a rejected apply never consumes the incoming cursor. Remote
+    /// observations are silent on the legacy <see cref="Changes"/> stream.
+    /// </summary>
+    public async Task<SessionAggregate?> ApplyRemoteFoldAsync(
+        SessionAggregate aggregate,
+        SessionFoldCursor cursor,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cursor.SourceId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cursor.EpochId);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(cursor.FencingGeneration, 0);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(cursor.Sequence, 0);
+
+        var coordinator = _sessions.GetOrCreate(aggregate.SiteId);
+        if (coordinator is null) return null;
+        var session = await coordinator.GetOrCreateSessionAsync(aggregate.FingerprintId, ct).ConfigureAwait(false);
+        var result = session.ApplyRemoteAtomically(cursor, aggregate,
+            aggregates => SessionAggregateMerge.Fold(aggregates));
+        if (!result.Applied) return result.Aggregate;
+        Observations.Raise(SessionSignalKeys.Observation.Name,
+            new SessionFoldObservation(result.Aggregate, SessionFoldOrigin.RemoteCanonical, cursor), aggregate.FingerprintId);
+        return result.Aggregate;
+    }
+
+    private static SessionAggregate Fold(Session session, SessionAggregate fallback)
+    {
+        var local = session.LocalAggregate;
+        var remote = session.RemoteAggregate;
+        return local is null
+            ? remote ?? fallback
+            : remote is null ? local : SessionAggregateMerge.Fold(new[] { local, remote });
     }
 
     /// <summary>
@@ -359,4 +408,6 @@ public static class SessionSignalKeys
 {
     public static readonly SignalKey<SessionAggregate> AggregateUpdated =
         new("session.aggregate.updated");
+    public static readonly SignalKey<SessionFoldObservation> Observation =
+        new("session.observation");
 }

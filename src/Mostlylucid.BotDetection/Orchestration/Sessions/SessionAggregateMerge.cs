@@ -8,6 +8,31 @@ namespace Mostlylucid.BotDetection.Orchestration.Sessions;
 /// </summary>
 public static class SessionAggregateMerge
 {
+    /// <summary>Folds cumulative, source-owned aggregates without double-counting them.</summary>
+    public static SessionAggregate Fold(IEnumerable<SessionAggregate> aggregates)
+    {
+        var all = aggregates.ToArray();
+        if (all.Length == 0) throw new ArgumentException("At least one aggregate is required.", nameof(aggregates));
+        var count = all.Sum(a => a.SampleCount);
+        var mean = count == 0 ? 0 : all.Sum(a => a.MeanBotProbability * a.SampleCount) / count;
+        var statuses = new Dictionary<int, int>();
+        foreach (var aggregate in all)
+            foreach (var pair in aggregate.UpstreamStatusCounts)
+                statuses[pair.Key] = statuses.GetValueOrDefault(pair.Key) + pair.Value;
+        var latest = all.OrderByDescending(a => a.LastSample).First();
+        var honeypots = all.Sum(a => a.HoneypotHits);
+        return latest with
+        {
+            FirstSample = all.Min(a => a.FirstSample),
+            LastSample = all.Max(a => a.LastSample),
+            SampleCount = count,
+            MeanBotProbability = mean,
+            MaxBotProbability = all.Max(a => a.MaxBotProbability),
+            HoneypotHits = honeypots,
+            UpstreamStatusCounts = statuses,
+            RetentionPriority = ComputeRetentionPriority(mean, latest.LatestConfidence, honeypots),
+        };
+    }
     /// <summary>
     ///     Build the initial aggregate from the first sample seen for a
     ///     fingerprint. Called on

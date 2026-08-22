@@ -1,5 +1,6 @@
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.SlidingCache;
+using Mostlylucid.BotDetection.Orchestration.Sessions.Molecules;
 
 namespace Mostlylucid.BotDetection.Orchestration.Sessions;
 
@@ -52,6 +53,22 @@ public sealed record SessionContribution(
     DateTimeOffset At,
     IReadOnlyList<string> Signals);
 
+/// <summary>Identifies whether a session write originated locally or was folded remotely.</summary>
+public enum SessionFoldOrigin { LocalFragment, RemoteCanonical }
+
+/// <summary>Stable fencing and ordering metadata for a cumulative session fold.</summary>
+public sealed record SessionFoldCursor(
+    string SourceId,
+    string EpochId,
+    long FencingGeneration,
+    long Sequence);
+
+/// <summary>One post-fold session observation. Remote observations never raise Changes.</summary>
+public sealed record SessionFoldObservation(
+    SessionAggregate Aggregate,
+    SessionFoldOrigin Origin,
+    SessionFoldCursor? Cursor = null);
+
 /// <summary>
 ///     An ephemeral session instance — the value held in a site's session sliding
 ///     cache. A session <em>is</em> its accumulated request contributions; readers
@@ -73,6 +90,8 @@ public sealed class Session
     // O(n) scan. Keeping latest-per-kind is O(distinct kinds) = O(1).
     private readonly Dictionary<string, SessionContribution> _latestByKind =
         new(StringComparer.Ordinal);
+    private (SessionFoldCursor Cursor, SessionAggregate Aggregate)? _remoteCanonical;
+    private SessionAggregate? _localAggregate;
 
     public Session(string sessionKey)
     {
@@ -103,6 +122,55 @@ public sealed class Session
             LastActivityAt = DateTimeOffset.UtcNow;
         }
     }
+
+    public SessionAggregate? LocalAggregate
+    {
+        get { lock (_gate) return _localAggregate; }
+    }
+
+    public void SetLocalAggregate(SessionAggregate aggregate)
+    {
+        lock (_gate) _localAggregate = aggregate;
+    }
+
+    public (bool Applied, SessionAggregate Aggregate) ApplyRemoteAtomically(
+        SessionFoldCursor cursor,
+        SessionAggregate aggregate,
+        Func<IEnumerable<SessionAggregate>, SessionAggregate> fold)
+    {
+        lock (_gate)
+        {
+            if (_remoteCanonical is { } prior
+                && (cursor.FencingGeneration < prior.Cursor.FencingGeneration
+                    || (cursor.FencingGeneration == prior.Cursor.FencingGeneration
+                        && (!string.Equals(cursor.EpochId, prior.Cursor.EpochId, StringComparison.Ordinal)
+                            || !string.Equals(cursor.SourceId, prior.Cursor.SourceId, StringComparison.Ordinal)
+                            || cursor.Sequence <= prior.Cursor.Sequence))))
+                return (false, fold(AddLocal(new[] { prior.Aggregate })));
+
+            // Build and fold a candidate snapshot first. No live cursor, aggregate,
+            // or signal is changed until every operation below has succeeded.
+            var folded = fold(AddLocal(new[] { aggregate }));
+            var contribution = new SessionContribution(
+                $"remote:{cursor.SourceId}:{cursor.EpochId}:{cursor.FencingGeneration}:{cursor.Sequence}",
+                aggregate.LastSample,
+                new[] { SessionAggregateMolecule.ToSignal(folded) });
+
+            _remoteCanonical = (cursor, aggregate);
+            _latestByKind[KindOf(contribution)] = contribution;
+            LastActivityAt = DateTimeOffset.UtcNow;
+            return (true, folded);
+        }
+    }
+
+    private IEnumerable<SessionAggregate> AddLocal(IEnumerable<SessionAggregate> remote)
+        => _localAggregate is null ? remote : new[] { _localAggregate }.Concat(remote);
+
+    public SessionAggregate? RemoteAggregate
+    {
+        get { lock (_gate) return _remoteCanonical?.Aggregate; }
+    }
+
 
     /// <summary>Latest contribution per signal kind (what the molecules project from).</summary>
     public IReadOnlyList<SessionContribution> SnapshotContributions()

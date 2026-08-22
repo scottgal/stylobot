@@ -108,6 +108,146 @@ public class SessionStoreTests
     }
 
     [Fact]
+    public async Task Remote_fold_is_silent_and_idempotent_by_source_cursor()
+    {
+        using var store = NewStore();
+        var changes = 0;
+        var observations = new List<SessionFoldObservation>();
+        store.Changes.TypedSignalRaised += _ => changes++;
+        store.Observations.TypedSignalRaised += evt => observations.Add(evt.Payload);
+        var remote = NewSample(fingerprintId: "fp-remote", botProbability: 0.9);
+        var source = new SessionFoldCursor("node-a", "epoch-1", 1, 2);
+        var contribution = SessionAggregateMerge.FromFirstSample(remote);
+
+        await store.ApplyRemoteFoldAsync(contribution, source);
+        await store.ApplyRemoteFoldAsync(contribution, source);
+        var stale = source with { Sequence = 1 };
+        await store.ApplyRemoteFoldAsync(contribution with { MeanBotProbability = 0.1 }, stale);
+
+        changes.Should().Be(0);
+        observations.Should().ContainSingle();
+        observations.Should().OnlyContain(x => x.Origin == SessionFoldOrigin.RemoteCanonical);
+        observations.Where(x => x.Origin == SessionFoldOrigin.LocalFragment).Should().BeEmpty();
+        store.TryGet("site-1", "fp-remote")!.SampleCount.Should().Be(1);
+        store.TryGet("site-1", "fp-remote")!.MeanBotProbability.Should().Be(0.9);
+    }
+
+    [Fact]
+    public async Task Remote_fold_rejects_same_generation_different_source()
+    {
+        using var store = NewStore();
+        var first = SessionAggregateMerge.FromFirstSample(NewSample(fingerprintId: "fp-epoch", botProbability: 0.2));
+        await store.ApplyRemoteFoldAsync(first, new SessionFoldCursor("node-a", "epoch-a", 1, 1));
+
+        var rejected = first with { MeanBotProbability = 0.9, SampleCount = 9 };
+        await store.ApplyRemoteFoldAsync(rejected, new SessionFoldCursor("node-b", "epoch-a", 1, 2));
+
+        var result = store.TryGet("site-1", "fp-epoch")!;
+        result.SampleCount.Should().Be(1);
+        result.MeanBotProbability.Should().BeApproximately(0.2, 0.0001);
+    }
+
+    [Fact]
+    public async Task ApplyRemoteFold_validates_cursor_identity_and_progress()
+    {
+        using var store = NewStore();
+        var aggregate = SessionAggregateMerge.FromFirstSample(NewSample(fingerprintId: "fp-validation"));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            store.ApplyRemoteFoldAsync(aggregate, new SessionFoldCursor(" ", "epoch", 1, 1)));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            store.ApplyRemoteFoldAsync(aggregate, new SessionFoldCursor("node", " ", 1, 1)));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            store.ApplyRemoteFoldAsync(aggregate, new SessionFoldCursor("node", "epoch", 0, 1)));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            store.ApplyRemoteFoldAsync(aggregate, new SessionFoldCursor("node", "epoch", 1, 0)));
+    }
+
+    [Fact]
+    public void ApplyRemoteAtomically_retries_after_fold_exception_with_same_cursor()
+    {
+        var session = new Session("fp-retry");
+        var aggregate = SessionAggregateMerge.FromFirstSample(NewSample(fingerprintId: "fp-retry"));
+        var cursor = new SessionFoldCursor("node-a", "epoch-a", 1, 1);
+        var attempts = 0;
+
+        Func<IEnumerable<SessionAggregate>, SessionAggregate> fold = aggregates =>
+        {
+            if (++attempts == 1) throw new InvalidOperationException("test fold failure");
+            return SessionAggregateMerge.Fold(aggregates);
+        };
+
+        Assert.Throws<InvalidOperationException>(() => session.ApplyRemoteAtomically(cursor, aggregate, fold));
+
+        var retry = session.ApplyRemoteAtomically(cursor, aggregate, fold);
+        retry.Applied.Should().BeTrue();
+        retry.Aggregate.SampleCount.Should().Be(1);
+        session.RemoteAggregate.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Remote_cumulative_replacement_uses_incoming_snapshot_once()
+    {
+        using var store = NewStore();
+        var first = SessionAggregateMerge.FromFirstSample(NewSample(fingerprintId: "fp-cumulative", botProbability: 0.2));
+        var second = first with { SampleCount = 2, MeanBotProbability = 0.8, MaxBotProbability = 0.9 };
+        await store.ApplyRemoteFoldAsync(first, new SessionFoldCursor("node-a", "e1", 1, 1));
+        await store.ApplyRemoteFoldAsync(second, new SessionFoldCursor("node-a", "e1", 1, 2));
+
+        var result = store.TryGet("site-1", "fp-cumulative")!;
+        result.SampleCount.Should().Be(2);
+        result.MeanBotProbability.Should().Be(0.8);
+    }
+
+    [Fact]
+    public async Task Session_fence_rejects_stale_unseen_sources_and_resets_on_new_epoch()
+    {
+        using var store = NewStore();
+        var first = SessionAggregateMerge.FromFirstSample(NewSample(fingerprintId: "fp-fence", botProbability: 0.2));
+        await store.ApplyRemoteFoldAsync(first, new SessionFoldCursor("owner-a", "epoch-a", 2, 1));
+
+        var stale = first with { MeanBotProbability = 0.9, SampleCount = 9 };
+        await store.ApplyRemoteFoldAsync(stale, new SessionFoldCursor("unseen", "epoch-a", 1, 1));
+        store.TryGet("site-1", "fp-fence")!.SampleCount.Should().Be(1);
+
+        var newEpoch = first with { MeanBotProbability = 0.7, SampleCount = 3 };
+        await store.ApplyRemoteFoldAsync(newEpoch, new SessionFoldCursor("owner-b", "epoch-b", 3, 1));
+        var second = newEpoch with { MeanBotProbability = 0.8, SampleCount = 4 };
+        await store.ApplyRemoteFoldAsync(second, new SessionFoldCursor("owner-b", "epoch-b", 3, 2));
+        store.TryGet("site-1", "fp-fence")!.SampleCount.Should().Be(4);
+        store.TryGet("site-1", "fp-fence")!.MeanBotProbability.Should().BeApproximately(0.8, 0.0001);
+    }
+
+    [Fact]
+    public async Task Higher_generation_owner_handoff_replaces_old_canonical_snapshot()
+    {
+        using var store = NewStore();
+        var old = SessionAggregateMerge.FromFirstSample(NewSample(fingerprintId: "fp-handoff", botProbability: 0.2)) with { SampleCount = 7 };
+        var replacement = old with { MeanBotProbability = 0.8, SampleCount = 3 };
+        await store.ApplyRemoteFoldAsync(old, new SessionFoldCursor("owner-a", "epoch-a", 1, 9));
+        await store.ApplyRemoteFoldAsync(replacement, new SessionFoldCursor("owner-b", "epoch-b", 2, 1));
+
+        var result = store.TryGet("site-1", "fp-handoff")!;
+        result.SampleCount.Should().Be(3);
+        result.MeanBotProbability.Should().BeApproximately(0.8, 0.0001);
+    }
+
+    [Fact]
+    public async Task Local_observation_is_emitted_once_per_fold()
+    {
+        using var store = NewStore();
+        var observations = new List<SessionFoldObservation>();
+        store.Observations.TypedSignalRaised += evt => observations.Add(evt.Payload);
+
+        store.Upsert(NewSample());
+        store.Upsert(NewSample(botProbability: 0.8));
+
+        observations.Should().HaveCount(2);
+        observations.Should().OnlyContain(x => x.Origin == SessionFoldOrigin.LocalFragment);
+        observations[^1].Aggregate.SampleCount.Should().Be(2);
+    }
+
+    [Fact]
     public void TryGet_returns_null_for_unknown_site_with_no_sessions()
     {
         using var store = NewStore();
