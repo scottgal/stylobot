@@ -133,6 +133,35 @@ public class SessionStoreTests
     }
 
     [Fact]
+    public async Task Local_observation_after_remote_fold_is_source_pure()
+    {
+        using var store = NewStore();
+        var observations = new List<SessionFoldObservation>();
+        store.Observations.TypedSignalRaised += evt => observations.Add(evt.Payload);
+
+        var remote = SessionAggregateMerge.FromFirstSample(
+            NewSample(fingerprintId: "fp-source-purity", botProbability: 0.9)) with
+        {
+            SampleCount = 3,
+        };
+        await store.ApplyRemoteFoldAsync(
+            remote,
+            new SessionFoldCursor("node-remote", "epoch-1", 1, 1));
+
+        var returned = await store.UpsertAsync(
+            NewSample(fingerprintId: "fp-source-purity", botProbability: 0.1));
+
+        var local = observations.Single(x => x.Origin == SessionFoldOrigin.LocalFragment).Aggregate;
+        local.SampleCount.Should().Be(1);
+        local.MeanBotProbability.Should().BeApproximately(0.1, 0.0001);
+        returned.SampleCount.Should().Be(4);
+        returned.MeanBotProbability.Should().BeApproximately(0.7, 0.0001);
+        store.TryGet("site-1", "fp-source-purity")!.SampleCount.Should().Be(4);
+        observations.Should().ContainSingle(x => x.Origin == SessionFoldOrigin.RemoteCanonical);
+        observations.Should().ContainSingle(x => x.Origin == SessionFoldOrigin.LocalFragment);
+    }
+
+    [Fact]
     public async Task Remote_fold_rejects_same_generation_different_source()
     {
         using var store = NewStore();

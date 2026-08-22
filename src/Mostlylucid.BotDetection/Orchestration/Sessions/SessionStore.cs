@@ -164,8 +164,10 @@ public sealed class SessionStore : IDisposable
             session = await coordinator.GetOrCreateSessionAsync(sample.FingerprintId, ct).ConfigureAwait(false);
         }
 
-        var previous = session.LocalAggregate
-            ?? SessionAggregateMolecule.FromSession(session, sample.FingerprintId, sample.SiteId);
+        // Local observations must remain source-pure: when a session contains
+        // only a remote canonical fold, the first local sample starts a new
+        // local fragment rather than inheriting the folded remote snapshot.
+        var previous = session.LocalAggregate;
         var merged = previous is null
             ? SessionAggregateMerge.FromFirstSample(sample)
             : SessionAggregateMerge.Merge(previous, sample);
@@ -181,7 +183,7 @@ public sealed class SessionStore : IDisposable
 
         Changes.Raise(SessionSignalKeys.AggregateUpdated.Name, folded, sample.FingerprintId);
         Observations.Raise(SessionSignalKeys.Observation.Name,
-            new SessionFoldObservation(folded, SessionFoldOrigin.LocalFragment), sample.FingerprintId);
+            new SessionFoldObservation(merged, SessionFoldOrigin.LocalFragment), sample.FingerprintId);
         return folded;
     }
 
