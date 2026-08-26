@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.11.3] - 2026-08-26
+
+- **Docs: the UI / OpenApi / PrometheusPack packages now ship a README + XML docs.** Previously none had a `PackageReadmeFile` (UI's stale README claimed ASP.NET Core 8/9 and MIT — both wrong), and consumers got no IntelliSense XML. Each package now carries an accurate, consumer-focused README (wired via `PackageReadmeFile`), `GenerateDocumentationFile` XML docs in `lib/net10.0/`, and the shared icon/license/repository metadata. UI's README was rewritten to describe the current V2 dashboard, AGPL-3.0, net10.0.
+
 ## [8.11.2] - 2026-08-26
 
 - **Fix (GH #124): the UI package no longer ships Razor view source as contentFiles — consumers could not build.** The 8.11.1 UI package restored cleanly (after the NU1101 fix) but a fresh consumer app failed to compile: the nupkg shipped its `.cshtml` views as `contentFiles`, and the consumer's Razor SDK recompiled them into the consumer assembly, where the internal helpers the views reference (`PolicyActionEditorViewPaths`, `StyloBotDashboardMiddleware.BuildVisitorsPageWindow`) are inaccessible (CS0122/CS0117). The views are compiled into the RCL assembly; `Pack=false` on the Views/Notifications `Content` items stops the source from ever shipping. `NuGetDependencyIntegrityTests` now asserts the UI nupkg ships zero `.cshtml`. A fresh consumer app builds and runs against the published package.
