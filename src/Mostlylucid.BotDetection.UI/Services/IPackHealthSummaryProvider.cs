@@ -10,9 +10,10 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     one tile per provider that returns non-null.
 ///     <para>
 ///         Providers are in-process by design -- each one wraps an existing
-///         summary builder (e.g. <see cref="PolicyStackSummaryBuilder"/>,
-///         <see cref="PrometheusPack.Telemetry.IMeterStream"/>; commercial packs
-///         register their own builders against this same interface).
+///         summary builder (e.g. <see cref="PolicyStackSummaryBuilder"/>, or
+///         <c>PrometheusPack.Telemetry.IMeterStream</c> for the Prometheus pack's
+///         own meter tile, which registers its provider against this same
+///         interface from <c>AddPrometheusPack</c>).
 ///         The dashboard never HTTP-loopbacks into its own gateway's JSON
 ///         endpoints; the JSON endpoints exist so cross-host viewer dashboards
 ///         (commercial overlay) can rollup the fleet.

@@ -11,8 +11,8 @@
         <PackageId>Mostlylucid.BotDetection.PrometheusPack</PackageId>
         <MinVerTagPrefix>botdetection-prometheuspack-v</MinVerTagPrefix>
         <Authors>Mostlylucid</Authors>
-        <Description>Meter ingest + summary surface for the Stylobot FOSS dashboard. Ships IMeterStream + LocalMeterStream (MeterListener) + RemoteMeterStream (Prometheus text scrape) + the shared LFU MeterSummaryAtom storage. Read-only data plane; signal-emission hook for blackboard adapters. No write surfaces.</Description>
-        <PackageTags>bot-detection;metrics;prometheus;telemetry;observability</PackageTags>
+        <Description>Meter ingest + summary surface for the Stylobot FOSS dashboard. Ships IMeterStream + LocalMeterStream (MeterListener) + RemoteMeterStream (Prometheus text scrape) + the shared LFU MeterSummaryAtom storage, plus the dashboard's meter-health tile (IPackHealthSummaryProvider seam). Read-only data plane; signal-emission hook for blackboard adapters. No write surfaces. Optional add-on pack -- the dashboard UI does not depend on it.</Description>
+        <PackageTags>bot-detection;metrics;prometheus;telemetry;observability;dashboard</PackageTags>
     </PropertyGroup>
 
     <ItemGroup>
@@ -25,6 +25,11 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <!-- The pack OWNS its dashboard widget surface (meter-health tile +
+             freshness contributor): it plugs into the UI's IPackHealthSummaryProvider
+             and DashboardFreshnessBeacon seams. UI does NOT reference this pack.
+             Prometheus is an optional add-on, not a hard dependency. -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
     </ItemGroup>
 
     <PropertyGroup>

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.11.1] - 2026-08-26
+
+- **Fix (GH #124): the UI package no longer hard-depends on the Prometheus pack — Prometheus is now an OPTIONAL add-on that owns its dashboard widget surface.** The published `Mostlylucid.BotDetection.UI` nuspec declared hard dependencies on `Mostlylucid.BotDetection.PrometheusPack` (and `Mostlylucid.BotDetection.OpenApi`) at the same version while NEITHER existed on nuget.org — so every `dotnet add package mostlylucid.botdetection.ui` failed with NU1101. The dependency is inverted: the meter-health tile + its freshness contributor moved INTO the Prometheus pack, which now references UI and registers its surface through the existing `IPackHealthSummaryProvider` / `DashboardFreshnessBeacon` seams. The UI nuspec now depends only on core + OpenApi; both previously-missing packages ship with this release. A host that installs only the UI package boots with a fully-working dashboard (no meter tile); adding the pack opts into the metrics surface.
+
+- **Fail-fast dependency check.** `AddStyloBotDashboard` verifies its REQUIRED pack assemblies at composition time and throws with an actionable message (`dotnet add package …`) when one is missing or unloadable — no more cryptic `TypeLoadException` deep in startup for a version-skewed or hand-trimmed install.
+
+- **Regression tests for the dangling-dependency class.** A nuspec dependency-integrity test packs the real projects and asserts the UI nuspec declares only present, first-party dependencies and never Prometheus; plus validator, Prometheus-optionality (host boots with/without the pack), and dashboard boot-smoke tests. A future release that re-introduces a dangling or hard-optional dependency fails CI the day it lands.
+
 - **Fix: the signature-detail sparkline read its own shadow history — replaced with a
   signature-scoped time-series union.** `SignatureAggregateCache` kept a per-signature
   `ScoreHistory`/`ProcessingTimeHistory`/`ConfidenceHistory` ring buffer purely to feed

@@ -1,9 +1,6 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
 using Mostlylucid.BotDetection.Policies.Rules;
-using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
-using Mostlylucid.Common.Scheduling;
-using Mostlylucid.BotDetection.Scheduling;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Services;
@@ -14,17 +11,14 @@ namespace Mostlylucid.BotDetection.Test.UI;
 
 /// <summary>
 ///     Producer-side coverage for <see cref="DashboardFreshnessBridge"/>
-///     (issue #122). The bridge subscribes to <see cref="IPolicyRuleStore.Changed"/>
-///     and the schedule coordinator's Tick10s; tests use fakes to:
-///     <list type="bullet">
-///         <item>fire the rule-store Changed event -- expect the policy-stack
-///         cache invalidated AND a stale beacon broadcast;</item>
-///         <item>fire a Tick10s on a stream whose catalog size changed --
-///         expect the meter-stream cache invalidated AND a beacon broadcast;</item>
-///         <item>fire a Tick10s with no catalog change -- expect NO beacon
-///         (otherwise every dashboard refresh would fire even when nothing
-///         moved, defeating the rate cap).</item>
-///     </list>
+///     (issue #122). The bridge subscribes to <see cref="IPolicyRuleStore.Changed"/>;
+///     tests fire the rule-store Changed event and expect the policy-stack
+///     cache invalidated AND a stale beacon broadcast.
+///     <para>
+///         The meter-stream catalog arm moved out of this bridge into the
+///         Prometheus pack (MeterHealthFreshnessBootstrap) when the pack became
+///         an optional add-on -- it is covered by MeterHealthFreshnessBootstrapTests.
+///     </para>
 /// </summary>
 public sealed class DashboardFreshnessBridgeTests
 {
@@ -86,73 +80,7 @@ public sealed class DashboardFreshnessBridgeTests
             "been told to shut down.");
     }
 
-    // ---------- 2. Tick10s + catalog size changed -> cache invalidate. ----
-
-    [Fact]
-    public async Task Tick10s_with_changed_catalog_invalidates_MeterStreamHealthTileCache()
-    {
-        var stream = new FakeMeterStream();
-        var coordinator = new FakeScheduleCoordinator();
-        var tileCache = new MeterStreamHealthTileCache();
-        tileCache.Set(new Mostlylucid.BotDetection.UI.Models.StatTileViewModel("Metrics", "0"));
-
-        var beacon = NewBeacon();
-        var bridge = new DashboardFreshnessBridge(
-            beacon,
-            meterStream: stream,
-            coordinator: coordinator,
-            meterTileCache: tileCache);
-
-        await bridge.StartAsync(CancellationToken.None);
-
-        // Initial tick: catalog size moves from the bridge's initial -1
-        // sentinel to 0 -> cache MUST invalidate (catalog has "changed").
-        await coordinator.RaiseTickAsync(TickCadence.Tick10s);
-
-        tileCache.TryGet().Should().BeNull(
-            "the bridge MUST invalidate the tile cache when the observed catalog size moves.");
-
-        await bridge.StopAsync(CancellationToken.None);
-    }
-
-    // ---------- 3. Tick10s with no change does NOT re-invalidate. ---------
-
-    [Fact]
-    public async Task Tick10s_without_catalog_change_does_not_reinvalidate_cache()
-    {
-        var stream = new FakeMeterStream();
-        var coordinator = new FakeScheduleCoordinator();
-        var tileCache = new MeterStreamHealthTileCache();
-
-        var beacon = NewBeacon();
-        var bridge = new DashboardFreshnessBridge(
-            beacon,
-            meterStream: stream,
-            coordinator: coordinator,
-            meterTileCache: tileCache);
-
-        await bridge.StartAsync(CancellationToken.None);
-
-        // Tick #1: -1 -> 0 -> cache invalidates (already-null stays null).
-        await coordinator.RaiseTickAsync(TickCadence.Tick10s);
-
-        // Repopulate the cache; a consumer just rebuilt after the first
-        // beacon and stored the new tile.
-        tileCache.Set(new Mostlylucid.BotDetection.UI.Models.StatTileViewModel("Metrics", "0"));
-
-        // Tick #2: catalog still empty (0 -> 0) -> bridge MUST NOT
-        // re-invalidate. Otherwise every tick would invalidate forever,
-        // defeating the centralised-change-detection design.
-        await coordinator.RaiseTickAsync(TickCadence.Tick10s);
-
-        tileCache.TryGet().Should().NotBeNull(
-            "an unchanged catalog must not invalidate the cache (the centralised " +
-            "change-detection contract guarantees the next read is a hit when nothing has moved).");
-
-        await bridge.StopAsync(CancellationToken.None);
-    }
-
-    // ---------- 4. No upstreams -> bridge is a no-op. ---------------------
+    // ---------- 2. No upstreams -> bridge is a no-op. ---------------------
 
     [Fact]
     public async Task Bridge_with_no_upstreams_is_safe_to_start_and_stop()
@@ -208,51 +136,6 @@ public sealed class DashboardFreshnessBridgeTests
 
         public Task<IReadOnlyList<PolicyRule>> GetAllRulesAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<PolicyRule>>(Array.Empty<PolicyRule>());
-    }
-
-    private sealed class FakeMeterStream : IMeterStream
-    {
-        public List<MeterCatalogEntry> Entries { get; } = new();
-
-        public Task<IReadOnlyList<MeterCatalogEntry>> ListAsync(CancellationToken ct)
-            => Task.FromResult<IReadOnlyList<MeterCatalogEntry>>(Entries);
-
-        public Task<MeterTimeSeries?> GetAsync(
-            string meterName, TimeSpan window, int buckets, CancellationToken ct)
-            => Task.FromResult<MeterTimeSeries?>(null);
-    }
-
-    private sealed class FakeScheduleCoordinator : IScheduleCoordinator
-    {
-        private readonly List<(TickCadence Cadence, Func<DateTimeOffset, CancellationToken, Task> Handler)> _subs = new();
-
-        public IDisposable Subscribe(
-            TickCadence cadence,
-            string subscriberName,
-            CostHint costHint,
-            Func<DateTimeOffset, CancellationToken, Task> handler)
-        {
-            _subs.Add((cadence, handler));
-            return new Subscription(() => _subs.RemoveAll(s => s.Handler == handler));
-        }
-
-        public IReadOnlyList<TickSubscriberMetadata> Snapshot()
-            => Array.Empty<TickSubscriberMetadata>();
-
-        public async Task RaiseTickAsync(TickCadence cadence)
-        {
-            foreach (var s in _subs.Where(x => x.Cadence == cadence).ToList())
-            {
-                await s.Handler(DateTimeOffset.UtcNow, CancellationToken.None);
-            }
-        }
-
-        private sealed class Subscription : IDisposable
-        {
-            private readonly Action _onDispose;
-            public Subscription(Action onDispose) => _onDispose = onDispose;
-            public void Dispose() => _onDispose();
-        }
     }
 
     private sealed class RecordingHub : IStyloBotDashboardHub

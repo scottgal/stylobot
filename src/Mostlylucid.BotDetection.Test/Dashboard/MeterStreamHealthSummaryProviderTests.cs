@@ -1,17 +1,19 @@
 using FluentAssertions;
+using Mostlylucid.BotDetection.PrometheusPack.HealthSummaryProviders;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
-using Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 
 namespace Mostlylucid.BotDetection.Test.Dashboard;
 
 /// <summary>
 ///     Coverage for <see cref="MeterStreamHealthSummaryProvider"/> -- the C1
 ///     adapter that surfaces "N meters currently published" alongside the
-///     policy + AspNet tiles. Always returns a tile (IMeterStream is on every
-///     host); health band derives from the catalog size.
+///     policy + AspNet tiles. The provider lives in the Prometheus pack (it is
+///     the pack's OWN dashboard widget, registered by AddPrometheusPack through
+///     the UI's IPackHealthSummaryProvider seam); it returns a tile when a
+///     meter stream is present and null when one is absent.
 /// </summary>
 public sealed class MeterStreamHealthSummaryProviderTests
 {

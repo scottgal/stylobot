@@ -462,19 +462,12 @@ public static class StyloBotDashboardServiceExtensions
         // process (no HTTP loopback into the gateway's own JSON endpoints). The
         // commercial overlay registers additional providers via the same
         // IPackHealthSummaryProvider interface so its packs slot in alongside.
-        // Ordering: Policy (100, leftmost) -- Metrics (300).
+        // Ordering: Policy (100, leftmost). The Metrics tile (300) is OWNED by
+        // the Prometheus pack -- AddPrometheusPack registers its
+        // MeterStreamHealthSummaryProvider through this same seam, so the UI
+        // package carries no hard dependency on Prometheus.
         services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
             Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.PolicyStackHealthSummaryProvider>();
-        // Factory variant: IMeterStream is only registered when a host calls
-        // AddPrometheusPack. A Demo / dev-bench host won't have it, but the
-        // dashboard wiring registers this provider unconditionally. Resolving
-        // through the factory lets the provider's null path return a null tile
-        // (the row builder skips it) instead of failing ValidateOnBuild.
-        services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider>(sp =>
-            new Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthSummaryProvider(
-                sp.GetService<Mostlylucid.BotDetection.PrometheusPack.Telemetry.IMeterStream>(),
-                sp.GetService<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>(),
-                sp.GetService<Mostlylucid.BotDetection.UI.Services.IDashboardLinkResolver>()));
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();
 
         // Plan 3 Task 1 -- per-surface tick/version cursor. ONE monotonic
@@ -511,7 +504,8 @@ public static class StyloBotDashboardServiceExtensions
         // TTLs / warmups / invalidation logic.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardFreshnessBeacon>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.PolicyStackSummaryCache>();
-        services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.MeterStreamHealthTileCache>();
+        // MeterStreamHealthTileCache (the meter tile's shingle) is registered by
+        // the Prometheus pack's AddPrometheusPack -- the tile surface is pack-owned.
 
         // Site-health widget: sampler subscribes to Tick10s and persists
         // DegradationAtom snapshots via IDashboardEventStore. The view
@@ -524,11 +518,11 @@ public static class StyloBotDashboardServiceExtensions
         // via DI optional-resolve below.
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DegradationStoreSampler>();
         services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DegradationStoreSamplerBootstrap>();
-        // Bridge: subscribes IPolicyRuleStore.Changed -> beacon, and
-        // IScheduleCoordinator Tick10s -> beacon (when the meter catalog
-        // size changes). Each upstream is optional per
-        // feedback_remote_mode_optional_di; absent inputs self-disable
-        // that producer arm.
+        // Bridge: subscribes IPolicyRuleStore.Changed -> beacon (policy stack)
+        // and IScheduleCoordinator Tick10s -> beacon (site health). Each
+        // upstream is optional per feedback_remote_mode_optional_di; absent
+        // inputs self-disable that producer arm. The meter-stream surface is
+        // bridged by the Prometheus pack's own freshness contributor.
         services.AddHostedService<Mostlylucid.BotDetection.UI.Services.DashboardFreshnessBridge>();
 
         // Detection retention pruner: DELETE rows older than DetectionRetention (default 30d).
@@ -928,6 +922,14 @@ public static class StyloBotDashboardServiceExtensions
         });
 
         services.AddDashboardEndpointPerfBaseline();
+
+        // Fail-fast at composition: verify the required pack assemblies the UI
+        // nuspec hard-depends on are present. A missing / version-skewed pack
+        // surfaces here with an actionable message instead of a cryptic
+        // TypeLoadException later in startup. Prometheus is intentionally not in
+        // the required set -- it is an optional add-on pack (see
+        // StyloBotDependencyValidator.RequiredPacks).
+        Diagnostics.StyloBotDependencyValidator.ValidateRequiredPacks();
 
         return services;
     }

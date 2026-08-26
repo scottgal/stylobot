@@ -2,9 +2,12 @@ using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.Policies.Signals;
+using Mostlylucid.BotDetection.PrometheusPack.HealthSummaryProviders;
 using Mostlylucid.BotDetection.PrometheusPack.Policies;
 using Mostlylucid.BotDetection.PrometheusPack.Policies.Triggers;
 using Mostlylucid.BotDetection.PrometheusPack.Telemetry;
+using Mostlylucid.BotDetection.UI.Services;
+using Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders;
 
 namespace Mostlylucid.BotDetection.PrometheusPack.Extensions;
 
@@ -153,6 +156,26 @@ public static class PrometheusPackServiceCollectionExtensions
         // owned by Mostlylucid.BotDetection core). It does no periodic work.
         var mode = options.Mode;
         services.AddHostedService(sp => new PrometheusPackBootstrap(sp, mode));
+
+        // Dashboard widget surface -- OWNED by this pack, not the UI assembly.
+        // The meter-health tile plugs into the UI's IPackHealthSummaryProvider
+        // seam, and MeterHealthFreshnessBootstrap invalidates it on Tick10s via
+        // the shared beacon. Everything resolves OPTIONALLY per
+        // feedback_remote_mode_optional_di: a host without the dashboard gets no
+        // tile and the bootstrap self-disables, so AddPrometheusPack stays valid
+        // for dashboard-less gateway-only deployments.
+        services.TryAddSingleton<MeterStreamHealthTileCache>();
+        services.AddSingleton<IPackHealthSummaryProvider>(sp =>
+            new MeterStreamHealthSummaryProvider(
+                sp.GetService<IMeterStream>(),
+                sp.GetService<MeterStreamHealthTileCache>(),
+                sp.GetService<IDashboardLinkResolver>()));
+        services.AddHostedService(sp => new MeterHealthFreshnessBootstrap(
+            sp.GetService<DashboardFreshnessBeacon>(),
+            sp.GetService<IMeterStream>(),
+            sp.GetService<MeterStreamHealthTileCache>(),
+            sp.GetService<Mostlylucid.Common.Scheduling.IScheduleCoordinator>(),
+            sp.GetService<Microsoft.Extensions.Logging.ILogger<MeterHealthFreshnessBootstrap>>()));
 
         return services;
     }
