@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.11.2] - 2026-08-26
+
+- **Fix (GH #124): the UI package no longer ships Razor view source as contentFiles — consumers could not build.** The 8.11.1 UI package restored cleanly (after the NU1101 fix) but a fresh consumer app failed to compile: the nupkg shipped its `.cshtml` views as `contentFiles`, and the consumer's Razor SDK recompiled them into the consumer assembly, where the internal helpers the views reference (`PolicyActionEditorViewPaths`, `StyloBotDashboardMiddleware.BuildVisitorsPageWindow`) are inaccessible (CS0122/CS0117). The views are compiled into the RCL assembly; `Pack=false` on the Views/Notifications `Content` items stops the source from ever shipping. `NuGetDependencyIntegrityTests` now asserts the UI nupkg ships zero `.cshtml`. A fresh consumer app builds and runs against the published package.
+
 ## [8.11.1] - 2026-08-26
 
 - **Fix (GH #124): the UI package no longer hard-depends on the Prometheus pack — Prometheus is now an OPTIONAL add-on that owns its dashboard widget surface.** The published `Mostlylucid.BotDetection.UI` nuspec declared hard dependencies on `Mostlylucid.BotDetection.PrometheusPack` (and `Mostlylucid.BotDetection.OpenApi`) at the same version while NEITHER existed on nuget.org — so every `dotnet add package mostlylucid.botdetection.ui` failed with NU1101. The dependency is inverted: the meter-health tile + its freshness contributor moved INTO the Prometheus pack, which now references UI and registers its surface through the existing `IPackHealthSummaryProvider` / `DashboardFreshnessBeacon` seams. The UI nuspec now depends only on core + OpenApi; both previously-missing packages ship with this release. A host that installs only the UI package boots with a fully-working dashboard (no meter tile); adding the pack opts into the metrics surface.
