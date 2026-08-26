@@ -80,9 +80,20 @@ public sealed class NuGetDependencyIntegrityTests
     private static bool IsCoPackableFirstParty(string id)
         => PackedPackageIds.Any(p => string.Equals(p, id, StringComparison.OrdinalIgnoreCase));
 
+    // NuGet lowercases the PackageId of some packages in the nupkg filename (core ->
+    // mostlylucid.botdetection, GeoDetection -> mostlylucid.geodetection). The feed can
+    // hold mixed casing (Mostlylucid.Common keeps its casing), so lookups MUST be
+    // case-insensitive -- CI is Linux (case-sensitive FS), where an exact-case File.Exists
+    // silently misses a lowercase filename.
+    private static string? FindNupkg(string packDir, string packageId)
+        => Directory.EnumerateFiles(packDir, $"*.{TestVersion}.nupkg")
+            .FirstOrDefault(f => string.Equals(
+                Path.GetFileName(f),
+                $"{packageId}.{TestVersion}.nupkg",
+                StringComparison.OrdinalIgnoreCase));
+
     private static bool NupkgExists(string packDir, string packageId)
-        => Directory.EnumerateFiles(packDir, $"{packageId}.{TestVersion}.nupkg")
-            .Any(f => string.Equals(Path.GetFileName(f), $"{packageId}.{TestVersion}.nupkg", StringComparison.OrdinalIgnoreCase));
+        => FindNupkg(packDir, packageId) is not null;
 
     [Fact]
     public async Task Ui_nuspec_declares_only_present_packs_and_never_prometheus()
@@ -343,11 +354,11 @@ public sealed class NuGetDependencyIntegrityTests
 
     private static XDocument ReadNuspec(string packDir, string packageId)
     {
-        var nupkg = Path.Combine(packDir, $"{packageId}.{TestVersion}.nupkg");
+        var nupkg = FindNupkg(packDir, packageId);
         File.Exists(nupkg).Should().BeTrue(
             $"expected {packageId}.{TestVersion}.nupkg in the pack output, got nothing.");
 
-        using var archive = ZipFile.OpenRead(nupkg);
+        using var archive = ZipFile.OpenRead(nupkg!);
         var entry = archive.Entries.First(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
         using var reader = new StreamReader(entry.Open());
         return XDocument.Load(reader);
@@ -361,8 +372,7 @@ public sealed class NuGetDependencyIntegrityTests
 
     private static int CountContentFiles(string packDir, string packageId, string suffix)
     {
-        var nupkg = Path.Combine(packDir, $"{packageId}.{TestVersion}.nupkg");
-        using var archive = ZipFile.OpenRead(nupkg);
+        using var archive = ZipFile.OpenRead(FindNupkg(packDir, packageId)!);
         return archive.Entries.Count(e => e.FullName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
 
