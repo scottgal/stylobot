@@ -56,4 +56,15 @@ public sealed class StyloBotDependencyValidatorTests
         act.Should().NotThrow(
             "Prometheus is an optional add-on, not part of the dashboard's REQUIRED pack contract.");
     }
+
+    [Fact]
+    public void ValidateRequiredPacks_passes_with_the_real_assembly_loader()
+    {
+        // No injected seam: exercise the actual Assembly.Load + exception-catch path.
+        // The test host references the UI assembly, which references core + OpenApi, so
+        // all REQUIRED packs are present and the default loader must succeed.
+        var act = () => StyloBotDependencyValidator.ValidateRequiredPacks();
+        act.Should().NotThrow(
+            "the real Assembly.Load path must resolve every required pack in a host that references the dashboard.");
+    }
 }

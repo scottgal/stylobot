@@ -45,6 +45,10 @@ public sealed class PrometheusOptionalityTests
         var services = BaseServices();
         ConfigureDashboard(services);
 
+        // Composition check: bare ServiceCollection, so NO ValidateOnBuild -- MVC/SignalR
+        // services need host infrastructure (IWebHostEnvironment, DiagnosticListener, ...)
+        // that only a real host provides. Full-graph validation happens in the TestServer
+        // e2e (UiPackageE2ETests), which boots the actual host.
         await using var sp = services.BuildServiceProvider();
 
         sp.GetService<IMeterStream>().Should().BeNull(
@@ -62,6 +66,10 @@ public sealed class PrometheusOptionalityTests
         services.AddPrometheusPack(opt => opt.Mode = PrometheusPackMode.Local);
         ConfigureDashboard(services);
 
+        // Composition check: bare ServiceCollection, so NO ValidateOnBuild -- MVC/SignalR
+        // services need host infrastructure (IWebHostEnvironment, DiagnosticListener, ...)
+        // that only a real host provides. Full-graph validation happens in the TestServer
+        // e2e (UiPackageE2ETests), which boots the actual host.
         await using var sp = services.BuildServiceProvider();
 
         sp.GetService<IMeterStream>().Should().NotBeNull(

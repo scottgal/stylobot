@@ -63,20 +63,25 @@ public static class StyloBotDependencyValidator
             Assembly.Load(new AssemblyName(name));
             return true;
         }
-        catch (FileNotFoundException)
+        catch (Exception ex) when (ex is FileNotFoundException
+                                   or BadImageFormatException
+                                   or TypeLoadException
+                                   or NotSupportedException
+                                   or System.Security.SecurityException)
         {
-            return false;
-        }
-        catch (BadImageFormatException)
-        {
+            // Broad set: on a future trimmed / NativeAOT dashboard host, Assembly.Load can
+            // surface different load failures than the classic FileNotFoundException. Any of
+            // them means the required pack is not present and must fail fast with the
+            // actionable message rather than an unhandled crash.
             return false;
         }
     }
 
     private static InvalidOperationException Missing(string package, string assembly)
         => new(
-            $"StyloBot dashboard requires the '{package}' package (assembly '{assembly}' is missing or " +
-            $"could not be loaded). Add it with: dotnet add package {package}. " +
-            "If you believe this is a version-skew issue, verify every Mostlylucid.BotDetection.* " +
-            "package is pinned to the same version.");
+            $"StyloBot dashboard requires the '{package}' package (assembly '{assembly}' is missing " +
+            $"or could not be loaded). Add it with: dotnet add package {package}. " +
+            "This check detects a completely missing/unloadable required pack; it does not " +
+            "verify version alignment across Mostlylucid.BotDetection.* packages -- if you " +
+            "suspect a version mismatch, pin all of them to the same version.");
 }

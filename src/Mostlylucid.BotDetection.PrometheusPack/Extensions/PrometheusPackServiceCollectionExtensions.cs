@@ -202,10 +202,11 @@ public static class PrometheusPackServiceCollectionExtensions
         // Wave 2: LocalMeterStream is no longer IHostedService. The
         // PrometheusPackBootstrap (registered by AddPrometheusPack) forces
         // construction at boot so the constructor's Subscribe(...) fires.
-        // Callers that wire AddLocalMeterStream directly without going through
-        // AddPrometheusPack get the same behaviour as long as something
-        // resolves IMeterStream early (the dashboard view-component pipeline
-        // does this on first SignalR connection).
+        // NOTE: the dashboard's meter-health TILE + its freshness contributor are
+        // registered ONLY by AddPrometheusPack (the validated front door). A host
+        // that wires AddLocalMeterStream/AddRemoteMeterStream directly (the
+        // building blocks, for test rigs / bespoke composition roots) gets the
+        // stream but NOT the tile -- call AddPrometheusPack for the full surface.
         //
         // Resolve IScheduleCoordinator via the production constructor (added
         // by Mostlylucid.BotDetection.Extensions.AddBotDetection).

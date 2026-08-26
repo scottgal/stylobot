@@ -14,7 +14,7 @@
         <PackageTags>bot-detection;middleware;aspnetcore;security;crawler;web</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Description>
-            Enterprise bot detection and anonymous entity resolution for ASP.NET Core — the detection engine behind StyloBot (https://stylo.bot). Probabilistic and behavioural, not just User-Agent matching: UA/header/IP analysis, JA3/JA4/HTTP2/QUIC/TCP-IP fingerprinting, Leiden cluster discovery, 129-dim Markov session vectors, metastable fingerprint identity, and optional LLM classification. Zero-PII (HMAC-SHA256), SQLite-backed, single-call UseStyloBot() setup.
+            Enterprise bot detection and anonymous entity resolution for ASP.NET Core — the detection engine behind StyloBot. Probabilistic and behavioural, not just User-Agent matching: UA/header/IP analysis, JA3/JA4/HTTP2/QUIC/TCP-IP fingerprinting, Leiden cluster discovery, 129-dim Markov session vectors, metastable fingerprint identity, and optional LLM classification. Zero-PII (HMAC-SHA256), SQLite-backed, single-call UseStyloBot() setup.
         </Description>
         <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>
         <TargetFrameworks>net10.0</TargetFrameworks>
