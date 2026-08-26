@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.12.0] - 2026-08-26
+
+- **Fix (GH #124): the pack-health row now renders on the V2 Traffic landing so pack tiles are visible.** The row (`SbPackHealthRow`) was orphaned when the V2 IA deleted the Overview page that hosted it — the Prometheus pack's meter-health tile and the policy-stack tile were registered in DI but never shown. It now renders at the top of the Traffic landing (the V2 de-facto overview); the row renders nothing when no pack contributes, and it is a per-tile cache/beacon read (no HTTP/store call on the render path). Regression test boots the dashboard + `AddPrometheusPack` and asserts the row + Metrics tile render.
+
+- **NuGet gallery guideline fix: no URL-like tokens in nuspec `<description>`.** The core package's Description carried `https://stylo.bot` — the `.bot` TLD tripped NuGet's "potentially invalid URL" validation warning. Removed (the repo URL lives in `PackageProjectUrl`/`RepositoryUrl`); the packaging test now asserts every packed nuspec's description is URL-free prose.
+
+- **Packaging regression guards hardened** (from a fresh-eyes review of the #124 batch): the integrity test now packs all five first-party packages, asserts PrometheusPack's own nuspec declares UI with a co-packed nupkg, and — the definitive guard — **builds a throwaway consumer app** referencing only the UI package against the packed feed, catching the NU1101-restore and contentFiles-compile failure classes on the real artifact.
+
+- **Fail-fast dependency validator hardened.** `AddStyloBotDashboard`'s required-pack check now catches the broader assembly-load failure set (TypeLoad/NotSupported/Security, for future trimmed/AOT hosts) and its message states accurately that it detects missing/unloadable packs, not version skew. Added a real-loader test.
+
 ## [8.11.3] - 2026-08-26
 
 - **Docs: the UI / OpenApi / PrometheusPack packages now ship a README + XML docs.** Previously none had a `PackageReadmeFile` (UI's stale README claimed ASP.NET Core 8/9 and MIT — both wrong), and consumers got no IntelliSense XML. Each package now carries an accurate, consumer-focused README (wired via `PackageReadmeFile`), `GenerateDocumentationFile` XML docs in `lib/net10.0/`, and the shared icon/license/repository metadata. UI's README was rewritten to describe the current V2 dashboard, AGPL-3.0, net10.0.
