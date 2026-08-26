@@ -5,35 +5,35 @@ Origin: StyloBot
 Label: StyloBot
 Suite: stable
 Codename: stable
-Date: Wed, 26 Aug 2026 13:27:00 UTC
+Date: Wed, 26 Aug 2026 16:55:48 UTC
 Architectures: amd64 arm64
 Components: main
 Description: StyloBot - self-hosted bot detection gateway (apt repository)
 MD5Sum:
- e7b310cefc1547f9fadf34e4dc1c17af 616 main/binary-amd64/Packages
- 135630a8fd2058377c44625c0b6f8c27 447 main/binary-amd64/Packages.gz
+ 41a6bd72e4f39e39fc506b17b29f3534 616 main/binary-amd64/Packages
+ 9bc1333fe4fa32b0c56d01214cfd60a5 448 main/binary-amd64/Packages.gz
  9e2d38ba39c3c70e15473e4c361d4577 160 main/binary-amd64/Release
- 2e28a375c90c45691107e71b50035192 616 main/binary-arm64/Packages
- c2c3016728f427eb5d34e62640ea8051 449 main/binary-arm64/Packages.gz
+ 322849ed6095763891834d03b67511b1 616 main/binary-arm64/Packages
+ d5609b35597ef261c7d1fea573199e06 448 main/binary-arm64/Packages.gz
  0e665c3008a34af283e0813a9116a921 160 main/binary-arm64/Release
 SHA1:
- e6914becb48fd88664fc61695d411d62cd6047c9 616 main/binary-amd64/Packages
- b06f00e5f66d95daa444276752dd476febe57295 447 main/binary-amd64/Packages.gz
+ 1e8a0dbed736011004140ed72f32c822e54b0c1c 616 main/binary-amd64/Packages
+ be71f60aed4a580f805c131dff4d9e4339b2a668 448 main/binary-amd64/Packages.gz
  536177db9fa93adf9d200efdffc081137e9c968a 160 main/binary-amd64/Release
- 778ad97e377ffde78c065cb2218107cdcb6ed361 616 main/binary-arm64/Packages
- 26db7d31265873d23af49680fd5ea97aab7358b7 449 main/binary-arm64/Packages.gz
+ 03fc1c73ae52144d9935d1b527222d1e8d36c93a 616 main/binary-arm64/Packages
+ 65c30faeb53d1e0939bffec4990ddc68b8354c32 448 main/binary-arm64/Packages.gz
  f96bb0b4189388d86c97bca33cddd62a590af539 160 main/binary-arm64/Release
 SHA256:
- 44e038696f95e0bd0a924b71c05c6d0062db487ff77fde636a67bbe51e7881cf 616 main/binary-amd64/Packages
- e10472033f6101d47031c99205c6d948e0db932351d12259e5cfc6c8d2dcee34 447 main/binary-amd64/Packages.gz
+ 2d81b248de5cde2d70e77cf955710b2af4fedd1ea2449162298ff5e00c8b6865 616 main/binary-amd64/Packages
+ 2d48f429db7ca94d96c2e24ff5fbfb2d961e44502d1fddd319ffde2e28999fa5 448 main/binary-amd64/Packages.gz
  e31655c96f09e88ef86d30a4b6112fe69005576b66822d87b750f63666b9073d 160 main/binary-amd64/Release
- 6a72b5c23c30aab5e60863536b53de5d10da9a674b050f990470e1fa13a6fc25 616 main/binary-arm64/Packages
- c85bcb725d9b864aea7b43539d7abb06133c9b72af449cd3504ea2ed23ca598e 449 main/binary-arm64/Packages.gz
+ 5b22a91bcd65ed5dbbcc6887e50ffb56b5969708d7a395f38e6cc3d62899cd81 616 main/binary-arm64/Packages
+ fae93cc0d4190ea7d33029f1d4f2f568bcde25f31c1ecb123122c9fc0f1fb242 448 main/binary-arm64/Packages.gz
  4213d6a5c33788c481735e8f1341af76c810bf5cce6bf549bcacf9d44e0148c0 160 main/binary-arm64/Release
 -----BEGIN PGP SIGNATURE-----
 
-iHUEARYKAB0WIQQ5VQ9JKnF4PC9jCfCixDaN9jm4UAUCao7ppQAKCRCixDaN9jm4
-UOEaAQDeGeJfGhMZEmZDT2StV9OV3xAzXhRV6FXzGwmkoZ3EigEArkphjqn6vrC1
-QCra1L0rlqD3xS2lYZ3TIJGFUKBYuQc=
-=y65A
+iHUEARYKAB0WIQQ5VQ9JKnF4PC9jCfCixDaN9jm4UAUCao8alQAKCRCixDaN9jm4
+ULGCAQDKZG7dY1GQHdXHzNtPurtDo2/5DZhwuBkeIZher0V7dQEAlaRWcErwkGkQ
++CxRDAbYlRpcYB7gez+849Gmtt5/ZQk=
+=UlI6
 -----END PGP SIGNATURE-----
