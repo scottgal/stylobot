@@ -69,6 +69,15 @@
     // nothing" defect, 2026-08-12).
     var refreshUrl = LinkWith(remove: "window") + (LinkWith(remove: "window").Contains("?") ? "&" : "?") + "partial=1";
 }
+
+@* Pack-health row: one tile per registered IPackHealthSummaryProvider (the policy
+   stack, and the Prometheus pack's meter-health tile when AddPrometheusPack is
+   installed). Renders NOTHING when no provider contributes a tile, so a plain
+   install is unchanged. Reintroduced here in the V2 IA: the legacy Overview page
+   that hosted it was deleted, orphaning the row and making pack tiles invisible
+   (found 2026-08-26 during package verification). Traffic is the V2 landing, so
+   it is the natural home for the health snapshot. *@
+@await Component.InvokeAsync("SbPackHealthRow")
 <div id="sb-traffic-body"
      hx-trigger="sb:signature-update from:body, sb:summary-update from:body"
      class="space-y-4">
