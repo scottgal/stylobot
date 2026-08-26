@@ -87,6 +87,17 @@ public sealed class NuGetDependencyIntegrityTests
                     $"'{dep}.{TestVersion}.nupkg' was packed alongside it -- this is exactly " +
                     "the dangling-dependency bug from issue #124.");
             }
+
+            // The UI package must NOT ship Razor view SOURCE as contentFiles. The views are
+            // compiled into the RCL assembly; if the .cshtml were packed as contentFiles a
+            // consumer's Razor SDK recompiles them into the consumer assembly, where the
+            // internal helpers the views reference are inaccessible -> CS0122/CS0117 on every
+            // consumer build (found by the new-app verification of 8.11.1).
+            var cshtmlCount = CountContentFiles(packDir, "Mostlylucid.BotDetection.UI", ".cshtml");
+            cshtmlCount.Should().Be(0,
+                $"UI package ships {cshtmlCount} .cshtml contentFiles -- consumers recompile them " +
+                "against internal members and fail to build. Views are compiled into the RCL dll; " +
+                "they must not be packed as contentFiles.");
         }
         finally
         {
@@ -164,6 +175,13 @@ public sealed class NuGetDependencyIntegrityTests
         var entry = archive.Entries.First(e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
         using var reader = new StreamReader(entry.Open());
         return XDocument.Load(reader);
+    }
+
+    private static int CountContentFiles(string packDir, string packageId, string suffix)
+    {
+        var nupkg = Path.Combine(packDir, $"{packageId}.{TestVersion}.nupkg");
+        using var archive = ZipFile.OpenRead(nupkg);
+        return archive.Entries.Count(e => e.FullName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
 
     private static IReadOnlyList<string> GetDependencyIds(XDocument nuspec)

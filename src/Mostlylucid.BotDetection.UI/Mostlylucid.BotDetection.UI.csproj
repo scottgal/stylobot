@@ -85,6 +85,15 @@
     <ItemGroup>
         <Content Include="$(MSBuildProjectDirectory)\Views\**\*.cshtml">
             <TargetPath>Views\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+            <!-- Pack=false: the views are COMPILED into the RCL assembly (the whole
+                 point of the TargetPath workaround above); shipping the .cshtml as
+                 contentFiles makes the CONSUMER's Razor SDK recompile them into the
+                 consumer's assembly, where the internal helpers the views reference
+                 (e.g. PolicyActionEditorViewPaths, StyloBotDashboardMiddleware.
+                 BuildVisitorsPageWindow) are inaccessible -> CS0122/CS0117 on every
+                 `dotnet build` of a consumer app. Consumers render the compiled views
+                 from the RCL dll; no source .cshtml should ever ship. -->
+            <Pack>false</Pack>
         </Content>
     </ItemGroup>
 
@@ -100,6 +109,9 @@
         <UpToDateCheckInput Include="Notifications\**\*.cshtml" />
         <Content Include="$(MSBuildProjectDirectory)\Notifications\**\*.cshtml">
             <TargetPath>Notifications\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+            <!-- Pack=false: same as the Views above — compiled into the RCL, never
+                 shipped as contentFiles (consumer recompilation breaks on internals). -->
+            <Pack>false</Pack>
         </Content>
     </ItemGroup>
 
