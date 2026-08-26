@@ -5,7 +5,28 @@
         <LangVersion>preview</LangVersion>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <IsPackable>true</IsPackable>
+
+        <!-- Package metadata. This package is a hard dependency of
+             Mostlylucid.BotDetection.Api (the LLM node registry + tunnel relay
+             endpoints); it MUST be published or Api consumers get NU1101 (the
+             issue #124 dangling-dep class). Co-packed at the same version by
+             publish-all.yml's publish-botdetection-llm job. -->
+        <PackageId>Mostlylucid.BotDetection.Llm.Tunnel</PackageId>
+        <MinVerTagPrefix>allbot-v</MinVerTagPrefix>
+        <Authors>Mostlylucid</Authors>
+        <Description>GPU tunnel relay for StyloBot LLM inference. Registers local GPU LLM nodes and routes cloud LLM inference to them over a Cloudflare tunnel. Used by the BotDetection.Api LLM node controller endpoints; a dependency of that package.</Description>
+        <PackageTags>bot-detection;llm;tunnel;gpu;relay;stylobot</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1591</NoWarn>
     </PropertyGroup>
+
+    <ItemGroup>
+        <None Include=".\README.md" Pack="true" PackagePath="">
+            <Link>Properties\README.md</Link>
+        </None>
+    </ItemGroup>
 
     <ItemGroup>
         <FrameworkReference Include="Microsoft.AspNetCore.App" />

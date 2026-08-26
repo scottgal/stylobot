@@ -33,14 +33,56 @@ public sealed class NuGetDependencyIntegrityTests
 {
     private const string TestVersion = "9.9.9-test";
 
+    // The FULL first-party publish closure: every packable project + the referenced
+    // published projects (Common, Llm). A dangling dep anywhere in this set (a nuspec
+    // declaring a co-packable first-party package with no matching nupkg) reproduces the
+    // issue #124 NU1101 class for consumers of THAT package -- e.g. the 8.12.0 Api ->
+    // Llm.Tunnel dangling dep this test now catches.
     private static readonly string[] PackedProjects =
     {
         "src/Mostlylucid.Common/Mostlylucid.Common.csproj",
         "src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj",
+        "src/Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj",
+        "src/Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj",
+        "src/Mostlylucid.BotDetection.Llm.Holodeck/Mostlylucid.BotDetection.Llm.Holodeck.csproj",
+        "src/Mostlylucid.BotDetection.Llm.Tunnel/Mostlylucid.BotDetection.Llm.Tunnel.csproj",
         "src/Mostlylucid.BotDetection.OpenApi/Mostlylucid.BotDetection.OpenApi.csproj",
         "src/Mostlylucid.BotDetection.PrometheusPack/Mostlylucid.BotDetection.PrometheusPack.csproj",
+        "src/Mostlylucid.BotDetection.StyloExtract/Mostlylucid.BotDetection.StyloExtract.csproj",
         "src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj",
+        "src/Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj",
     };
+
+    // Package ids as they appear in the nupkg FILENAMES (NuGet lowercases the core package
+    // id; the others keep the PascalCase id). Used by ReadNuspec / the description guard.
+    private static readonly string[] PackedPackageIds =
+    {
+        "mostlylucid.botdetection",
+        "Mostlylucid.BotDetection.Api",
+        "Mostlylucid.BotDetection.Llm",
+        "Mostlylucid.BotDetection.Llm.Holodeck",
+        "Mostlylucid.BotDetection.Llm.Tunnel",
+        "Mostlylucid.BotDetection.OpenApi",
+        "Mostlylucid.BotDetection.PrometheusPack",
+        "Mostlylucid.BotDetection.StyloExtract",
+        "Mostlylucid.BotDetection.UI",
+        "Mostlylucid.Common",
+        "Mostlylucid.GeoDetection",
+    };
+
+    /// <summary>
+    ///     True for a first-party dependency that is itself CO-PACKED at the release version.
+    ///     External first-party packages that come from nuget.org at their own published
+    ///     versions -- Ephemeral atoms, StyloFlow, Notify, StyloExtract.AspNetCore (2.x) --
+    ///     are NOT co-packed and are out of scope for the co-existence check. A dep is
+    ///     co-packable iff its id matches one of the packages in this test's pack closure.
+    /// </summary>
+    private static bool IsCoPackableFirstParty(string id)
+        => PackedPackageIds.Any(p => string.Equals(p, id, StringComparison.OrdinalIgnoreCase));
+
+    private static bool NupkgExists(string packDir, string packageId)
+        => Directory.EnumerateFiles(packDir, $"{packageId}.{TestVersion}.nupkg")
+            .Any(f => string.Equals(Path.GetFileName(f), $"{packageId}.{TestVersion}.nupkg", StringComparison.OrdinalIgnoreCase));
 
     [Fact]
     public async Task Ui_nuspec_declares_only_present_packs_and_never_prometheus()
@@ -57,38 +99,35 @@ public sealed class NuGetDependencyIntegrityTests
                 await DotnetPackAsync(csproj, packDir, repoRoot);
             }
 
-            var uiNuspec = ReadNuspec(packDir, "Mostlylucid.BotDetection.UI");
-            var dependencyIds = GetDependencyIds(uiNuspec);
+            // Comprehensive dangling-dep guard: for EVERY co-packed package, every first-party
+            // dependency that is itself co-packable must have a matching nupkg in the output.
+            // This is what catches the Api -> Llm.Tunnel dangling dep (found on 8.12.0) and any
+            // future recurrence across ALL packages, not just UI/PrometheusPack. NuGet emits
+            // dep ids lowercase; the nupkg filenames preserve the id's casing, so compare
+            // case-insensitively.
+            foreach (var packageId in PackedPackageIds)
+            {
+                var deps = GetDependencyIds(ReadNuspec(packDir, packageId));
+                foreach (var dep in deps.Where(IsCoPackableFirstParty))
+                {
+                    NupkgExists(packDir, dep).Should().BeTrue(
+                        $"the {packageId} nuspec declares co-packable first-party dependency " +
+                        $"'{dep}' but no '{dep}.{TestVersion}.nupkg' was co-packed alongside it -- " +
+                        "the dangling-dependency class from issue #124.");
+                }
+            }
 
-            // The UI package's real hard deps are present. NuGet emits dependency ids
-            // lowercase, so compare case-insensitively.
-            dependencyIds.Should().Contain(
+            // Optionality contracts worth asserting explicitly:
+            var uiDeps = GetDependencyIds(ReadNuspec(packDir, "Mostlylucid.BotDetection.UI"));
+            uiDeps.Should().Contain(
                 id => id.Equals("Mostlylucid.BotDetection", StringComparison.OrdinalIgnoreCase),
                 "the dashboard depends on the core detection assembly.");
-            dependencyIds.Should().Contain(
+            uiDeps.Should().Contain(
                 id => id.Equals("Mostlylucid.BotDetection.OpenApi", StringComparison.OrdinalIgnoreCase),
                 "the routes tab is backed by the OpenApi catalog pack.");
-
-            // Prometheus is an optional add-on: its widget surface moved INTO the pack
-            // (the pack references UI), so the UI nuspec must NOT hard-depend on it.
-            dependencyIds.Should().NotContain(
+            uiDeps.Should().NotContain(
                 id => id.Equals("Mostlylucid.BotDetection.PrometheusPack", StringComparison.OrdinalIgnoreCase),
-                "Prometheus must be optional -- issue #124's dangling dependency came from UI " +
-                "hard-depending on a pack that was never published.");
-
-            // No dangling FIRST-PARTY deps: every declared Mostlylucid.* dependency must have
-            // a matching nupkg in the pack output (the publish workflow co-packs them at the
-            // same version). Third-party deps (Fluid.Core etc.) come from nuget.org and are
-            // not co-packed, so they are out of scope.
-            foreach (var dep in dependencyIds.Where(
-                         id => id.StartsWith("mostlylucid.botdetection", StringComparison.OrdinalIgnoreCase)))
-            {
-                var nupkg = Path.Combine(packDir, $"{dep}.{TestVersion}.nupkg");
-                File.Exists(nupkg).Should().BeTrue(
-                    $"UI nuspec declares first-party dependency '{dep}' but no " +
-                    $"'{dep}.{TestVersion}.nupkg' was packed alongside it -- this is exactly " +
-                    "the dangling-dependency bug from issue #124.");
-            }
+                "Prometheus is an optional add-on -- UI must NOT hard-depend on it.");
 
             // The UI package must NOT ship Razor view SOURCE as contentFiles. The views are
             // compiled into the RCL assembly; if the .cshtml were packed as contentFiles a
@@ -101,35 +140,11 @@ public sealed class NuGetDependencyIntegrityTests
                 "against internal members and fail to build. Views are compiled into the RCL dll; " +
                 "they must not be packed as contentFiles.");
 
-            // PrometheusPack now depends on UI (the pack owns its widget surface via the UI
-            // seam). A release that publishes the pack but fails to co-publish UI (or bumps it
-            // out of sync) reproduces issue #124 for PACK consumers -- so the pack's own nuspec
-            // must declare UI with a matching co-packed nupkg.
-            var promNuspec = ReadNuspec(packDir, "Mostlylucid.BotDetection.PrometheusPack");
-            var promDeps = GetDependencyIds(promNuspec);
-            promDeps.Should().Contain(
-                id => id.Equals("Mostlylucid.BotDetection.UI", StringComparison.OrdinalIgnoreCase),
-                "PrometheusPack references UI for its widget surface -- its nuspec must declare it.");
-            foreach (var dep in promDeps.Where(
-                         id => id.StartsWith("mostlylucid", StringComparison.OrdinalIgnoreCase)))
-            {
-                File.Exists(Path.Combine(packDir, $"{dep}.{TestVersion}.nupkg")).Should().BeTrue(
-                    $"PrometheusPack declares first-party dependency '{dep}' but no matching nupkg " +
-                    "was co-packed -- the dangling-dependency class again.");
-            }
-
             // NuGet gallery guideline: a URL-like token in the nuspec <description> trips the
             // "potentially invalid URL" validation warning (we hit it with the .bot TLD on the
             // core package). Descriptions must be URL-free prose; the project/repo links belong
             // in PackageProjectUrl / RepositoryUrl.
-            foreach (var packageId in new[]
-                     {
-                         "mostlylucid.botdetection",
-                         "Mostlylucid.BotDetection.OpenApi",
-                         "Mostlylucid.BotDetection.PrometheusPack",
-                         "Mostlylucid.BotDetection.UI",
-                         "Mostlylucid.Common",
-                     })
+            foreach (var packageId in PackedPackageIds)
             {
                 var desc = GetDescription(ReadNuspec(packDir, packageId));
                 desc.Should().NotMatchRegex(
@@ -138,11 +153,14 @@ public sealed class NuGetDependencyIntegrityTests
                     "(NuGet gallery validation guideline).");
             }
 
-            // The definitive consumer guard: pack -> create a temp consumer app referencing ONLY
-            // the UI package -> restore + build against the pack feed + nuget.org. This is the
-            // ONLY check that reproduces what customers actually hit (NU1101 at restore, and the
-            // contentFiles CS0122/CS0117 at consumer build) against the real packed artifact.
-            await BuildConsumerAppAsync(packDir, repoRoot);
+            // The definitive consumer guard: pack -> create temp consumer apps referencing ONLY
+            // the UI package and ONLY the Api package -> restore + build against the pack feed +
+            // nuget.org. This is the ONLY check that reproduces what customers actually hit
+            // (NU1101 at restore, and the contentFiles CS0122/CS0117 at consumer build) against
+            // the real packed artifact. The Api consumer specifically guards the Api ->
+            // Llm.Tunnel dangling dep (8.12.0): it fails to restore if Llm.Tunnel isn't there.
+            await BuildConsumerAppAsync(packDir, "Mostlylucid.BotDetection.UI");
+            await BuildConsumerAppAsync(packDir, "Mostlylucid.BotDetection.Api");
         }
         finally
         {
@@ -211,31 +229,32 @@ public sealed class NuGetDependencyIntegrityTests
     }
 
     /// <summary>
-    ///     Create a throwaway ASP.NET Core consumer referencing ONLY the UI package from the
+    ///     Create a throwaway ASP.NET Core consumer referencing ONLY the given package from the
     ///     pack feed and BUILD it. Restore + build both must succeed -- restore catches the
-    ///     NU1101 class (missing first-party deps), and the build catches the contentFiles
-    ///     class (consumer Razor recompile failing on internal members). This is the customer
-    ///     experience, end to end, against the real packed artifacts.
+    ///     NU1101 class (missing first-party deps, e.g. the Api -> Llm.Tunnel dangling dep), and
+    ///     the build catches the contentFiles class (consumer Razor recompile failing on internal
+    ///     members). This is the customer experience, end to end, against the real packed artifacts.
     /// </summary>
-    private static async Task BuildConsumerAppAsync(string feedDir, string repoRoot)
+    private static async Task BuildConsumerAppAsync(string feedDir, string packageId)
     {
-        var appDir = Path.Combine(Path.GetTempPath(), "sb-consume-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(appDir);
-        try
+        // The consumer Program.cs exercises each package's real entry point so the compile is a
+        // faithful customer usage, not just a package reference.
+        var entry = packageId switch
         {
-            await File.WriteAllTextAsync(Path.Combine(appDir, "Consumer.csproj"), """
-                <Project Sdk="Microsoft.NET.Sdk.Web">
-                  <PropertyGroup>
-                    <TargetFramework>net10.0</TargetFramework>
-                    <Nullable>enable</Nullable>
-                    <ImplicitUsings>enable</ImplicitUsings>
-                  </PropertyGroup>
-                  <ItemGroup>
-                    <PackageReference Include="Mostlylucid.BotDetection.UI" Version="9.9.9-test" />
-                  </ItemGroup>
-                </Project>
-                """);
-            await File.WriteAllTextAsync(Path.Combine(appDir, "Program.cs"), """
+            "Mostlylucid.BotDetection.Api" => """
+                using Mostlylucid.BotDetection.Api;
+                using Mostlylucid.BotDetection.Extensions;
+                using Mostlylucid.BotDetection.Middleware;
+                var builder = WebApplication.CreateBuilder(args);
+                builder.Services.AddBotDetection();
+                builder.Services.AddStyloBotApi(options => options.InjectResponseHeaders = true);
+                var app = builder.Build();
+                app.UseRouting();
+                app.UseBotDetection();
+                app.MapGet("/", () => "ok");
+                app.Run();
+                """,
+            _ => """
                 using Mostlylucid.BotDetection.UI.Extensions;
                 var builder = WebApplication.CreateBuilder(args);
                 builder.Services.AddStyloBot(d => { d.AllowUnauthenticatedAccess = true; d.RequireAuthentication = false; });
@@ -244,7 +263,26 @@ public sealed class NuGetDependencyIntegrityTests
                 app.UseStyloBot();
                 app.MapGet("/", () => "ok");
                 app.Run();
+                """,
+        };
+
+        var appDir = Path.Combine(Path.GetTempPath(), "sb-consume-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(appDir);
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(appDir, "Consumer.csproj"), $$"""
+                <Project Sdk="Microsoft.NET.Sdk.Web">
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="{{packageId}}" Version="9.9.9-test" />
+                  </ItemGroup>
+                </Project>
                 """);
+            await File.WriteAllTextAsync(Path.Combine(appDir, "Program.cs"), entry);
 
             var restorePsi = new ProcessStartInfo("dotnet")
             {

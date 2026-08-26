@@ -350,6 +350,11 @@ jobs:
         dotnet pack src/Mostlylucid.BotDetection.Llm.Cloud/Mostlylucid.BotDetection.Llm.Cloud.csproj -c Release --no-build -o ./artifacts -p:Version=${{ needs.validate-version.outputs.version }}
         dotnet build src/Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj -c Release --no-restore -p:Version=${{ needs.validate-version.outputs.version }}
         dotnet pack src/Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj -c Release --no-build -o ./artifacts -p:Version=${{ needs.validate-version.outputs.version }}
+        # Llm.Tunnel is a HARD dependency of BotDetection.Api (the LLM node controller
+        # endpoints). It MUST be co-published at the same version or Api consumers fail to
+        # restore with NU1101 (the issue #124 dangling-dep class, found on 8.12.0).
+        dotnet build src/Mostlylucid.BotDetection.Llm.Tunnel/Mostlylucid.BotDetection.Llm.Tunnel.csproj -c Release --no-restore -p:Version=${{ needs.validate-version.outputs.version }}
+        dotnet pack src/Mostlylucid.BotDetection.Llm.Tunnel/Mostlylucid.BotDetection.Llm.Tunnel.csproj -c Release --no-build -o ./artifacts -p:Version=${{ needs.validate-version.outputs.version }}
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:
