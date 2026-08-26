@@ -12,7 +12,19 @@
         <Authors>Mostlylucid</Authors>
         <Description>OpenAPI document loader for StyloBot. Reusable across the dashboard Routes tab (catalog cross-reference), the API Holodeck (auto-honeypot generation from documented endpoints), and future SDK / spec-audit tooling. Wraps Microsoft.OpenApi.Readers with caching and $ref resolution.</Description>
         <PackageTags>openapi;swagger;stylobot;bot-detection;documentation</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <!-- XML doc file ships with the package for consumer IntelliSense. 1591 is
+             suppressed: we ship docs without nagging about the public members that
+             still lack comments. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1591</NoWarn>
     </PropertyGroup>
+
+    <ItemGroup>
+        <None Include=".\README.md" Pack="true" PackagePath="">
+            <Link>Properties\README.md</Link>
+        </None>
+    </ItemGroup>
 
     <ItemGroup>
         <!-- Deliberately no Microsoft.OpenApi.Readers dependency. The 1.6.x line expects the
