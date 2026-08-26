@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.12.1] - 2026-08-26
+
+- **Fix (GH #124 class): publish `Mostlylucid.BotDetection.Llm.Tunnel` — the Api package's dangling dependency.** `mostlylucid.botdetection.api`'s nuspec hard-depended on `Mostlylucid.BotDetection.Llm.Tunnel` (the LLM node registry + GPU-tunnel relay used by Api's LLM node controller endpoints), but that package was never published — so every Api consumer's restore failed with NU1101. Llm.Tunnel is now a packable package (PackageId, readme, XML docs) and is co-packed by the `publish-botdetection-llm` job at the same version as Api.
+
+- **Packaging dependency guard extended to the whole publish closure.** The integrity test now packs all eleven first-party packages and asserts every package's nuspec co-packable first-party dependencies have a matching co-packed nupkg — the check that would have caught the Api → Llm.Tunnel dep — plus consumer-build smokes for both the UI and the Api packages (restore + build against the packed feed). A full audit confirmed Llm.Tunnel was the only real dangling first-party dep.
+
 ## [8.12.0] - 2026-08-26
 
 - **Fix (GH #124): the pack-health row now renders on the V2 Traffic landing so pack tiles are visible.** The row (`SbPackHealthRow`) was orphaned when the V2 IA deleted the Overview page that hosted it — the Prometheus pack's meter-health tile and the policy-stack tile were registered in DI but never shown. It now renders at the top of the Traffic landing (the V2 de-facto overview); the row renders nothing when no pack contributes, and it is a per-tile cache/beacon read (no HTTP/store call on the render path). Regression test boots the dashboard + `AddPrometheusPack` and asserts the row + Metrics tile render.
