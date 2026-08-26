@@ -1,14 +1,14 @@
 Package: stylobot
-Version: 8.11.1
+Version: 8.11.2
 Architecture: amd64
 Maintainer: Scott Galloway <scott@mostlylucid.net>
 Priority: optional
 Section: net
-Filename: pool/main/s/stylobot/stylobot_8.11.1_amd64.deb
-Size: 26370068
-SHA256: 06b6d7aa47392a90be7b5ad59746400c0074c058aa418007faad314dfbeb2b95
-SHA1: e144de3bbeb70fda7227f536074656f6e6c9e6c4
-MD5sum: 2d45a31b7dc295afe44f7a0d50533c44
+Filename: pool/main/s/stylobot/stylobot_8.11.2_amd64.deb
+Size: 26369960
+SHA256: 74e7fdd1beaee8f9e801bb12238dedcc57beb0921fcd8f54c05b7daa7a41b09d
+SHA1: e2dba00f571a1295f1bc6ce39409fa93f2e4c7fd
+MD5sum: 22808863c75e2a43abbed16ca3e6484f
 Description: StyloBot - self-hosted bot detection gateway
  YARP reverse proxy with bot detection middleware. Blocks scrapers,
  AI crawlers, and malicious bots with <1ms overhead. Native AOT binary.
