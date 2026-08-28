@@ -1681,27 +1681,15 @@ public class StyloBotDashboardMiddleware
                         // P0 2026-08-28 (the silent warm-inactive class): the page is served from the
                         // cache but the materializer's tick has been DEAD (warm-inactive) for longer
                         // than the threshold — the cache would otherwise go silently stale. Self-heal
-                        // on the request path: a bounded synchronous re-warm, the SAME one-time
-                        // catch-up shape as the cold-start path above (NOT per-request rendering).
-                        // This caps any warm-inactivity stall to ONE request; the coordinator's own
-                        // watchdog re-arms the tick in the background.
+                        // on the request path: trigger the coordinator's BOUNDED re-arm OFF the request
+                        // thread (B2, review 2026-08-28) and serve the existing cache — a full
+                        // synchronous materializer pass here would block the request 30-60s. The
+                        // background re-arm re-subscribes the lost tick + warms; the NEXT request
+                        // reads the refreshed cache. This is a one-time catch-up, NOT per-request
+                        // rendering; the coordinator's watchdog re-arms in the background too.
                         _logger.LogWarning(
-                            "Dashboard cache served but materializer WARM-INACTIVE (dead tick) — running synchronous re-warm on the request path.");
-                        try
-                        {
-                            await mat.MaterializeTickAsync(DateTimeOffset.UtcNow, context.RequestAborted);
-                            candidatePage = await _contentCache.GetCurrentAsync(
-                                trafficManifest, pageWindow, context.RequestAborted);
-                            if (!candidatePage.IsWarming && IsPageBundleCompleteEnoughToStash(candidatePage, trafficManifest))
-                            {
-                                composedPage = candidatePage;
-                                context.Items["sb.dashboard.pageresult"] = candidatePage;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Synchronous stale re-warm failed — serving existing cache");
-                        }
+                            "Dashboard cache served but materializer WARM-INACTIVE (dead tick) — triggering bounded re-arm off the request thread; serving the existing cache this request.");
+                        _ = mat.ReArmTickAsync(CancellationToken.None);
                     }
                     // Remote compose can degrade to a non-null bundle with empty slices
                     // when the gateway endpoint is unavailable or returns an incomplete

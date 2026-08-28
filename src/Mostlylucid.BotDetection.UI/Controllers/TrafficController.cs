@@ -227,9 +227,19 @@ public sealed class TrafficController : Controller
         // wasn't requested), never a failure signal, so this never fails the page.
         if (page.LiveEndpointStats is { Count: > 0 } liveEndpoints)
         {
-            var byKey = endpointsData.ToDictionary(e => (e.Method, e.Path));
-            foreach (var e in liveEndpoints) byKey[(e.Method, e.Path)] = e;
-            endpointsData = byKey.Values.OrderByDescending(e => e.TotalCount).ToList();
+            // B4 (review 2026-08-28): a degraded live slice (e.g. duplicate Method/Path in the
+            // live rows makes ToDictionary throw) must never 500 the whole traffic page — degrade
+            // to the base rollup on any merge failure.
+            try
+            {
+                var byKey = endpointsData.ToDictionary(e => (e.Method, e.Path));
+                foreach (var e in liveEndpoints) byKey[(e.Method, e.Path)] = e;
+                endpointsData = byKey.Values.OrderByDescending(e => e.TotalCount).ToList();
+            }
+            catch
+            {
+                // A malformed live slice is not a page failure — the base rollup stands.
+            }
         }
 
         // Display-only path suppression (operator directive 2026-08-19): ONE filter at
@@ -441,9 +451,18 @@ public sealed class TrafficController : Controller
         List<DashboardTimeSeriesPoint> baseBuckets, IReadOnlyList<DashboardTimeSeriesPoint>? live)
     {
         if (live is not { Count: > 0 }) return baseBuckets;
-        var byTime = baseBuckets.ToDictionary(p => p.Timestamp);
-        foreach (var p in live) byTime[p.Timestamp] = p;
-        return byTime.Values.OrderBy(p => p.Timestamp).ToList();
+        // B4 (review 2026-08-28): a degraded live slice (duplicate Timestamp makes ToDictionary
+        // throw) must never fail the page — degrade to the base buckets.
+        try
+        {
+            var byTime = baseBuckets.ToDictionary(p => p.Timestamp);
+            foreach (var p in live) byTime[p.Timestamp] = p;
+            return byTime.Values.OrderBy(p => p.Timestamp).ToList();
+        }
+        catch
+        {
+            return baseBuckets;
+        }
     }
 
     /// <summary>
