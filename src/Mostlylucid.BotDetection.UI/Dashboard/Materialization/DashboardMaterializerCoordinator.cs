@@ -154,6 +154,14 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // task, read on the request thread — DateTimeOffset writes are atomic.
     private DateTimeOffset? _lastWarmedAtUtc;
 
+    // Liveness watchdog (P0 2026-08-28, the silent warm-inactive class): the last wall-clock
+    // moment a MaterializeTickAsync STARTED (UTC ticks; 0 = never ticked). If this stops advancing
+    // (a dead schedule subscription / tick stall), the watchdog below detects it and re-arms the tick
+    // instead of freezing LastWarmedAtUtc and serving a silently-stale cache until a restart.
+    // Interlocked so the tick thread writes and the request thread / watchdog read atomically.
+    private long _lastTickUtcTicks;
+    private readonly CancellationTokenSource _watchdogCts = new();
+
     /// <summary>
     ///     True once the tick materializer has warmed at least one envelope successfully --
     ///     i.e. the compose path is proven healthy. The request path gates its instant
@@ -162,6 +170,20 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     store fallback instead.
     /// </summary>
     public bool HasWarmedSuccessfully => _hasWarmedSuccessfully;
+
+    /// <summary>
+    ///     Liveness state (P0 2026-08-28): true when the tick has been warm-inactive longer than
+    ///     <see cref="DashboardMaterializerOptions.WarmInactivityThresholdSeconds"/> (a dead schedule
+    ///     subscription / tick stall). The request path reads this to trigger a synchronous stale
+    ///     re-warm (capping a warm-inactivity stall to one request); the internal watchdog re-arms the
+    ///     tick on the same signal.
+    /// </summary>
+    public bool IsWarmInactive =>
+        _options.WarmInactivityThresholdSeconds > 0
+        && Interlocked.Read(ref _lastTickUtcTicks) is var lastTicks
+        && lastTicks != 0
+        && _time.GetUtcNow().UtcTicks - lastTicks
+           > TimeSpan.FromSeconds(_options.WarmInactivityThresholdSeconds).Ticks;
 
     /// <summary>
     ///     When the cache was last refreshed by a successful materializer warm (UTC), or
@@ -234,6 +256,86 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 await Task.WhenAny(_bootWarm, Task.Delay(timeout, cancellationToken)).ConfigureAwait(false);
             }
         }
+
+        // Liveness watchdog (P0 2026-08-28, the silent warm-inactive class): fire-and-forget
+        // loop that detects a DEAD TICK — _lastTickUtc not advancing for WarmInactivityThresholdSeconds
+        // (a lost schedule subscription / tick stall). It logs LOUDLY and RE-ARMS the tick
+        // (re-subscribe + force one MaterializeTickAsync) so the coordinator self-heals instead of
+        // freezing LastWarmedAtUtc and serving a silently-stale cache until a restart. Cancelled in
+        // StopAsync. The check interval is half the threshold so detection lands within the window.
+        if (_options.Enabled && _options.WarmInactivityThresholdSeconds > 0)
+        {
+            _ = RunWatchdogAsync(_watchdogCts.Token);
+        }
+    }
+
+    /// <summary>Liveness watchdog body: poll _lastTickUtc; if it stops advancing, log LOUD + re-arm.</summary>
+    private async Task RunWatchdogAsync(CancellationToken ct)
+    {
+        var threshold = TimeSpan.FromSeconds(_options.WarmInactivityThresholdSeconds);
+        var checkEvery = TimeSpan.FromSeconds(Math.Max(5, _options.WarmInactivityThresholdSeconds / 2));
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(checkEvery, ct).ConfigureAwait(false);
+                if (!_options.Enabled) continue;
+
+                var lastTickTicks = Interlocked.Read(ref _lastTickUtcTicks);
+                if (lastTickTicks == 0) continue; // not started yet — the boot pass stamps it
+                var lastTick = new DateTimeOffset(lastTickTicks, TimeSpan.Zero);
+
+                var idle = _time.GetUtcNow() - lastTick;
+                if (idle <= threshold) continue;
+
+                _logger?.LogError(
+                    "DashboardMaterializerCoordinator: WARM-INACTIVE for {IdleSeconds:F0}s (last tick {LastTick:o}, threshold {Threshold}s) — the tick loop is dead (lost schedule subscription or a stall). Re-arming the tick so the dashboard cache stops going silently stale. If this repeats, check the schedule fabric / compose path.",
+                    idle.TotalSeconds, lastTick, _options.WarmInactivityThresholdSeconds);
+
+                await ReArmTickAsync(ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown — expected.
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "DashboardMaterializerCoordinator: liveness watchdog failed; will retry next interval.");
+        }
+    }
+
+    /// <summary>Re-arm a dead tick: dispose + re-subscribe the schedule tick, then force one warm now so
+    ///     the cache refreshes even if the schedule fabric itself is down (the forced pass self-heals).</summary>
+    private async Task ReArmTickAsync(CancellationToken ct)
+    {
+        try
+        {
+            var schedule = _schedule;
+            _tickSub?.Dispose();
+            _tickSub = null;
+            if (schedule is not null)
+            {
+                try
+                {
+                    _tickSub = schedule.Subscribe(
+                        TickCadence.Tick10s,
+                        nameof(DashboardMaterializerCoordinator),
+                        CostHint.Medium,
+                        MaterializeTickAsync);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "DashboardMaterializerCoordinator: re-subscribe after warm-inactive failed; the forced pass below still warms.");
+                }
+            }
+            // Force one warm now regardless of the schedule — the cache must not wait for the next tick.
+            await MaterializeTickAsync(DateTimeOffset.UtcNow, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown.
+        }
     }
 
     /// <summary>
@@ -248,12 +350,18 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
+        _watchdogCts.Cancel();
         _tickSub?.Dispose();
         _tickSub = null;
         return Task.CompletedTask;
     }
 
-    public void Dispose() => _tickSub?.Dispose();
+    public void Dispose()
+    {
+        _watchdogCts.Cancel();
+        _watchdogCts.Dispose();
+        _tickSub?.Dispose();
+    }
 
     /// <summary>
     ///     Single choke point for every warm this coordinator performs -- the tick loop's
@@ -430,6 +538,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         // Checked here rather than gating the subscription in StartAsync -- keeps a single
         // code path (StartAsync always subscribes when a schedule exists; this is the gate).
         if (!_options.Enabled) return;
+
+        // Liveness stamp: the watchdog uses this to detect a dead tick (no advancement).
+        Interlocked.Exchange(ref _lastTickUtcTicks, _time.GetUtcNow().UtcTicks);
 
         // Boot-pass detection: the StartAsync-fired first pass owns the pinned wave bump
         // (BootPinnedWarmConcurrency); steady-state ticks keep the serial pinned tier.

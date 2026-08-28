@@ -56,6 +56,17 @@ public sealed class DashboardMaterializerOptions
     public int MaxTickDurationMs { get; set; } = 30_000;
 
     /// <summary>
+    ///     Liveness watchdog (P0 2026-08-28, the silent warm-inactive class): if the coordinator's
+    ///     tick has NOT fired for this many seconds (no <c>_lastTickUtc</c> advance — a dead schedule
+    ///     subscription / tick stall), the watchdog logs a LOUD error and RE-ARMS the tick (re-subscribe
+    ///     + force one MaterializeTickAsync) so a warm-inactive coordinator self-heals instead of
+    ///     freezing <c>LastWarmedAtUtc</c> and serving a silently-stale cache until a restart. Must be
+    ///     well above the max refresh cadence (the aggregate-class floor is 300s), so a legitimate slow
+    ///     tick never false-positives. Default 360s (6 min).
+    /// </summary>
+    public int WarmInactivityThresholdSeconds { get; set; } = 360;
+
+    /// <summary>
     ///     An envelope is "live" (kept warm by the materializer) for this many ticks
     ///     after its last read. Approximates demand-gating until SignalR presence
     ///     lands: recently-viewed envelopes stay warm; long-unviewed ones age out so
