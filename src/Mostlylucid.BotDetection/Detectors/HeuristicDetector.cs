@@ -166,16 +166,18 @@ public class HeuristicDetector : IDetector, IDisposable
         ["fp:suspicious"] = 0.6f, // Suspicious fingerprint (headless, automation)
         ["fp:missing"] = 0.15f, // No fingerprint - slightly suspicious but not conclusive
 
-        // Response behavior signals - historical response patterns
-        ["sig:response_honeypot_hits"] = 0.9f, // Honeypot hit = very strong bot signal
-        ["sig:response_scan_pattern_detected"] = 0.8f, // Systematic 404 scanning
-        ["sig:response_auth_struggle"] = 0.6f, // Auth brute-forcing
-        ["sig:response_error_harvesting"] = 0.7f, // Error template harvesting
-        ["sig:response_rate_limit_violations"] = 0.7f, // Rate limit violations
-        ["sig:response_historical_score"] = 0.5f, // Aggregate response score
-        ["sig:response_has_history"] = -0.1f, // Having history is slightly human-like
-        ["sig:response_count_404"] = 0.3f, // Some 404s (may be normal)
-        ["sig:response_unique_404_paths"] = 0.4f, // Many unique 404 paths = probing
+        // Response behavior signals - historical response patterns. Keys are the sigv: feature
+        // names HeuristicFeatureExtractor actually produces (review A2, 2026-08-28) — the old
+        // sig: keys never matched a feature and scored neutral (DefaultNewFeatureWeight=0.0).
+        ["sigv:response_honeypot_hits"] = 0.9f, // Honeypot hit = very strong bot signal
+        ["sigv:response_scan_pattern_detected"] = 0.8f, // Systematic 404 scanning
+        ["sigv:response_auth_failures"] = 0.6f, // Auth brute-forcing (extractor name; sigv:response_auth_failures)
+        ["sigv:response_error_harvesting"] = 0.7f, // Error template harvesting
+        ["sigv:response_rate_limit_violations"] = 0.7f, // Rate limit violations
+        ["sigv:response_historical_score"] = 0.5f, // Aggregate response score
+        ["sigv:response_has_history"] = -0.1f, // Having history is slightly human-like
+        ["sigv:response_404_count"] = 0.3f, // Some 404s (may be normal) — extractor name
+        ["sigv:response_unique_404_paths"] = 0.4f, // Many unique 404 paths = probing
 
         // Stats - aggregate signals
         ["stat:detector_max"] = 0.6f,
@@ -208,9 +210,9 @@ public class HeuristicDetector : IDetector, IDisposable
     // cannot tell apart from a broken upstream.
     private static readonly HashSet<string> StatusGatedFeatures = new(StringComparer.OrdinalIgnoreCase)
     {
-        "sig:response_scan_pattern_detected",
-        "sig:response_count_404",
-        "sig:response_unique_404_paths",
+        "sigv:response_scan_pattern_detected",
+        "sigv:response_404_count",
+        "sigv:response_unique_404_paths",
     };
 
     // Feature names sourced from per-signature behavioural aggregates

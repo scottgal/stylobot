@@ -44,7 +44,10 @@ public sealed class AiAtom : DetectorAtomBase
     }
 
     public override int Priority => 100;
-    public override IReadOnlyList<string> RequiredSignals => Array.Empty<string>();
+    // Must run AFTER the wave that produced contributions — the orchestrator raises
+    // contribution.<detector>.<index> between waves; requiring them lands this atom in
+    // Wave 1 so detectorCount is non-zero (review A1, 2026-08-28).
+    public override IReadOnlyList<string> RequiredSignals => new[] { "contribution.*" };
 
     public override TimeSpan Timeout
     {

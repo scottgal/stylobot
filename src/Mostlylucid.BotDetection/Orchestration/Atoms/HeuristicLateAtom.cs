@@ -55,7 +55,9 @@ public sealed class HeuristicLateAtom : DetectorAtomBase
     }
 
     public override int Priority => 100;
-    public override IReadOnlyList<string> RequiredSignals => Array.Empty<string>();
+    // Must run AFTER HeuristicAtom (Wave 0) raises heuristic.prediction — otherwise it starts
+    // concurrently and races the full-mode pass it exists to perform (review A1, 2026-08-28).
+    public override IReadOnlyList<string> RequiredSignals => new[] { SignalKeys.HeuristicPrediction };
 
     private double LateWeight => _configProvider.GetParameter(Name, "late_weight", 2.5);
 

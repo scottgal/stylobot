@@ -32,9 +32,9 @@ public class HeuristicDetectorUpstreamHealthTests
         var detector = Build();
         var features = new Dictionary<string, float>
         {
-            ["sig:response_count_404"] = 1.0f,
-            ["sig:response_unique_404_paths"] = 1.0f,
-            ["sig:response_scan_pattern_detected"] = 1.0f,
+            ["sigv:response_404_count"] = 1.0f,
+            ["sigv:response_unique_404_paths"] = 1.0f,
+            ["sigv:response_scan_pattern_detected"] = 1.0f,
         };
 
         var (_, healthyProb) = detector.RunInference(features, upstreamHealthy: true);
@@ -50,9 +50,9 @@ public class HeuristicDetectorUpstreamHealthTests
         var detector = Build();
         var only404 = new Dictionary<string, float>
         {
-            ["sig:response_count_404"] = 1.0f,
-            ["sig:response_unique_404_paths"] = 1.0f,
-            ["sig:response_scan_pattern_detected"] = 1.0f,
+            ["sigv:response_404_count"] = 1.0f,
+            ["sigv:response_unique_404_paths"] = 1.0f,
+            ["sigv:response_scan_pattern_detected"] = 1.0f,
         };
         var empty = new Dictionary<string, float>();
 
@@ -70,7 +70,7 @@ public class HeuristicDetectorUpstreamHealthTests
         var detector = Build();
         var honeypot = new Dictionary<string, float>
         {
-            ["sig:response_honeypot_hits"] = 1.0f,
+            ["sigv:response_honeypot_hits"] = 1.0f,
         };
         var empty = new Dictionary<string, float>();
 
@@ -89,7 +89,7 @@ public class HeuristicDetectorUpstreamHealthTests
         var detector = Build();
         var authStruggle = new Dictionary<string, float>
         {
-            ["sig:response_auth_struggle"] = 1.0f,
+            ["sigv:response_auth_failures"] = 1.0f,
         };
         var empty = new Dictionary<string, float>();
 
