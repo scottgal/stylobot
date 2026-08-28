@@ -27,7 +27,14 @@ public sealed class DemoAppFactory : IAsyncLifetime
             StartInfo = new ProcessStartInfo
             {
                 FileName = "dotnet",
-                Arguments = "run --no-build --no-launch-profile",
+                // dotnet run defaults to the Debug configuration; the Demo's bin/Debug may not
+                // exist (CI builds Release) -> "no such file or directory" on a fresh runner.
+                // Launch in the SAME configuration as this test assembly was built with, so the
+                // Demo binary is always found regardless of Debug/Release.
+                Arguments = "run --no-build --no-launch-profile --configuration "
+                            + (typeof(DemoAppFactory).Assembly
+                                .GetCustomAttribute<System.Reflection.AssemblyConfigurationAttribute>()
+                                ?.Configuration ?? "Release"),
                 WorkingDirectory = DemoProjectDir,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
