@@ -162,6 +162,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private long _lastTickUtcTicks;
     private readonly CancellationTokenSource _watchdogCts = new();
 
+    // Concurrency guard (B3, review 2026-08-28): the schedule tick, the watchdog re-arm, and the
+    // request-path re-warm can all invoke MaterializeTickAsync — serialize them so two passes never
+    // run simultaneously (a duplicate warm of the same envelopes would be wasteful at best).
+    private readonly SemaphoreSlim _tickGate = new(1, 1);
+
     /// <summary>
     ///     True once the tick materializer has warmed at least one envelope successfully --
     ///     i.e. the compose path is proven healthy. The request path gates its instant
@@ -208,7 +213,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                 TickCadence.Tick10s,
                 nameof(DashboardMaterializerCoordinator),
                 CostHint.Medium,
-                MaterializeTickAsync);
+                (dt, ct) => MaterializeTickAsync(dt, ct));
         }
         catch (Exception ex)
         {
@@ -306,8 +311,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     }
 
     /// <summary>Re-arm a dead tick: dispose + re-subscribe the schedule tick, then force one warm now so
-    ///     the cache refreshes even if the schedule fabric itself is down (the forced pass self-heals).</summary>
-    private async Task ReArmTickAsync(CancellationToken ct)
+    ///     the cache refreshes even if the schedule fabric itself is down (the forced pass self-heals).
+    ///     Internal so the request path (StyloBotDashboardMiddleware) can trigger the SAME bounded
+    ///     re-arm off the request thread (B2, review 2026-08-28).</summary>
+    internal async Task ReArmTickAsync(CancellationToken ct)
     {
         try
         {
@@ -322,7 +329,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                         TickCadence.Tick10s,
                         nameof(DashboardMaterializerCoordinator),
                         CostHint.Medium,
-                        MaterializeTickAsync);
+                        (dt, ct) => MaterializeTickAsync(dt, ct));
                 }
                 catch (Exception ex)
                 {
@@ -533,15 +540,23 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///         end of the pass, regardless of which branch the method returns from.
     ///     </para>
     /// </summary>
-    internal async Task MaterializeTickAsync(DateTimeOffset _, CancellationToken ct)
+    internal async Task MaterializeTickAsync(DateTimeOffset _, CancellationToken ct, bool stampLiveness = true)
     {
         // Checked here rather than gating the subscription in StartAsync -- keeps a single
         // code path (StartAsync always subscribes when a schedule exists; this is the gate).
         if (!_options.Enabled) return;
 
-        // Liveness stamp: the watchdog uses this to detect a dead tick (no advancement).
-        Interlocked.Exchange(ref _lastTickUtcTicks, _time.GetUtcNow().UtcTicks);
+        // Liveness stamp — TICK-ONLY (B1, review 2026-08-28): the request-path re-warm passes
+        // stampLiveness:false so a lost schedule subscription isn't masked — IsWarmInactive stays
+        // true for the watchdog to detect + re-arm the actual tick.
+        if (stampLiveness)
+            Interlocked.Exchange(ref _lastTickUtcTicks, _time.GetUtcNow().UtcTicks);
 
+        // Concurrency guard (B3, review 2026-08-28): serialize the schedule tick, the watchdog
+        // re-arm, and the request-path re-warm so two materializer passes never run simultaneously.
+        await _tickGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
         // Boot-pass detection: the StartAsync-fired first pass owns the pinned wave bump
         // (BootPinnedWarmConcurrency); steady-state ticks keep the serial pinned tier.
         var isBootPass = Volatile.Read(ref _bootPassActive) == 1;
@@ -855,6 +870,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // The boot pass's bump ends when the pass that owns it completes.
             if (isBootPass)
                 Interlocked.Exchange(ref _bootPassActive, 0);
+        }
+        }
+        finally
+        {
+            _tickGate.Release();
         }
     }
 
