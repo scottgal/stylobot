@@ -98,8 +98,23 @@ public sealed class DemoAppFactory : IAsyncLifetime
         while (DateTime.UtcNow < deadline)
         {
             if (_process.HasExited)
+            {
+                // Self-describing failure: include the Demo's stderr tail so a CI-only
+                // boot crash (exit code 1 on the Linux runner) is diagnosable from the
+                // test report instead of requiring access to the runner's /tmp.
+                var errTail = "";
+                try
+                {
+                    var errPath = $"/tmp/demo-app-{_port}.log.err";
+                    if (File.Exists(errPath))
+                        errTail = "\n--- demo stderr tail ---\n" + string.Join("\n",
+                            File.ReadLines(errPath).TakeLast(20));
+                }
+                catch { /* best-effort diagnostic */ }
+
                 throw new InvalidOperationException(
-                    $"Demo app exited with code {_process.ExitCode} before becoming responsive.");
+                    $"Demo app exited with code {_process.ExitCode} before becoming responsive.{errTail}");
+            }
 
             try
             {
