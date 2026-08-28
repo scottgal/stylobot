@@ -70,17 +70,6 @@
     var refreshUrl = LinkWith(remove: "window") + (LinkWith(remove: "window").Contains("?") ? "&" : "?") + "partial=1";
 }
 
-@* Pack-health row: one tile per registered IPackHealthSummaryProvider. The FOSS
-   policy-stack tile always contributes (a plain install shows the policy-stack
-   health snapshot); the Prometheus pack's meter-health tile appears when
-   AddPrometheusPack is installed. The row is a per-tile cache/beacon read (each
-   provider reads its own cache; the meter provider hits MeterStreamHealthTileCache,
-   no HTTP/store call on the render path) and is refreshed via the per-tile OOB
-   swap. Reintroduced here in the V2 IA: the legacy Overview page that hosted it
-   was deleted, orphaning the row and making pack tiles invisible (found 2026-08-26
-   during package verification). Traffic is the V2 landing, so it is the natural
-   home for the health snapshot. *@
-@await Component.InvokeAsync("SbPackHealthRow")
 <div id="sb-traffic-body"
      hx-trigger="sb:signature-update from:body, sb:summary-update from:body"
      class="space-y-4">

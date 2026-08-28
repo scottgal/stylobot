@@ -58,39 +58,10 @@ public sealed class UiPackageE2ETests : IAsyncDisposable
             "the SSR-only contract (a62024fd): a warming placeholder is never valid.");
     }
 
-    [Fact]
-    public async Task Traffic_landing_renders_the_pack_health_row_when_the_prometheus_pack_is_installed()
-    {
-        var builder = WebApplication.CreateBuilder();
-        builder.WebHost.UseTestServer();
-        builder.Logging.ClearProviders();
-        builder.Services.AddSingleton<IDashboardEventStore>(new NullDashboardEventStore());
-        builder.Services.AddControllersWithViews()
-            .AddApplicationPart(typeof(StyloBotDashboardMiddleware).Assembly);
-        builder.Services.AddStyloBotDashboard(options =>
-        {
-            options.BasePath = "/dashboard";
-            options.RequireAuthentication = false;
-            options.AllowUnauthenticatedAccess = true;
-        });
-        builder.Services.AddPrometheusPack(opt => opt.Mode = PrometheusPackMode.Local);
-
-        _app = builder.Build();
-        _app.UseMiddleware<StyloBotDashboardMiddleware>();
-        await _app.StartAsync();
-
-        var html = await _app.GetTestClient().GetStringAsync("/dashboard/traffic");
-
-        // The pack-health row was orphaned by the V2 IA Overview deletion (the page it
-        // lived on no longer exists) and never rendered, making pack tiles invisible.
-        // It now renders at the top of the Traffic landing (the V2 de-facto overview)
-        // so the Prometheus meter tile is actually visible to operators.
-        html.Should().Contain("sb-pack-health-row",
-            "the pack-health row must render on the V2 Traffic landing when a pack contributes tiles.");
-        html.Should().Contain("Metrics",
-            "the Prometheus meter-health tile must render when AddPrometheusPack is installed.");
-    }
-
+    // The pack-health row render on the Traffic landing was REVERTED (2026-08-28 P0): it was
+    // the only FOSS traffic-page change in the 8.12.x range and was suspected in the
+    // traffic-summary-zero regression. It can be reintroduced on a verified surface once the
+    // regression root cause is pinned. See CHANGELOG [8.12.2].
     public async ValueTask DisposeAsync()
     {
         if (_app is not null) await _app.DisposeAsync();
