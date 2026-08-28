@@ -177,7 +177,12 @@ public sealed class BotDetectionMiddleware
             {
                 IsPresent = (context.Response.ContentLength ?? 0) > 0,
                 Length = (int)Math.Min(context.Response.ContentLength ?? 0, int.MaxValue),
-                ContentType = context.Response.ContentType
+                ContentType = context.Response.ContentType,
+                // A6 (review 2026-08-28): ResponseBehaviorAtom's error-harvesting + rate-limit
+                // arms read PatternCounts keys that were never populated (no body capture), so
+                // those tuned arms never fired. Derive the patterns the arms can know from the
+                // status code alone — no body buffering cost.
+                MatchedPatterns = BuildResponsePatterns(context.Response.StatusCode)
             },
             RequestBotProbability = evidence?.BotProbability ?? 0.0
         };
@@ -186,6 +191,22 @@ public sealed class BotDetectionMiddleware
         // sequential-per-client processing atom, which handles its own errors.
         _ = coordinator.RecordResponseAsync(signal, context.RequestAborted);
     }
+
+    /// <summary>
+    ///     Status-derived response patterns (A6, review 2026-08-28). The error-harvesting +
+    ///     rate-limit arms of <c>ResponseBehaviorAtom</c> read <c>PatternCounts</c> keys
+    ///     ("rate_limit"/"blocked"/"error") that were never populated because the middleware
+    ///     captured no response body. Map the status codes the arms can observe without
+    ///     buffering the body; body-derived patterns (stack traces, error templates) remain
+    ///     out of reach without a capture wrapper and are left unset.
+    /// </summary>
+    private static IReadOnlyList<string> BuildResponsePatterns(int statusCode) => statusCode switch
+    {
+        429 => new[] { "rate_limit" },
+        401 or 403 => new[] { "blocked" },
+        >= 500 => new[] { "error" },
+        _ => Array.Empty<string>(),
+    };
 
     /// <summary>
     ///     Feeds the real per-request outcome into the passive

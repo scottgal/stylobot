@@ -302,7 +302,13 @@ public sealed class BotDetectionOrchestrator : IDisposable
         // Processing time is read from ledger.TotalProcessingTimeMs, which the
         // ephemeral orchestrator stamps during DetectAsync.
         _ = elapsed;
-        return ledger.ToAggregatedEvidence(options: _options, sink: _signalSink);
+        // A3 (review 2026-08-28): before, aiRan defaulted to false, so NonAiMaxProbability
+        // (0.90) clamped EVERY verdict and all Ai-gated logic was inert. An "AI"-category
+        // contribution (AiAtom / LLM) lifts the clamp.
+        var aiRan = ledger.Contributions.Any(c =>
+            c.Category is "AI" or "LLM" or "Llm"
+            || c.DetectorName is "AI" or "LLM" or "Llm");
+        return ledger.ToAggregatedEvidence(options: _options, sink: _signalSink, aiRan: aiRan);
     }
 
 

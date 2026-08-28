@@ -466,6 +466,14 @@ public static class StyloBotDashboardServiceExtensions
         // the Prometheus pack -- AddPrometheusPack registers its
         // MeterStreamHealthSummaryProvider through this same seam, so the UI
         // package carries no hard dependency on Prometheus.
+        //
+        // REINTRODUCING-SEAM NOTICE (2026-08-28, review B6): the row's view component
+        // (SbPackHealthRow) is NOT rendered anywhere in the V2 IA (the Overview page it
+        // sat on was deleted; the 8.12.0 render-on-Traffic attempt was reverted as a P0
+        // regression suspect). These registrations are intentionally KEPT as the seam to
+        // re-introduce the row on a verified surface -- they are inert (never resolved at
+        // runtime) but not dead-and-orphaned. Do not remove them without replacing the
+        // pack-health surface.
         services.AddSingleton<Mostlylucid.BotDetection.UI.Services.IPackHealthSummaryProvider,
             Mostlylucid.BotDetection.UI.Services.HealthSummaryProviders.PolicyStackHealthSummaryProvider>();
         services.TryAddSingleton<Mostlylucid.BotDetection.UI.Services.DashboardOverviewPackHealthRowBuilder>();

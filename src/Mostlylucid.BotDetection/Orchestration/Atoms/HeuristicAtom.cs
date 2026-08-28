@@ -45,11 +45,18 @@ public sealed class HeuristicAtom : DetectorAtomBase
     public HeuristicAtom(
         ILogger<HeuristicAtom> logger,
         IDetectorConfigProvider configProvider,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        Data.IWeightStore? weightStore = null)
         : base(name: "Heuristic", category: "HeuristicEarly")
     {
         _logger = logger;
-        _detector = new HeuristicDetector(Microsoft.Extensions.Logging.Abstractions.NullLogger<HeuristicDetector>.Instance, Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()));
+        // Wire the IWeightStore so the detector loads + persists LEARNED weights (review A4,
+        // 2026-08-28): before, the detector was constructed with defaults-only and the
+        // "learned weights" story never engaged.
+        _detector = new HeuristicDetector(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<HeuristicDetector>.Instance,
+            Microsoft.Extensions.Options.Options.Create(new Mostlylucid.BotDetection.Models.BotDetectionOptions()),
+            weightStore: weightStore);
         _configProvider = configProvider;
         _httpContextAccessor = httpContextAccessor;
     }
