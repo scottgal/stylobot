@@ -129,3 +129,58 @@ jobs:
         path: ./test-results/**/*.trx
         reporter: dotnet-trx
         fail-on-error: true
+
+  # BDF replay-and-assert loop (BdfReplayTests). The rig boots the Demo as a child
+  # process (DemoAppFactory, random port) and POSTs the BDF scenarios in test-suites/
+  # to /bot-detection/bdf-replay/replay, asserting bot/human verdicts + downstream
+  # signal flow. Scoped to BdfReplayTests, NOT the whole Integration category (other
+  # integration tests are unrelated + slower). This rig was [Category=Integration],
+  # which the unit gate skips (Category!=Integration), so the replay loop ran nowhere
+  # in CI -- wired in 2026-08-28 so detection-accuracy regressions fail the build.
+  bdf-replay-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+      with:
+        dotnet-version: '10.0.x'
+    - name: Cache NuGet packages
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    - name: Restore and build Demo + Orchestration.Tests
+      # Building Orchestration.Tests builds its ProjectReference to the Demo, which
+      # DemoAppFactory then launches with --no-build.
+      run: |
+        dotnet restore src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
+        dotnet build src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj --configuration Release --no-restore
+    - name: Run BDF replay-and-assert tests
+      run: |
+        dotnet test src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj \
+          --configuration Release \
+          --no-build \
+          --verbosity normal \
+          --logger "trx;LogFileName=bdf-replay-results.trx" \
+          --results-directory ./test-results \
+          --filter "FullyQualifiedName~BdfReplayTests"
+    - name: Upload test results
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      if: always()
+      with:
+        name: bdf-replay-results
+        path: ./test-results
+        retention-days: 7
+    - name: Test Report
+      uses: dorny/test-reporter@d61b558e8df85cb60d09ca3e5b09653b4477cea7 # v1
+      if: always() && github.event_name != 'pull_request'
+      with:
+        name: BDF Replay Results
+        path: ./test-results/**/*.trx
+        reporter: dotnet-trx
+        fail-on-error: true
