@@ -155,7 +155,7 @@ else
            beacon (see _VisitorCard for the equivalent annotation). *@
         <span class="fp-name inline-flex items-center gap-2"
               data-fp-id="@Model.FingerprintId">
-            <h1 class="text-lg font-bold text-base-content" title="Signature: @Model.SignatureId">@signatureDisplayName</h1>
+            <h1 class="text-lg font-bold text-base-content" title="Signature: @Model.SignatureId">@(string.IsNullOrWhiteSpace(signatureDisplayName) ? "Unnamed" : signatureDisplayName)</h1>
             @if (!string.IsNullOrEmpty(Model.FingerprintId))
             {
                 <button type="button"

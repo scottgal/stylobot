@@ -59,7 +59,7 @@
                    fragment when a rename lands on this or a peer gateway. *@
                 <span class="fp-name inline-flex items-center gap-2 min-w-0"
                       data-fp-id="@Model.FingerprintId">
-                    <span class="text-sm font-bold truncate max-w-[180px]">@displayName</span>
+                    <span class="text-sm font-bold truncate max-w-[180px]">@(string.IsNullOrWhiteSpace(displayName) ? "Unnamed" : displayName)</span>
                     @if (!string.IsNullOrEmpty(Model.FingerprintId))
                     {
                         <button type="button"
