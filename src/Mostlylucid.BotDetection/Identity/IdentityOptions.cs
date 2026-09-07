@@ -16,6 +16,7 @@ public sealed class IdentityOptions
     public IdentityVectorOptions Vector { get; set; } = new();
     public IdentityMatchOptions Match { get; set; } = new();
     public IdentityWeightsOptions Weights { get; set; } = new();
+    public DeltaNoveltyOptions Delta { get; set; } = new();
     public IdentityDriftOptions Drift { get; set; } = new();
     public IdentityCalibrationOptions Calibration { get; set; } = new();
     public IdentityEngineOptions Engine { get; set; } = new();
@@ -325,6 +326,49 @@ public sealed class IdentityVectorOptions
     ///     a busy gateway.
     /// </summary>
     public int EncoderCacheMaxEntries { get; set; } = 10_000;
+}
+
+/// <summary>
+///     Knobs for the delta-streaming absorption model
+///     (reference_centroid_delta_streaming_absorption): per-encounter, the observation is
+///     gated against its nearest archetype centroid by a covariance-normalised Mahalanobis
+///     distance. Within threshold the observation is a confirmatory member — only the compact
+///     delta (observation − archetype centroid) is accumulated on the fingerprint; beyond
+///     threshold it is genuinely novel and counts toward seeding a new centroid (consolidated
+///     periodically by Leiden, never auto-seeded per request). Nothing is written per request;
+///     durability is coalesced write-behind on the fold-time evaluator cadence.
+/// </summary>
+public sealed class DeltaNoveltyOptions
+{
+    /// <summary>
+    ///     Master switch. When false (default), the delta-streaming gate and compact-delta
+    ///     accumulation are inert: the fingerprint evolves exactly as before (maturity-weighted
+    ///     fold), and the delta columns stay null/zero. Lands the model as observable
+    ///     infrastructure first; an operator flips it on after validating the gate on live
+    ///     traffic.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    ///     Mahalanobis distance past which an observation is "genuinely novel" rather than a
+    ///     confirmatory member of its nearest archetype's catchment. A NEW, intentionally
+    ///     uncalibrated knob — do NOT derive it from <c>Match.MergeThreshold</c> /
+    ///     <c>LooseThreshold</c> (cosine scales) or <c>Drift.DriftWarningThreshold</c> (a
+    ///     different metric). Distances are on the diagonal-covariance Mahalanobis scale
+    ///     (see <see cref="Mostlylucid.BotDetection.Analysis.SessionVectorizer.MahalanobisDistance"/>);
+    ///     the archetype fallback variance (baseScale 1.0 over an L2-normalised 100+ dim vector)
+    ///     yields small distances for confirmatory members, so a conservative value of 8.0 keeps
+    ///     the gate permissive until live data calibrates it.
+    /// </summary>
+    public double MahalanobisNoveltyThreshold { get; set; } = 8.0;
+
+    /// <summary>
+    ///     When true (default), the accumulated delta is persisted write-behind (coalesced
+    ///     single-column overwrite on the fingerprint row — never a per-request write). When
+    ///     false the delta lives only in the in-memory LFU and is not durable (matches the
+    ///     existing no-LFU-flush posture; the fold-time evaluator is the durability seam).
+    /// </summary>
+    public bool Durable { get; set; } = true;
 }
 
 public sealed class IdentityMatchOptions

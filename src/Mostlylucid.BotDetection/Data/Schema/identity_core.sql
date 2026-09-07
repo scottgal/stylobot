@@ -87,7 +87,21 @@ CREATE TABLE IF NOT EXISTS fingerprints (
     -- delta chain (fingerprint_mutations PK (fingerprint_id, state_version)) is
     -- gapless per fingerprint. Legacy DBs get the column via the guarded ALTER in
     -- IdentitySchema.MigrateExistingTablesAsync.
-    state_version               INTEGER NOT NULL DEFAULT 1
+    state_version               INTEGER NOT NULL DEFAULT 1,
+    -- Delta-streaming absorption (2026-09-06, reference_centroid_delta_streaming_absorption):
+    -- the fingerprint's compact identity summary — "nearest archetype centroid + drift-delta".
+    -- delta_from_archetype: BLOB running-mean residual (dim-matching floats), NULL until the
+    -- first within-threshold observation under an enabled gate. delta_archetype_id: the centroid
+    -- the delta is measured from. delta_count: confirmatory (within-threshold) observations folded
+    -- into the delta. novelty_count: beyond-threshold (genuinely novel) observations seen since the
+    -- last consolidation — feeds the periodic Leiden consolidator (never auto-seeded per request).
+    -- Dormant (NULL/0) when Identity.Delta.Enabled is false; coalesced single-column overwrite
+    -- write-behind, never per-request rows. Legacy DBs get the columns via the guarded ALTERs in
+    -- IdentitySchema.MigrateExistingTablesAsync.
+    delta_from_archetype        BLOB,
+    delta_archetype_id          TEXT,
+    delta_count                 INTEGER NOT NULL DEFAULT 0,
+    novelty_count               INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS fingerprint_root_history (

@@ -244,6 +244,24 @@ internal static class IdentitySchema
         // the first element of the fingerprint's delta chain.
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN state_version INTEGER NOT NULL DEFAULT 1", ct);
+
+        // Delta-streaming absorption (2026-09-06, reference_centroid_delta_streaming_absorption):
+        // the fingerprint's compact identity summary — "nearest archetype centroid + drift-delta".
+        // delta_from_archetype is a BLOB (dim-matching running-mean residual), NULL until the
+        // first within-threshold observation under an enabled gate; delta_archetype_id is the
+        // centroid the delta is measured from; delta_count / novelty_count are the confirmatory /
+        // beyond-threshold tallies feeding the periodic Leiden consolidator. Dormant (NULL/0)
+        // when Identity.Delta.Enabled is false. Coalesced single-column overwrite write-behind —
+        // never per-request rows. Migrates existing DBs forward; the CREATE in identity_core.sql
+        // already carries these for fresh schemas.
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN delta_from_archetype BLOB", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN delta_archetype_id TEXT", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN delta_count INTEGER NOT NULL DEFAULT 0", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN novelty_count INTEGER NOT NULL DEFAULT 0", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)

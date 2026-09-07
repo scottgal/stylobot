@@ -191,6 +191,39 @@ public sealed record Fingerprint
     ///     drift event yet. Companion to <see cref="DriftMagnitudes"/>.
     /// </summary>
     public double DriftFrequency { get; init; }
+
+    // ── Delta-streaming absorption (reference_centroid_delta_streaming_absorption) ──────────
+    // The fingerprint's identity is summarised as "nearest archetype centroid + drift-delta".
+    // These four fields carry that compact summary as a durable fingerprint ATTRIBUTE (same
+    // shape as DriftMagnitudes above — one fixed set of columns per fingerprint, coalesced
+    // write-behind, NEVER a per-request write). Dormant when Identity.Delta.Enabled is false:
+    // null / zero, and the fingerprint evolves exactly as before.
+
+    /// <summary>
+    ///     Compact running-mean delta from the fingerprint's nearest archetype centroid —
+    ///     <c>mean(observation) − archetype.Centroid</c> over the confirmatory (within-threshold)
+    ///     observations accumulated since the delta was last reset. This is the "save just the
+    ///     DELTA" half of the model: a fingerprint within its archetype's Mahalanobis catchment is
+    ///     summarised by its displacement from that archetype, not by full per-observation detail.
+    ///     Null until the first within-threshold observation under an enabled gate (read null-safe
+    ///     as "no delta yet"). A genuinely-novel (beyond-threshold) observation does NOT advance
+    ///     this — it increments <see cref="NoveltyCount"/> instead.
+    /// </summary>
+    public float[]? DeltaFromArchetype { get; init; }
+
+    /// <summary>The archetype id <see cref="DeltaFromArchetype"/> is measured from. Null before any delta.</summary>
+    public string? DeltaArchetypeId { get; init; }
+
+    /// <summary>Number of confirmatory observations folded into <see cref="DeltaFromArchetype"/>.</summary>
+    public int DeltaCount { get; init; }
+
+    /// <summary>
+    ///     Number of beyond-threshold (genuinely novel) observations seen since the last
+    ///     consolidation. A rising count is the "this fingerprint's shape is leaving every known
+    ///     archetype" signal the periodic Leiden consolidator consumes when deciding whether to
+    ///     seed a new centroid — never auto-seeded per request.
+    /// </summary>
+    public int NoveltyCount { get; init; }
 }
 
 /// <summary>

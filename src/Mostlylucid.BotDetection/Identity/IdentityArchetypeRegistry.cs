@@ -495,6 +495,38 @@ public sealed class IdentityArchetypeRegistry
         return result;
     }
 
+    /// <summary>
+    ///     The effective per-dimension variance the matcher uses when scoring against an
+    ///     archetype — <see cref="IdentityArchetype.VarianceVector"/> when populated, else the
+    ///     default-from-confidence fallback — with <see cref="IdentityArchetype.VarianceMultiplier"/>
+    ///     applied so the covariance-normalised novelty gate sees the SAME catchment as
+    ///     <see cref="MaskedSimilarityCore"/> (the matcher's umbrella-shrinkage state). The
+    ///     multiplier is the per-archetype tightening factor in [0.05, 1.0] that calibration
+    ///     walks below 1.0 when an over-claiming umbrella is detected; a gate that ignores it
+    ///     would judge novelty against a looser spread than the matcher's scoring.
+    ///
+    ///     This is the variance source for the Mahalanobis gate at the observation boundary
+    ///     (delta-streaming absorption): compiled archetypes never populate
+    ///     <see cref="IdentityArchetype.VarianceVector"/> (the XML doc on that property
+    ///     overstates <c>Compile</c>), so the fallback is what actually runs.
+    /// </summary>
+    public float[] EffectiveVarianceFor(IdentityArchetype archetype)
+    {
+        ArgumentNullException.ThrowIfNull(archetype);
+        var variance = archetype.VarianceVector ?? DefaultVarianceFor(archetype);
+        var vmult = Math.Clamp(archetype.VarianceMultiplier, 0.05, 1.0);
+
+        // Identity multiplier = 1.0 (the overwhelmingly common case): return the source array
+        // as-is so callers holding it can treat it as immutable and we avoid a pointless copy on
+        // the hot gate path. Below 1.0 (a calibrated umbrella), scale into a fresh array.
+        if (Math.Abs(vmult - 1.0) < 1e-9) return variance;
+
+        var scaled = new float[variance.Length];
+        for (var i = 0; i < variance.Length; i++)
+            scaled[i] = variance[i] * (float)vmult;
+        return scaled;
+    }
+
     private IReadOnlyList<IdentityArchetype> LoadFromEmbeddedResources()
     {
         var assembly = typeof(IdentityArchetypeRegistry).Assembly;

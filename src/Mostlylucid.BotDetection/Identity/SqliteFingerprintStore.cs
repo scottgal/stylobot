@@ -4,6 +4,7 @@ using System.Threading.Channels;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Domains;
 using Mostlylucid.BotDetection.Models;
 
@@ -26,6 +27,7 @@ public class SqliteFingerprintStore : IFingerprintStore
     private readonly IdentityVectorOptions _vectorOptions;
     private readonly IdentityDriftOptions _driftOptions;
     private readonly IdentityWeightsOptions _weightsOptions;
+    private readonly DeltaNoveltyOptions _deltaOptions;
 
     /// <summary>
     ///     Latest observation vector per fingerprint — the memory-first read the drift
@@ -89,11 +91,20 @@ public class SqliteFingerprintStore : IFingerprintStore
         public CachedFingerprint(
             Fingerprint fingerprint,
             SurfaceDims? establishedDims = null,
-            SurfaceDims? pendingDims = null)
+            SurfaceDims? pendingDims = null,
+            int? persistedDeltaCount = null,
+            int? persistedNoveltyCount = null)
         {
             Fingerprint = fingerprint;
             _establishedDims = establishedDims;
             _pendingDims = pendingDims;
+            // Default the sampler watermark to the record's OWN counts: a CachedFingerprint is
+            // almost always built from a durable row (DB populate / cold load), so its counts
+            // ARE the persisted state. Sites that build from an already-advanced in-memory
+            // record (the observation fold) pass the durable counts explicitly so the sampler
+            // doesn't think an unpersisted advance is already on the row.
+            PersistedDeltaCount = persistedDeltaCount ?? fingerprint.DeltaCount;
+            PersistedNoveltyCount = persistedNoveltyCount ?? fingerprint.NoveltyCount;
         }
 
         public Fingerprint Fingerprint { get; }
@@ -105,12 +116,28 @@ public class SqliteFingerprintStore : IFingerprintStore
         public SurfaceDims? PendingDims { get => _pendingDims; set => _pendingDims = value; }
 
         /// <summary>
-        ///     Produce a replacement entry carrying the SAME transient dims across a fingerprint
-        ///     row replace (the write paths swap the immutable <see cref="Fingerprint"/> record
-        ///     but must not lose the established/pending shapes riding the entry).
+        ///     Sampler-owned watermark of the delta / novelty state that has ALREADY been
+        ///     persisted to the fingerprint row by the detached fold-time sampler
+        ///     (<see cref="SqliteFingerprintStore.PersistSampleDeltasAsync"/>). The sampler
+        ///     compares <see cref="Fingerprint.DeltaCount"/> / <see cref="Fingerprint.NoveltyCount"/>
+        ///     against this watermark each pass and persists the CURRENT in-memory delta columns
+        ///     only when they have advanced past it — then advances the watermark. In-memory
+        ///     only, never persisted, exactly like the established/pending dims. Deliberately
+        ///     NOT a request-path dirty flag: nothing on the observation fold marks it; the
+        ///     fold only advances the <see cref="Fingerprint"/> record's fields and the detached
+        ///     sampler decides what to write. Initialised to the state carried on the durable row
+        ///     at cache-populate so an entry loaded from SQLite is never needlessly re-written.
+        /// </summary>
+        public int PersistedDeltaCount { get; set; }
+        public int PersistedNoveltyCount { get; set; }
+
+        /// <summary>
+        ///     Produce a replacement entry carrying the SAME transient dims + persisted-delta
+        ///     watermark across a fingerprint row replace (the write paths swap the immutable
+        ///     <see cref="Fingerprint"/> record but must not lose the shapes riding the entry).
         /// </summary>
         public CachedFingerprint WithFingerprint(Fingerprint updated)
-            => new(updated, _establishedDims, _pendingDims);
+            => new(updated, _establishedDims, _pendingDims, PersistedDeltaCount, PersistedNoveltyCount);
     }
 
     /// <summary>
@@ -168,16 +195,22 @@ public class SqliteFingerprintStore : IFingerprintStore
         Fingerprint? existing;
         SurfaceDims? priorEstablished = null;
         SurfaceDims? priorPending = null;
+        int? priorPersistedDelta = null;
+        int? priorPersistedNovelty = null;
         if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
         {
             existing = entry.Fingerprint;
             priorEstablished = entry.EstablishedDims;
             priorPending = entry.PendingDims;
+            priorPersistedDelta = entry.PersistedDeltaCount;
+            priorPersistedNovelty = entry.PersistedNoveltyCount;
         }
         else
         {
             existing = await GetFingerprintAsync(fingerprintId, ct);
             if (existing is null) return;
+            // Cold-loaded straight from the durable row: the record's counts ARE the
+            // persisted state, so the constructor's null-default is correct here.
         }
 
         var oldMag = existing.DriftMagnitudes;
@@ -193,7 +226,8 @@ public class SqliteFingerprintStore : IFingerprintStore
         var newFreq = existing.DriftFrequency * (1.0 - DriftEwmaAlpha) + 1.0 * DriftEwmaAlpha;
 
         var updated = existing with { DriftMagnitudes = newMag, DriftFrequency = newFreq };
-        _fingerprintById[fingerprintId] = new CachedFingerprint(updated, priorEstablished, priorPending);
+        _fingerprintById[fingerprintId] = new CachedFingerprint(
+            updated, priorEstablished, priorPending, priorPersistedDelta, priorPersistedNovelty);
 
         await EnsureInitialisedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
@@ -304,7 +338,6 @@ public class SqliteFingerprintStore : IFingerprintStore
     private sealed record InferredTypeWrite(
         string FingerprintId, string? NewType, double NewConfidence, DateTime At)
         : NameWrite(FingerprintId, At);
-
     private const int NameWriteQueueCapacity = 4096;
     private readonly Channel<NameWrite> _nameWriteChannel =
         Channel.CreateBounded<NameWrite>(new BoundedChannelOptions(NameWriteQueueCapacity)
@@ -334,6 +367,7 @@ public class SqliteFingerprintStore : IFingerprintStore
         _vectorOptions = options.Value.Identity.Vector;
         _driftOptions = options.Value.Identity.Drift;
         _weightsOptions = options.Value.Identity.Weights;
+        _deltaOptions = options.Value.Identity.Delta;
         _triggerSignals = triggerSignals;
         // The in-memory fold reclassifies the fingerprint against the archetype
         // registry (Phase B — the absorption service's family-gated reclassification
@@ -663,7 +697,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations,
                    cached_bot_type,
-                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc,
+                   delta_from_archetype, delta_archetype_id, delta_count, novelty_count
               FROM fingerprints WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
@@ -701,7 +736,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                     given_name, given_name_updated_at, given_name_operator_id,
                     root_centroid, root_centroid_at, root_source,
                     claim_status, verification_method, verified_at, trust_observations,
-                    cached_bot_type, drift_magnitudes, drift_frequency, drift_reopened_until_utc
+                    cached_bot_type, drift_magnitudes, drift_frequency, drift_reopened_until_utc,
+                    delta_from_archetype, delta_archetype_id, delta_count, novelty_count
                 ) VALUES (
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
@@ -713,7 +749,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                     @given_name, @given_name_updated, @given_name_operator,
                     @root_centroid, @root_at, @root_source,
                     @claim_status, @verification_method, @verified_at, @trust_observations,
-                    @cached_bot_type, @drift_magnitudes, @drift_frequency, @drift_reopened
+                    @cached_bot_type, @drift_magnitudes, @drift_frequency, @drift_reopened,
+                    @delta_from_archetype, @delta_archetype_id, @delta_count, @novelty_count
                 )
                 """;
             cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
@@ -789,6 +826,12 @@ public class SqliteFingerprintStore : IFingerprintStore
             cmd.Parameters.AddWithValue("@drift_frequency", fp.DriftFrequency);
             cmd.Parameters.AddWithValue("@drift_reopened",
                 (object?)fp.DriftReopenedUntilUtc?.ToString("O") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@delta_from_archetype",
+                fp.DeltaFromArchetype is { Length: > 0 } delta ? FloatsToBlob(delta) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@delta_archetype_id",
+                (object?)fp.DeltaArchetypeId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@delta_count", fp.DeltaCount);
+            cmd.Parameters.AddWithValue("@novelty_count", fp.NoveltyCount);
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
@@ -1165,6 +1208,11 @@ public class SqliteFingerprintStore : IFingerprintStore
         {
             try
             {
+                // Two detached duties on the same cadence: the drift/flip mutation composer
+                // (EvaluateFoldTimeAsync) and the delta-streaming detached sampler
+                // (PersistSampleDeltasAsync). Both walk the live LFU and persist current
+                // state at pass time — nothing on the request path schedules a write.
+                await PersistSampleDeltasAsync();
                 await EvaluateFoldTimeAsync();
             }
             catch (Exception ex)
@@ -1304,6 +1352,92 @@ public class SqliteFingerprintStore : IFingerprintStore
             // malformed legacy payload — no baseline
         }
         return false;
+    }
+
+    /// <summary>
+    ///     The delta-streaming detached sampler (one fold-time pass). Walks the RESIDENT
+    ///     fingerprint LFU and, for each entry whose in-memory delta / novelty state has
+    ///     advanced past the watermark of what the durable row already holds
+    ///     (<see cref="CachedFingerprint.PersistedDeltaCount"/> / PersistedNoveltyCount),
+    ///     compresses that entry's CURRENT in-memory delta columns into one batched write at
+    ///     persist time. Self-paced by the fold-time evaluator's cadence; bounded by the
+    ///     fingerprint cap (the watermark is two ints on the entry — no unbounded collection).
+    ///
+    ///     This is the persistence shape the delta-streaming model mandates — SAMPLER, not
+    ///     drainer: nothing on the request path schedules, marks or enqueues a write. The
+    ///     observation fold only advances the <see cref="Fingerprint"/> record's fields
+    ///     in memory; this detached pass reads the CURRENT state and persists the difference.
+    ///     Returns the number of fingerprints written this pass (0 when nothing advanced).
+    ///     Internal so identity tests can drive a deterministic persist without waiting on the
+    ///     background fold-time loop.
+    /// </summary>
+    internal async Task<int> PersistSampleDeltasAsync(CancellationToken ct = default)
+    {
+        if (!_deltaOptions.Enabled || !_deltaOptions.Durable || _fingerprintById.IsEmpty) return 0;
+
+        var dirty = _fingerprintById.Values
+            .Where(e => e.Fingerprint.DeltaCount != e.PersistedDeltaCount
+                     || e.Fingerprint.NoveltyCount != e.PersistedNoveltyCount)
+            .ToList();
+        if (dirty.Count == 0) return 0;
+
+        // Snapshot the delta columns AT PERSIST TIME (the same claim-and-group shape the
+        // detached sampler uses everywhere): each entry's current in-memory delta fields are
+        // captured up-front, the row is written from that snapshot, and the watermark is
+        // advanced to the SNAPSHOT value — not re-read after the commit. If a concurrent
+        // observation fold advances the record mid-write, the watermark lags that advance
+        // and the next pass persists it (memory stays ahead of durable, never behind).
+        var snapshot = dirty
+            .Select(e => new
+            {
+                Entry = e,
+                Id = e.Fingerprint.FingerprintId,
+                e.Fingerprint.DeltaFromArchetype,
+                e.Fingerprint.DeltaArchetypeId,
+                e.Fingerprint.DeltaCount,
+                e.Fingerprint.NoveltyCount,
+            })
+            .ToList();
+
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        foreach (var item in snapshot)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                UPDATE fingerprints
+                   SET delta_from_archetype = @delta,
+                       delta_archetype_id   = @arch,
+                       delta_count          = @count,
+                       novelty_count        = @novelty
+                 WHERE fingerprint_id = @id
+                """;
+            cmd.Parameters.AddWithValue("@delta",
+                item.DeltaFromArchetype is { Length: > 0 } d ? FloatsToBlob(d) : (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@arch", (object?)item.DeltaArchetypeId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@count", item.DeltaCount);
+            cmd.Parameters.AddWithValue("@novelty", item.NoveltyCount);
+            cmd.Parameters.AddWithValue("@id", item.Id);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+        // Watermark advance AFTER the commit lands — if the tx threw, the entries stay
+        // resident with their old watermark and are retried on the next pass (memory is the
+        // source of truth; durability is best-effort on this cadence). Advance to the written
+        // snapshot value; a mid-write fold leaves the watermark behind that fold (never
+        // ahead), so the next pass catches it.
+        foreach (var item in snapshot)
+        {
+            item.Entry.PersistedDeltaCount = item.DeltaCount;
+            item.Entry.PersistedNoveltyCount = item.NoveltyCount;
+        }
+        _logger.LogDebug("Detached sampler persisted delta state for {Count} fingerprints", dirty.Count);
+        return dirty.Count;
     }
 
     /// <summary>
@@ -1686,9 +1820,22 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (seedEntry is not null)
         {
             var priorType = seedEntry.Fingerprint.InferredClientType;
+            // When the fingerprint was NOT resident (cold-loaded from the durable row just
+            // above), the add-factory's watermark must default to the DURABLE counts on that
+            // row — not to the folded record's advanced counts, which the detached sampler has
+            // not persisted yet. When it WAS resident, the update path (WithFingerprint)
+            // carries the resident entry's watermark unchanged. Nothing on this request path
+            // marks the fingerprint dirty — the fold only advances the record's fields; the
+            // detached fold-time sampler compares those to the watermark and persists the
+            // difference on its own cadence.
+            var foldDurableDelta = seedEntry.Fingerprint.DeltaCount;
+            var foldDurableNovelty = seedEntry.Fingerprint.NoveltyCount;
             var updated = _fingerprintById.AddOrUpdate(
                 fingerprintId,
-                _ => new CachedFingerprint(AbsorbInMemory(seedEntry.Fingerprint, vec, observedAt, uaFamily)),
+                _ => new CachedFingerprint(
+                    AbsorbInMemory(seedEntry.Fingerprint, vec, observedAt, uaFamily),
+                    persistedDeltaCount: foldDurableDelta,
+                    persistedNoveltyCount: foldDurableNovelty),
                 (_, old) => old.WithFingerprint(AbsorbInMemory(old.Fingerprint, vec, observedAt, uaFamily)));
 
             // The inferred archetype flipped (e.g. bot -> human): persist the new
@@ -1733,6 +1880,51 @@ public class SqliteFingerprintStore : IFingerprintStore
         {
             _logger.LogWarning(ex, "ObservationAppended handler threw for {FingerprintId}", fingerprintId);
         }
+    }
+
+    /// <summary>
+    ///     The delta-streaming novelty gate. Computes the covariance-normalised Mahalanobis
+    ///     distance from an observation vector to its nearest archetype centroid and decides
+    ///     whether the observation is a confirmatory member (within threshold — the compact
+    ///     delta is accumulated) or genuinely novel (beyond threshold — full detail + seed
+    ///     consideration). NOT cosine/Euclidean: the distance is normalised by the archetype's
+    ///     per-dimension variance (<see cref="IdentityArchetypeRegistry.EffectiveVarianceFor"/>),
+    ///     so a deviation on a low-variance dimension (one the archetype "really means") counts
+    ///     as more novel than the same deviation on a loosely-asserted dimension.
+    ///
+    ///     Returns the Mahalanobis distance when the gate is enabled and a compatible
+    ///     archetype/variance exists; null when the gate is disabled, the registry is absent
+    ///     (minimal hosts), or the archetype's dimension count mismatches the vector. The
+    ///     caller treats null as "not novel" (fail-open) so a disabled or misconfigured gate
+    ///     never changes fingerprint evolution.
+    /// </summary>
+    internal double? ComputeDeltaNoveltyDistance(float[] vec, IdentityArchetype? archetype)
+    {
+        if (!_deltaOptions.Enabled) return null;
+        if (vec is null || archetype is null) return null;
+        if (_archetypes is null) return null; // minimal host: no reference centroids to gate against
+
+        // Gate against the archetype's unit-length Centroid (the observation vector is
+        // L2-normalised too); CentroidRaw is pre-normalisation and fp.Centroid is a seed
+        // blend — neither is a comparable reference. Dimension mismatch → fail-open null.
+        if (vec.Length != archetype.Centroid.Length) return null;
+
+        var variance = _archetypes.EffectiveVarianceFor(archetype);
+        if (variance.Length != vec.Length) return null;
+
+        return SessionVectorizer.MahalanobisDistance(vec, archetype.Centroid, variance);
+    }
+
+    /// <summary>
+    ///     True when the observation is beyond the Mahalanobis novelty threshold (genuinely
+    ///     novel); false when within threshold (confirmatory), when the gate is disabled, or
+    ///     when no compatible archetype/variance exists (fail-open). See
+    ///     <see cref="ComputeDeltaNoveltyDistance"/>.
+    /// </summary>
+    internal bool IsNovelObservation(float[] vec, IdentityArchetype? archetype)
+    {
+        var distance = ComputeDeltaNoveltyDistance(vec, archetype);
+        return distance is not null && distance.Value >= _deltaOptions.MahalanobisNoveltyThreshold;
     }
 
     /// <summary>
@@ -1786,6 +1978,53 @@ public class SqliteFingerprintStore : IFingerprintStore
             }
         }
 
+        // Delta-streaming absorption (delta-streaming model): when the gate is enabled,
+        // resolve the nearest archetype to THIS observation (the spec's "find nearest
+        // centroid" is per-encounter, against the observation — not the folded centroid,
+        // which is a smoothed blend) and gate it by Mahalanobis distance. Within threshold
+        // → confirmatory: accumulate the compact running-mean delta (obs − archetype
+        // centroid) and its count. Beyond threshold → genuinely novel: bump the novelty
+        // count (the periodic Leiden consolidator decides seeding; never per-request).
+        // Gate disabled / no registry / dimension mismatch → the delta fields stay as-is
+        // (fail-open), so the default-disabled path is byte-identical to pre-delta.
+        var newDeltaFromArchetype = fp.DeltaFromArchetype;
+        var newDeltaArchetypeId = fp.DeltaArchetypeId;
+        var newDeltaCount = fp.DeltaCount;
+        var newNoveltyCount = fp.NoveltyCount;
+        if (_deltaOptions.Enabled && _archetypes is not null)
+        {
+            var anchor = _archetypes.FindNearest(vec, uaFamily);
+            if (anchor is not null
+                && anchor.Archetype.Centroid.Length == vec.Length
+                && ComputeDeltaNoveltyDistance(vec, anchor.Archetype) is { } distance)
+            {
+                if (distance < _deltaOptions.MahalanobisNoveltyThreshold)
+                {
+                    // Confirmatory: fold the observation into the running-mean delta.
+                    // delta_new = (delta * count + (obs − centroid)) / (count + 1).
+                    var existing = newDeltaFromArchetype;
+                    var count = newDeltaCount;
+                    var updated = new float[vec.Length];
+                    for (var i = 0; i < vec.Length; i++)
+                    {
+                        var residual = vec[i] - anchor.Archetype.Centroid[i];
+                        updated[i] = existing is not null && existing.Length == vec.Length && count > 0
+                            ? (existing[i] * count + residual) / (count + 1)
+                            : residual;
+                    }
+                    newDeltaFromArchetype = updated;
+                    newDeltaArchetypeId = anchor.Archetype.ArchetypeId;
+                    newDeltaCount = count + 1;
+                }
+                else
+                {
+                    // Genuinely novel — do NOT smear the delta with an out-of-catchment
+                    // point. Flag it for the Leiden consolidator.
+                    newNoveltyCount = fp.NoveltyCount + 1;
+                }
+            }
+        }
+
         return fp with
         {
             Centroid = newCentroid,
@@ -1798,6 +2037,10 @@ public class SqliteFingerprintStore : IFingerprintStore
             InferredTypeChangedAt = string.Equals(newType, fp.InferredClientType, StringComparison.OrdinalIgnoreCase)
                 ? fp.InferredTypeChangedAt
                 : observedAt,
+            DeltaFromArchetype = newDeltaFromArchetype,
+            DeltaArchetypeId = newDeltaArchetypeId,
+            DeltaCount = newDeltaCount,
+            NoveltyCount = newNoveltyCount,
         };
     }
 
@@ -2134,7 +2377,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations,
                    cached_bot_type,
-                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc,
+                   delta_from_archetype, delta_archetype_id, delta_count, novelty_count
               FROM fingerprints
              ORDER BY last_seen DESC
             """;
@@ -2175,7 +2419,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations,
                    cached_bot_type,
-                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc,
+                   delta_from_archetype, delta_archetype_id, delta_count, novelty_count
               FROM fingerprints
              ORDER BY last_seen DESC
              LIMIT $limit OFFSET $offset
@@ -2240,7 +2485,8 @@ public class SqliteFingerprintStore : IFingerprintStore
                    root_centroid, root_centroid_at, root_source,
                    claim_status, verification_method, verified_at, trust_observations,
                    cached_bot_type,
-                   drift_magnitudes, drift_frequency, drift_reopened_until_utc
+                   drift_magnitudes, drift_frequency, drift_reopened_until_utc,
+                   delta_from_archetype, delta_archetype_id, delta_count, novelty_count
               FROM fingerprints
              WHERE observation_count > 0
                AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
@@ -2311,26 +2557,32 @@ public class SqliteFingerprintStore : IFingerprintStore
         Fingerprint? existing;
         SurfaceDims? priorEstablished = null;
         SurfaceDims? priorPending = null;
+        int? priorPersistedDelta = null;
+        int? priorPersistedNovelty = null;
         if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
         {
             existing = entry.Fingerprint;
             priorEstablished = entry.EstablishedDims;
             priorPending = entry.PendingDims;
+            priorPersistedDelta = entry.PersistedDeltaCount;
+            priorPersistedNovelty = entry.PersistedNoveltyCount;
         }
         else
         {
             existing = await GetFingerprintAsync(fingerprintId, ct);
             if (existing is null) return;
+            // Cold-loaded straight from the durable row: record counts ARE persisted state.
         }
 
         // No band is stored -- RiskBand is derived at read from the probability.
         var now = DateTime.UtcNow;
 
-        _fingerprintById[fingerprintId] = new CachedFingerprint(existing with
-        {
-            CachedBotProbability = botProbability,
-            CachedScoreUpdatedAt = now
-        }, priorEstablished, priorPending);
+        _fingerprintById[fingerprintId] = new CachedFingerprint(
+            existing with
+            {
+                CachedBotProbability = botProbability,
+                CachedScoreUpdatedAt = now
+            }, priorEstablished, priorPending, priorPersistedDelta, priorPersistedNovelty);
 
         EnsureNameDrainerStarted();
         // BotType null here: the operator AI-opinion path carries no catalogue type;
@@ -2439,16 +2691,21 @@ public class SqliteFingerprintStore : IFingerprintStore
         Fingerprint? existing;
         SurfaceDims? priorEstablished = null;
         SurfaceDims? priorPending = null;
+        int? priorPersistedDelta = null;
+        int? priorPersistedNovelty = null;
         if (_fingerprintById.TryGetValue(fingerprintId, out var entry))
         {
             existing = entry.Fingerprint;
             priorEstablished = entry.EstablishedDims;
             priorPending = entry.PendingDims;
+            priorPersistedDelta = entry.PersistedDeltaCount;
+            priorPersistedNovelty = entry.PersistedNoveltyCount;
         }
         else
         {
             existing = await GetFingerprintAsync(fingerprintId, ct);
             if (existing is null) return;
+            // Cold-loaded straight from the durable row: record counts ARE persisted state.
         }
 
         var now = DateTime.UtcNow;
@@ -2482,7 +2739,8 @@ public class SqliteFingerprintStore : IFingerprintStore
         // Atomic replace in the dict. Source of truth on the hot read path; the SQL
         // write below is durability only. Order matters: even if SQLite throws, the
         // next L1 lookup hits the new value.
-        _fingerprintById[fingerprintId] = new CachedFingerprint(updated, priorEstablished, priorPending);
+        _fingerprintById[fingerprintId] = new CachedFingerprint(
+            updated, priorEstablished, priorPending, priorPersistedDelta, priorPersistedNovelty);
 
         await EnsureInitialisedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
@@ -3857,6 +4115,13 @@ public class SqliteFingerprintStore : IFingerprintStore
         DriftReopenedUntilUtc = reader.IsDBNull(35)
             ? null
             : DateTime.Parse(reader.GetString(35), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        // Delta-streaming absorption columns (indices 36-39), appended to the END of every
+        // fingerprint-row SELECT after drift_reopened_until_utc. Null-safe: NULL delta /
+        // no archetype reads as null + zero counts (pre-migration or gate-disabled rows).
+        DeltaFromArchetype = reader.IsDBNull(36) ? null : BlobToFloats((byte[])reader.GetValue(36)),
+        DeltaArchetypeId = reader.IsDBNull(37) ? null : reader.GetString(37),
+        DeltaCount = reader.IsDBNull(38) ? 0 : reader.GetInt32(38),
+        NoveltyCount = reader.IsDBNull(39) ? 0 : reader.GetInt32(39),
     };
 
     /// <summary>
