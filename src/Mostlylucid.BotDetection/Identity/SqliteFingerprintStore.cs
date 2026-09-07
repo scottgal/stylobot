@@ -1376,8 +1376,9 @@ public class SqliteFingerprintStore : IFingerprintStore
         if (!_deltaOptions.Enabled || !_deltaOptions.Durable || _fingerprintById.IsEmpty) return 0;
 
         var dirty = _fingerprintById.Values
-            .Where(e => e.Fingerprint.DeltaCount != e.PersistedDeltaCount
-                     || e.Fingerprint.NoveltyCount != e.PersistedNoveltyCount)
+            .Where(e => IdentityDeltaMath.DeltaAdvancedPastWatermark(
+                e.Fingerprint.DeltaCount, e.Fingerprint.NoveltyCount,
+                e.PersistedDeltaCount, e.PersistedNoveltyCount))
             .ToList();
         if (dirty.Count == 0) return 0;
 
@@ -1899,21 +1900,7 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     never changes fingerprint evolution.
     /// </summary>
     internal double? ComputeDeltaNoveltyDistance(float[] vec, IdentityArchetype? archetype)
-    {
-        if (!_deltaOptions.Enabled) return null;
-        if (vec is null || archetype is null) return null;
-        if (_archetypes is null) return null; // minimal host: no reference centroids to gate against
-
-        // Gate against the archetype's unit-length Centroid (the observation vector is
-        // L2-normalised too); CentroidRaw is pre-normalisation and fp.Centroid is a seed
-        // blend — neither is a comparable reference. Dimension mismatch → fail-open null.
-        if (vec.Length != archetype.Centroid.Length) return null;
-
-        var variance = _archetypes.EffectiveVarianceFor(archetype);
-        if (variance.Length != vec.Length) return null;
-
-        return SessionVectorizer.MahalanobisDistance(vec, archetype.Centroid, variance);
-    }
+        => IdentityDeltaMath.ComputeNoveltyDistance(vec, archetype, _archetypes, _deltaOptions);
 
     /// <summary>
     ///     True when the observation is beyond the Mahalanobis novelty threshold (genuinely
@@ -1922,10 +1909,7 @@ public class SqliteFingerprintStore : IFingerprintStore
     ///     <see cref="ComputeDeltaNoveltyDistance"/>.
     /// </summary>
     internal bool IsNovelObservation(float[] vec, IdentityArchetype? archetype)
-    {
-        var distance = ComputeDeltaNoveltyDistance(vec, archetype);
-        return distance is not null && distance.Value >= _deltaOptions.MahalanobisNoveltyThreshold;
-    }
+        => IdentityDeltaMath.IsNovelObservation(vec, archetype, _archetypes, _deltaOptions);
 
     /// <summary>
     ///     The in-memory absorption fold (Phase B): the observation's contribution to the
@@ -1978,52 +1962,16 @@ public class SqliteFingerprintStore : IFingerprintStore
             }
         }
 
-        // Delta-streaming absorption (delta-streaming model): when the gate is enabled,
-        // resolve the nearest archetype to THIS observation (the spec's "find nearest
-        // centroid" is per-encounter, against the observation — not the folded centroid,
-        // which is a smoothed blend) and gate it by Mahalanobis distance. Within threshold
-        // → confirmatory: accumulate the compact running-mean delta (obs − archetype
-        // centroid) and its count. Beyond threshold → genuinely novel: bump the novelty
-        // count (the periodic Leiden consolidator decides seeding; never per-request).
-        // Gate disabled / no registry / dimension mismatch → the delta fields stay as-is
-        // (fail-open), so the default-disabled path is byte-identical to pre-delta.
-        var newDeltaFromArchetype = fp.DeltaFromArchetype;
-        var newDeltaArchetypeId = fp.DeltaArchetypeId;
-        var newDeltaCount = fp.DeltaCount;
-        var newNoveltyCount = fp.NoveltyCount;
-        if (_deltaOptions.Enabled && _archetypes is not null)
-        {
-            var anchor = _archetypes.FindNearest(vec, uaFamily);
-            if (anchor is not null
-                && anchor.Archetype.Centroid.Length == vec.Length
-                && ComputeDeltaNoveltyDistance(vec, anchor.Archetype) is { } distance)
-            {
-                if (distance < _deltaOptions.MahalanobisNoveltyThreshold)
-                {
-                    // Confirmatory: fold the observation into the running-mean delta.
-                    // delta_new = (delta * count + (obs − centroid)) / (count + 1).
-                    var existing = newDeltaFromArchetype;
-                    var count = newDeltaCount;
-                    var updated = new float[vec.Length];
-                    for (var i = 0; i < vec.Length; i++)
-                    {
-                        var residual = vec[i] - anchor.Archetype.Centroid[i];
-                        updated[i] = existing is not null && existing.Length == vec.Length && count > 0
-                            ? (existing[i] * count + residual) / (count + 1)
-                            : residual;
-                    }
-                    newDeltaFromArchetype = updated;
-                    newDeltaArchetypeId = anchor.Archetype.ArchetypeId;
-                    newDeltaCount = count + 1;
-                }
-                else
-                {
-                    // Genuinely novel — do NOT smear the delta with an out-of-catchment
-                    // point. Flag it for the Leiden consolidator.
-                    newNoveltyCount = fp.NoveltyCount + 1;
-                }
-            }
-        }
+        // Delta-streaming absorption (delta-streaming model): the DB-agnostic Mahalanobis
+        // gate + running-mean compact-delta accumulation live in the shared FOSS-core helper
+        // (IdentityDeltaMath), so the SQLite store and the commercial Postgres mirror fold
+        // IDENTICALLY. The helper resolves the nearest archetype to THIS observation (the
+        // spec's "find nearest centroid" is per-encounter, against the observation — not the
+        // folded centroid, which is a smoothed blend), gates it, and either accumulates the
+        // running-mean delta or bumps novelty. Gate disabled / no registry / dimension
+        // mismatch → the delta fields come back unchanged (fail-open), so the
+        // default-disabled path is byte-identical to pre-delta.
+        var deltaFold = IdentityDeltaMath.FoldObservation(fp, vec, uaFamily, _archetypes, _deltaOptions);
 
         return fp with
         {
@@ -2037,10 +1985,10 @@ public class SqliteFingerprintStore : IFingerprintStore
             InferredTypeChangedAt = string.Equals(newType, fp.InferredClientType, StringComparison.OrdinalIgnoreCase)
                 ? fp.InferredTypeChangedAt
                 : observedAt,
-            DeltaFromArchetype = newDeltaFromArchetype,
-            DeltaArchetypeId = newDeltaArchetypeId,
-            DeltaCount = newDeltaCount,
-            NoveltyCount = newNoveltyCount,
+            DeltaFromArchetype = deltaFold.DeltaFromArchetype,
+            DeltaArchetypeId = deltaFold.DeltaArchetypeId,
+            DeltaCount = deltaFold.DeltaCount,
+            NoveltyCount = deltaFold.NoveltyCount,
         };
     }
 
