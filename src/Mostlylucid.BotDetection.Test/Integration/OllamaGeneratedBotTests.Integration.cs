@@ -7,6 +7,14 @@ using OllamaSharp;
 
 namespace Mostlylucid.BotDetection.Test.Integration;
 
+// Ollama tests are excluded from EVERYTHING but Release test runs (operator ruling 2026-09-07):
+// they need a live external LLM whose per-run output quality varies, so they flake a routine
+// Debug `dotnet test`. `DEBUG` is defined for the Debug configuration only, so this whole class
+// (and its Skip helper) compiles out of Debug builds entirely — a plain Debug `dotnet test`
+// neither discovers nor runs them. Release builds still carry them; the CI Release gates filter
+// `Category!=Integration` (Ollama carries Integration), and an explicit Release run
+// (`dotnet test -c Release --filter "Category=Ollama"`) is the intended way to exercise them.
+#if !DEBUG
 /// <summary>
 ///     Long-running integration tests that use a local LLM (default gemma4:e2b, the model
 ///     the Demo runs) to generate synthetic bot and human user-agent strings, then verify the
@@ -16,7 +24,7 @@ namespace Mostlylucid.BotDetection.Test.Integration;
 ///     When Ollama (or the configured model) is not reachable the runtime Skip guard no-ops the
 ///     test, so they stay green in CI without a local LLM.
 ///     To run: ensure Ollama is up with the model pulled (ollama pull gemma4:e2b), then
-///     dotnet test --filter "Category=Ollama".
+///     dotnet test -c Release --filter "Category=Ollama".
 /// </summary>
 [Trait("Category", "Integration")]
 [Trait("Category", "LongRunning")]
@@ -479,3 +487,4 @@ public static class Skip
         return condition;
     }
 }
+#endif
