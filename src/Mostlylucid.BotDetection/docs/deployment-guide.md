@@ -997,7 +997,7 @@ The gateway adds bot intelligence as HTTP headers to every proxied request. Your
 |------|--------|--------|--------|
 | Set `SignatureHashKey` from Key Vault | Recommended | Required | Required |
 | Disable `EnableTestMode` in production | Yes | Yes | Yes |
-| Set `ExcludedPaths` for health checks | Yes | Yes | Yes |
+| Configure `HealthEndpoints` for probe paths (`ExcludedPaths` is retired) | Yes | Yes | Yes |
 | Use HTTPS | Yes | Yes | Yes |
 | Set `RetentionDays` for GDPR | N/A | N/A | Required |
 | Restrict dashboard access | N/A | N/A | Required |
