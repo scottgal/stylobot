@@ -160,7 +160,13 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // instead of freezing LastWarmedAtUtc and serving a silently-stale cache until a restart.
     // Interlocked so the tick thread writes and the request thread / watchdog read atomically.
     private long _lastTickUtcTicks;
-    private readonly CancellationTokenSource _watchdogCts = new();
+    // Nullable + swapped out atomically by StopWatchdog(): the container disposes this
+    // coordinator TWICE — once for the TryAddSingleton<DashboardMaterializerCoordinator>
+    // call site and once for the AddHostedService factory call site that resolves it — so
+    // a non-idempotent Cancel()/Dispose() threw ObjectDisposedException at host teardown.
+    // Whoever wins the Interlocked.Exchange owns the CTS and is the only caller that
+    // cancels/disposes it; every later StopAsync/Dispose sees null and no-ops.
+    private CancellationTokenSource? _watchdogCts = new();
 
     // Concurrency guard (B3, review 2026-08-28): the schedule tick, the watchdog re-arm, and the
     // request-path re-warm can all invoke MaterializeTickAsync — serialize them so two passes never
@@ -270,7 +276,11 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         // StopAsync. The check interval is half the threshold so detection lands within the window.
         if (_options.Enabled && _options.WarmInactivityThresholdSeconds > 0)
         {
-            _ = RunWatchdogAsync(_watchdogCts.Token);
+            // Capture the CTS locally: a concurrent StopAsync/Dispose may swap the field to
+            // null between the read and the .Token access.
+            var watchdogCts = _watchdogCts;
+            if (watchdogCts is not null)
+                _ = RunWatchdogAsync(watchdogCts.Token);
         }
     }
 
@@ -319,8 +329,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         try
         {
             var schedule = _schedule;
-            _tickSub?.Dispose();
-            _tickSub = null;
+            DisposeTickSubscription();
             if (schedule is not null)
             {
                 try
@@ -357,18 +366,37 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
-        _watchdogCts.Cancel();
-        _tickSub?.Dispose();
-        _tickSub = null;
+        StopWatchdog();
+        DisposeTickSubscription();
         return Task.CompletedTask;
     }
 
     public void Dispose()
     {
-        _watchdogCts.Cancel();
-        _watchdogCts.Dispose();
-        _tickSub?.Dispose();
+        // Idempotent: the container calls this once per registration over the same
+        // instance (singleton + hosted-service factory), and a host may also have called
+        // StopAsync first. Both paths funnel through the same swap-once helpers.
+        StopWatchdog();
+        DisposeTickSubscription();
     }
+
+    /// <summary>
+    ///     Cancels and disposes the watchdog CTS exactly once. Safe to call from both
+    ///     <see cref="StopAsync"/> and <see cref="Dispose"/>, in either order and any
+    ///     number of times.
+    /// </summary>
+    private void StopWatchdog()
+    {
+        // Swap-then-own: only the caller that gets the non-null reference cancels/disposes,
+        // so a second teardown path can never Cancel() a disposed CTS.
+        var cts = Interlocked.Exchange(ref _watchdogCts, null);
+        if (cts is null) return;
+        cts.Cancel();
+        cts.Dispose();
+    }
+
+    /// <summary>Disposes the schedule tick subscription exactly once.</summary>
+    private void DisposeTickSubscription() => Interlocked.Exchange(ref _tickSub, null)?.Dispose();
 
     /// <summary>
     ///     Single choke point for every warm this coordinator performs -- the tick loop's

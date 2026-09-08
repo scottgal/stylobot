@@ -29,7 +29,13 @@ CREATE TABLE IF NOT EXISTS detections (
     status_code INTEGER DEFAULT 0,
     user_agent_raw TEXT,
     response_bytes INTEGER,
-    risk_justification TEXT
+    risk_justification TEXT,
+    -- Per-request signal dict built by DetectionBroadcastMiddleware.BuildImportantSignals
+    -- (non-PII, filtered through DashboardSignals). JSON object; NULL when the row has
+    -- no signals. Without this column every store-sourced read surface -- the signature
+    -- detail "Detection Signals" categories panel, the verified-bot trust triple, the
+    -- protocol chip, the warm-up UA-family derivation, UA-version history -- saw null.
+    important_signals TEXT
 );
 
 CREATE TABLE IF NOT EXISTS signatures (

@@ -1330,20 +1330,35 @@ public class BotDetectionOptions
     public bool ObserveOnly { get; set; }
 
     // ==========================================
-    // Path Exclusions and Overrides
+    // Path Exclusions and Overrides — RETIRED (see each property)
     // ==========================================
+    //
+    // These three were LIVE until the v8 atom refactor (1a8d2745, 2026-07-05) deleted
+    // the old contributor `BotDetectionMiddleware` that read them; the atom middleware
+    // that took the name never did. They are kept on the type so existing host config
+    // still binds, but NOTHING reads them, and they are deliberately NOT re-wired:
+    // every one of them is a skip/bypass path, which the product's hard rules forbid
+    // ("NEVER skip detection. No skip paths, no logonly workarounds."). See each
+    // property for the supported replacement.
 
     /// <summary>
-    ///     Paths to completely exclude from bot detection.
-    ///     Requests to these paths skip detection entirely (no processing, no logging).
-    ///     Supports prefix matching (e.g., "/health" matches "/health" and "/health/live").
-    ///     Use for health checks, internal endpoints, or paths you know don't need protection.
+    ///     RETIRED — not consumed by the detection pipeline. Setting it has no effect.
+    ///     <para>
+    ///         Was "paths to completely exclude from bot detection (no processing, no
+    ///         logging)". That is a detection skip path, which this product does not
+    ///         offer. For probe/health paths the supported mechanism is
+    ///         <see cref="HealthEndpoints"/> (recognised in-pipeline by
+    ///         <c>HealthEndpointAtom</c> + <c>ProbeShapeClassifier</c> so the traffic
+    ///         scores and displays correctly instead of vanishing); for endpoints that
+    ///         must stay reachable by edge-case visitors, annotate them with
+    ///         <c>BotPolicyAttribute(BlockThreshold = 0.95)</c>; for customer
+    ///         monitoring traffic, issue an <see cref="ApiKeys"/> key (which supports
+    ///         path scoping) rather than exempting a path.
+    ///     </para>
     /// </summary>
-    /// <example>
-    ///     <code>
-    ///     "ExcludedPaths": ["/health", "/metrics", "/.well-known", "/favicon.ico"]
-    ///     </code>
-    /// </example>
+    [Obsolete("Retired: not consumed. Use HealthEndpoints (probe recognition), " +
+              "BotPolicyAttribute(BlockThreshold = 0.95) for internal endpoints, or an " +
+              "ApiKeys key for customer monitoring traffic. Detection is never skipped.")]
     public List<string> ExcludedPaths { get; set; } = ["/health", "/metrics"];
 
     /// <summary>
@@ -1409,19 +1424,21 @@ public class BotDetectionOptions
     public string ApiBypassHeaderName { get; set; } = "X-SB-Api-Key";
 
     /// <summary>
-    ///     Paths where only signature generation runs (no detection pipeline).
-    ///     The visitor's signature is computed and stored in HttpContext.Items
-    ///     so downstream middleware can look them up in the visitor cache,
-    ///     but no detectors run and no detection events are broadcast.
+    ///     RETIRED — not consumed by the detection pipeline. Setting it has no effect.
     ///     <para>
-    ///         Defaults cover the canonical container / k8s healthcheck paths so
-    ///         the gateway's own docker healthcheck (e.g. <c>wget /admin/alive</c>
-    ///         from inside the container) does not pollute dashboard_detections
-    ///         with every-30-second "VeryHigh / wget" false-positive audit rows.
-    ///         Override via <c>BotDetection:SignatureOnlyPaths</c> if your host
-    ///         exposes a different healthcheck path.
+    ///         Was "paths where only signature generation runs (no detection pipeline,
+    ///         no broadcast)". That is a detection skip path. Probe traffic is handled
+    ///         in-pipeline instead: <see cref="HealthEndpoints"/> recognises
+    ///         health/readiness/liveness paths and, when the source is a trusted
+    ///         internal peer AND the request has probe shape, classifies it
+    ///         <c>BotType.Internal</c> — counted and displayed, never throttled. The
+    ///         defaults below are retained only so host config keeps binding; they
+    ///         have no runtime effect.
     ///     </para>
     /// </summary>
+    [Obsolete("Retired: not consumed. Probe/health paths are recognised in-pipeline via " +
+              "HealthEndpoints (+ trusted-internal source) and classified BotType.Internal. " +
+              "Detection is never skipped.")]
     public List<string> SignatureOnlyPaths { get; set; } =
     [
         "/admin/alive",
@@ -1433,30 +1450,20 @@ public class BotDetectionOptions
     ];
 
     /// <summary>
-    ///     Path overrides that always allow requests through, even if detected as bots.
-    ///     Detection still runs (for logging/analytics), but blocking is bypassed.
-    ///     Useful for fixing false positives without disabling detection entirely.
-    ///     Supports glob patterns (e.g., "/api/public/*", "/webhooks/**").
+    ///     RETIRED — not consumed by the detection pipeline. Setting it has no effect.
+    ///     <para>
+    ///         Was "paths that always allow requests through, even if detected as bots"
+    ///         — a blanket enforcement bypass (the logonly shape the product rules
+    ///         forbid). The supported mechanisms instead: an endpoint-scoped policy in
+    ///         the policy stack (Policies → per-endpoint), <c>throttle-status</c> for
+    ///         friendly bot types, <c>BotPolicyAttribute(BlockThreshold = 0.95)</c> for
+    ///         internal endpoints that must stay reachable, and an <see cref="ApiKeys"/>
+    ///         key (path-scopable) for customer monitoring/automation traffic.
+    ///     </para>
     /// </summary>
-    /// <remarks>
-    ///     Use this when:
-    ///     <list type="bullet">
-    ///         <item>An endpoint is incorrectly flagging legitimate traffic</item>
-    ///         <item>You need to allow specific bots/automation for an endpoint</item>
-    ///         <item>Third-party integrations are being blocked</item>
-    ///     </list>
-    ///     Detection results are still logged and available via HttpContext.Items,
-    ///     so you can monitor the traffic and adjust detection rules.
-    /// </remarks>
-    /// <example>
-    ///     <code>
-    ///     "PathOverrides": {
-    ///       "/api/webhooks/*": "allow",
-    ///       "/api/public/feed": "allow",
-    ///       "/callback/oauth": "allow"
-    ///     }
-    ///     </code>
-    /// </example>
+    [Obsolete("Retired: not consumed. Use an endpoint-scoped policy in the policy stack, " +
+              "BotPolicyAttribute(BlockThreshold = 0.95), or a path-scoped ApiKeys key. " +
+              "Detection is never bypassed.")]
     public Dictionary<string, string> PathOverrides { get; set; } = new();
 
     // ==========================================

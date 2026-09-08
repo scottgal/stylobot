@@ -676,13 +676,19 @@ Feature is disabled by default.
 }
 ```
 
-## Path Exclusions and Overrides
+## Path Exclusions and Overrides — RETIRED
 
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `ExcludedPaths` | `List<string>` | `["/health", "/metrics"]` | Paths to completely exclude from detection |
-| `SignatureOnlyPaths` | `List<string>` | `[]` | Paths where only signature generation runs |
-| `PathOverrides` | `Dictionary<string, string>` | `{}` | Path overrides that always allow through (glob support) |
+These three properties are **not consumed by the detection pipeline**; setting them has
+no effect. They are retained on the options type so existing host config still binds, and
+carry `[Obsolete]` attributes naming their replacements. They are deliberately not
+re-wired — each is a detection skip or enforcement bypass, and StyloBot never skips
+detection. See `configuration.md` → Path Configuration for what to use instead.
+
+| Property | Type | Status | Replacement |
+|----------|------|--------|-------------|
+| `ExcludedPaths` | `List<string>` | Retired | `HealthEndpoints` / `BotPolicyAttribute(BlockThreshold = 0.95)` / `ApiKeys` |
+| `SignatureOnlyPaths` | `List<string>` | Retired | `HealthEndpoints` + trusted-internal source → `BotType.Internal` |
+| `PathOverrides` | `Dictionary<string, string>` | Retired | endpoint-scoped policy, `throttle-status`, or a path-scoped `ApiKeys` key |
 
 ## Pack Architecture Settings
 
@@ -812,7 +818,7 @@ ASP.NET Core maps nested configuration keys using double-underscore (`__`) separ
 | `BOTDETECTION_TRAINING_API_KEYS` | `TrainingEndpoints.ApiKeys` | `key1,key2` |
 | `STYLOBOT_MODEL_CACHE` | `AiDetection.LlamaSharp.ModelCacheDir` | `/app/models` |
 
-Arrays can be set with indexed keys: `BotDetection__ExcludedPaths__0=/health`, `BotDetection__ExcludedPaths__1=/metrics`.
+Arrays can be set with indexed keys: `BotDetection__HealthEndpoints__Paths__0=/health`, `BotDetection__HealthEndpoints__Paths__1=/healthz`.
 
 ---
 

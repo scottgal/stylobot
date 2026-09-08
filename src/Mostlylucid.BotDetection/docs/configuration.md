@@ -487,36 +487,41 @@ snap judgements); narrowing it makes the fast-path detectors decide more traffic
 
 ## Path Configuration
 
-Control which paths run detection, skip it entirely, or only compute visitor signatures.
+> **These three options are RETIRED and have no effect.** They were live until the v8
+> atom refactor deleted the middleware that read them. They are deliberately NOT
+> re-wired: each one is a detection skip or enforcement bypass, and StyloBot never
+> skips detection — an endpoint that is wrongly flagged is fixed by making detection
+> correct or by an explicit policy, never by exempting a path. They remain on the
+> options type so existing config still binds, and each carries an `[Obsolete]`
+> attribute naming its replacement.
 
-| Option              | Type       | Default                  | Description                                                                 |
-|---------------------|------------|--------------------------|-----------------------------------------------------------------------------|
-| `ExcludedPaths`     | `string[]` | `["/health", "/metrics"]` | Paths that skip detection entirely (prefix match). No processing, no logging. |
-| `SignatureOnlyPaths` | `string[]` | `[]`                     | Paths where only the visitor signature is computed (no detection pipeline). Useful for dashboards that need to look up cached detection results. |
-| `PathOverrides`     | `dict`     | `{}`                     | Paths that always allow requests through, even if detected as bots. Detection still runs for logging/analytics. Supports glob patterns. |
+| Option               | Status  | Replacement                                                                  |
+|----------------------|---------|------------------------------------------------------------------------------|
+| `ExcludedPaths`      | Retired | `HealthEndpoints` (probe recognition), `BotPolicyAttribute(BlockThreshold = 0.95)`, or an `ApiKeys` key |
+| `SignatureOnlyPaths` | Retired | `HealthEndpoints` + trusted-internal source → `BotType.Internal`             |
+| `PathOverrides`      | Retired | Endpoint-scoped policy in the policy stack, `throttle-status`, or a path-scoped `ApiKeys` key |
 
-```json
-{
-  "BotDetection": {
-    "ExcludedPaths": ["/health", "/metrics"],
-    "SignatureOnlyPaths": ["/_stylobot"],
-    "PathOverrides": {
-      "/api/public/*": "allow",
-      "/webhooks/**": "allow"
-    }
-  }
-}
-```
+### What to use instead
 
-> **Note:** The StyloBot Dashboard automatically registers its `BasePath` as a signature-only path. You don't need to configure this manually unless you've customised the dashboard path.
+- **Health / readiness / liveness probes** — `BotDetection:HealthEndpoints` (see below).
+  A recognised probe path from a trusted internal peer with probe shape is classified
+  `BotType.Internal`: counted, listed, filterable — never throttled. No skip path.
+- **An endpoint that must stay reachable by edge-case visitors** — annotate it with
+  `BotPolicyAttribute(BlockThreshold = 0.95)` rather than exempting the path.
+- **Customer monitoring / CI / automation traffic** — issue an `ApiKeys` key. The key
+  can be path-scoped (`path-denied`), and the request is still detected and scored.
+- **An endpoint that false-positives** — set an endpoint-scoped policy in the policy
+  stack (Policies → endpoint), or route friendly bot types through `throttle-status`.
 
 ---
 
 ## Health Endpoint Recognition
 
-Distinct from `ExcludedPaths` above: `ExcludedPaths` skips detection entirely, while `HealthEndpoints` feeds a
-probe-shape classifier (`HealthEndpointAtom` / `ProbeShapeClassifier`) that recognises health/readiness/liveness
-traffic *within* the pipeline so it scores and displays correctly instead of skipping processing.
+`BotDetection:HealthEndpoints` feeds a probe-shape classifier (`HealthEndpointAtom` /
+`ProbeShapeClassifier`) that recognises health/readiness/liveness traffic *within* the
+pipeline so it scores and displays correctly. Paths match case-insensitively at segment
+boundaries, so `/health` also covers `/health/live` and `/healthz` covers
+`/healthz/freshness`. Providing any value in `Paths` replaces the defaults entirely.
 
 Section path: `BotDetection:HealthEndpoints`
 
