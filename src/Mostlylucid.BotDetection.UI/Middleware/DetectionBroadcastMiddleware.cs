@@ -104,29 +104,53 @@ public partial class DetectionBroadcastMiddleware
     ///     are non-PII by construction (hashes, scores, bands, booleans, category
     ///     labels); the handful of PII-carrying keys are blocked explicitly below.
     ///     </para>
+    ///     <para>
+    ///         The block-lists live in <see cref="Services.DashboardSignals"/> so the
+    ///         store's write boundary applies the SAME predicate — the builder and the
+    ///         durability layer cannot drift apart.
+    ///     </para>
     /// </summary>
-    private static readonly System.Collections.Frozen.FrozenSet<string> BlockedSignalPrefixSet =
-        System.Collections.Frozen.FrozenSet.ToFrozenSet(
-        [
-            "pii.", "raw.", "secret.", "cookie.", "auth.", "credential."
-        ], StringComparer.OrdinalIgnoreCase);
-
-    private static bool IsAllowedSignal(string key)
-    {
-        if (BlockedSignalKeys.Contains(key)) return false;
-        var dot = key.IndexOf('.');
-        return dot < 0 || !BlockedSignalPrefixSet.Contains(key[..(dot + 1)]);
-    }
-
-    /// <summary>Individual signal keys that must never reach the dashboard (PII/secret).</summary>
-    private static readonly HashSet<string> BlockedSignalKeys = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "ua.raw", "ip.address", "client_ip", "ip_address",
-        "email", "phone", "session_id", "cookie", "authorization"
-    };
+    private static bool IsAllowedSignal(string key) => Services.DashboardSignals.IsAllowed(key);
 
     /// <summary>Maximum number of signals forwarded to dashboard per detection.</summary>
-    private const int MaxSignalsPerDetection = 80;
+    private const int MaxSignalsPerDetection = Services.DashboardSignals.MaxSignalsPerDetection;
+
+    // ─── Signal-sparsity pinning instrument ───────────────────────────────
+    // Makes "most detections carry no signals" MEASURABLE rather than inferred.
+    // _signalsBuiltTotal / _detectionsBuiltTotal is the observed mean built-dict
+    // size per detection; the per-detection Debug line carries the exact pair
+    // (built vs evidence.Signals source size) so an operator can tell a genuinely
+    // sparse evidence dict apart from a filter that dropped everything.
+    private static long _signalsBuiltTotal;
+    private static long _detectionsBuiltTotal;
+
+    /// <summary>Signals retained across all detections built this process (instrument).</summary>
+    public static long SignalsBuiltTotal => System.Threading.Interlocked.Read(ref _signalsBuiltTotal);
+
+    /// <summary>Detections built this process (instrument; divisor for the mean).</summary>
+    public static long DetectionsBuiltTotal => System.Threading.Interlocked.Read(ref _detectionsBuiltTotal);
+
+    /// <param name="builtCount">Keys in the built <c>ImportantSignals</c> dict.</param>
+    /// <param name="sourceCount">Keys on <c>evidence.Signals</c>, or -1 when this build
+    /// came from the upstream-header path (no evidence dict to measure).</param>
+    private void RecordSignalsBuilt(int builtCount, int sourceCount)
+    {
+        System.Threading.Interlocked.Add(ref _signalsBuiltTotal, builtCount);
+        System.Threading.Interlocked.Add(ref _detectionsBuiltTotal, 1);
+        // A source dict of 0 is the ONLY way the built dict can be near-empty (the
+        // protocol enrichment always adds at least request.protocol) — so that is the
+        // condition worth warning on: it means the evidence seam itself is sparse, not
+        // that the filter dropped everything.
+        if (sourceCount == 0)
+            _logger.LogWarning(
+                "ImportantSignals built {BuiltCount} keys from an EMPTY evidence.Signals — " +
+                "store-sourced signal surfaces will render 'No detection signals recorded'",
+                builtCount);
+        else
+            _logger.LogDebug(
+                "ImportantSignals built {BuiltCount} keys from {SourceCount} source keys",
+                builtCount, sourceCount);
+    }
 
     /// <summary>Maximum accepted length for X-Bot-Detection-Signals header (16 KB).</summary>
     private const int MaxUpstreamSignalsHeaderLength = 16_384;
@@ -537,6 +561,7 @@ public partial class DetectionBroadcastMiddleware
             topReasons = SynthesizePositiveSignalSummary(evidence.Signals);
 
         var importantSignals = BuildImportantSignals(context, evidence.Signals, ref countryCode);
+        RecordSignalsBuilt(importantSignals.Count, evidence.Signals?.Count ?? 0);
 
         // Analytics capture: (Domain, Host) form the multi-domain partition key;
         // always populated. Domain = eTLD+1 (e.g. "stylo.bot"); Host = full request
@@ -697,6 +722,7 @@ public partial class DetectionBroadcastMiddleware
 
         var importantSignals = ParseUpstreamSignals(context);
         EnrichProtocol(context, importantSignals);
+        RecordSignalsBuilt(importantSignals.Count, sourceCount: -1);
 
         var dashboardOptions = context.RequestServices.GetService<IOptions<StyloBotDashboardOptions>>()?.Value;
         if (dashboardOptions?.EnrichHumanSignals == true)
@@ -893,7 +919,7 @@ public partial class DetectionBroadcastMiddleware
         if (signals is { Count: > 0 })
         {
             importantSignals = signals
-                .Where(s => IsAllowedSignal(s.Key) && !BlockedSignalKeys.Contains(s.Key))
+                .Where(s => IsAllowedSignal(s.Key))
                 .Take(MaxSignalsPerDetection)
                 .ToDictionary(s => s.Key, s => s.Value);
         }
@@ -931,18 +957,10 @@ public partial class DetectionBroadcastMiddleware
                 foreach (var kvp in parsed)
                 {
                     if (count >= MaxSignalsPerDetection) break;
-                    if (BlockedSignalKeys.Contains(kvp.Key)) continue;
                     if (!IsAllowedSignal(kvp.Key)) continue;
+                    if (kvp.Value.ValueKind == System.Text.Json.JsonValueKind.Null) continue;
 
-                    object value = kvp.Value.ValueKind switch
-                    {
-                        System.Text.Json.JsonValueKind.String => kvp.Value.GetString()!,
-                        System.Text.Json.JsonValueKind.Number => kvp.Value.TryGetInt64(out var l) ? l : kvp.Value.GetDouble(),
-                        System.Text.Json.JsonValueKind.True => true,
-                        System.Text.Json.JsonValueKind.False => false,
-                        _ => kvp.Value.ToString()
-                    };
-                    importantSignals[kvp.Key] = value;
+                    importantSignals[kvp.Key] = Services.DashboardSignals.DecodeValue(kvp.Value);
                     count++;
                 }
             }

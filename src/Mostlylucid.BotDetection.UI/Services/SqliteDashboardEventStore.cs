@@ -122,7 +122,13 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 // minimal endpoint trace: "endpoint, response times, bytes delivered,
                 // cache status"). Captured post-_next from the Items marker / X-Cache /
                 // CF-Cache-Status; folded into endpoint_stats.cache_status_tally.
-                ("detections", "cache_status", "TEXT")
+                ("detections", "cache_status", "TEXT"),
+                // Per-request signal dict (JSON) built by the broadcast middleware. The
+                // column was missing entirely, so the INSERT never listed it and every
+                // store-sourced read surface saw ImportantSignals == null -- the signature
+                // detail "Detection Signals" panel rendered "No detection signals
+                // recorded" for every row. Additive TEXT so pre-migration rows read NULL.
+                ("detections", "important_signals", "TEXT")
             })
             {
                 var colExists = false;
@@ -311,10 +317,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
                     status_code, user_agent_raw, risk_justification, domain, host, referrer_host, ua_device_class, response_bytes,
-                    is_verified_bot, upstream_status_code, importance_weight, cache_status)
+                    is_verified_bot, upstream_status_code, importance_weight, cache_status, important_signals)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
                     @threat, @band, @status, @uaRaw, @justification, @domain, @host, @refHost, @deviceClass, @responseBytes,
-                    @verifiedBot, @upstreamStatus, @importance, @cacheStatus)
+                    @verifiedBot, @upstreamStatus, @importance, @cacheStatus, @importantSignals)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -352,6 +358,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     detection.Action,
                     _temporalStore));
             cmd.Parameters.AddWithValue("@cacheStatus", (object?)detection.CacheStatus ?? DBNull.Value);
+            // Encode through the shared chokepoint: the same non-PII admission predicate
+            // the broadcast builder applied, so the store can never become a PII egress
+            // and a hand-built event cannot smuggle a blocked key into the dashboard DB.
+            cmd.Parameters.AddWithValue("@importantSignals",
+                (object?)DashboardSignals.Encode(detection.ImportantSignals) ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -599,6 +610,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 // EnsureInitializedAsync has run the ALTER TABLE) read as false
                 // rather than throwing on missing column.
                 IsVerifiedBot   = SafeGetInt32(reader, "is_verified_bot") == 1,
+                // Per-request signal dict (non-PII, decoded to CLR primitives so the
+                // verified-bot trust triple's `is bool b && b` still matches after the
+                // round-trip). NULL for pre-migration rows and for rows that genuinely
+                // carried no signals.
+                ImportantSignals = DashboardSignals.Decode(SafeGetString(reader, "important_signals")),
                 // top_reasons_json rides along from the JOIN'd signatures row.
                 // Deserialises to the same List<string> shape DashboardDetectionEvent
                 // exposes; null when the row hasn't been synthesised yet (or the

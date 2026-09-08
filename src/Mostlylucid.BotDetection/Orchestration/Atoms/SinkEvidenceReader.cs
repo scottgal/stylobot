@@ -35,6 +35,30 @@ internal static class SinkEvidenceReader
     private const string ContributionPrefix = "contribution.";
 
     /// <summary>
+    ///     The taxonomy's per-atom lifecycle bookkeeping prefix
+    ///     (<c>detector.{Name}.started|completed|timeout|error</c>,
+    ///     <c>detector.failed.{Name}</c>, and the ledger's
+    ///     <c>detector.{Name}.{signalKey}</c> projection of a contribution's Signals).
+    ///     Skipped by <see cref="ProjectSinkSignals"/> for the same reason as
+    ///     <see cref="ContributionPrefix"/>: it is orchestrator bookkeeping, not a
+    ///     semantic detection signal.
+    ///     <para>
+    ///         This skip is load-bearing, not cosmetic. MEASURED (2026-09-08, real
+    ///         wired pipeline, one ordinary Chrome request): the sink carried 157
+    ///         signals of which 134 were these lifecycle pairs — one
+    ///         <c>started</c>/<c>completed</c> pair per detector atom. Projecting them
+    ///         pushed every substantive signal past
+    ///         <c>DetectionBroadcastMiddleware.MaxSignalsPerDetection</c> (80), so the
+    ///         built <c>important_signals</c> dict held only hydration noise plus
+    ///         bookkeeping and ZERO detection findings — the "detections carry no
+    ///         signals" symptom. With the bookkeeping skipped the same request
+    ///         projects ~23 semantic keys (risk.*, score.*, ua.*, ip.*, time.*, …),
+    ///         comfortably under the cap.
+    ///     </para>
+    /// </summary>
+    private const string DetectorBookkeepingPrefix = "detector.";
+
+    /// <summary>
     ///     Reads the current running bot-probability score off the sink.
     ///     Set by <c>DetectorOrchestrator</c> after each wave. Falls back to
     ///     0.5 when no upstream wave has completed (the atom is about to run
@@ -179,9 +203,11 @@ internal static class SinkEvidenceReader
     ///         <c>"1"</c> (e.g. session.request_count) must remain a parseable
     ///         string, and no real value equals the literal "true"/"false".</item>
     ///     </list>
-    ///     Orchestrator bookkeeping (<c>contribution.*</c>) is skipped -- it is
-    ///     reconstructed via <see cref="ReadContributions"/>, not a semantic
-    ///     signal, and would otherwise flood <c>evidence.Signals</c>. Existing
+    ///     Orchestrator bookkeeping (<c>contribution.*</c> and <c>detector.*</c>) is
+    ///     skipped -- it is reconstructed via <see cref="ReadContributions"/> /
+    ///     <c>ledger.ContributingDetectors</c>, not a semantic signal, and would
+    ///     otherwise flood <c>evidence.Signals</c> (see
+    ///     <see cref="DetectorBookkeepingPrefix"/> for the measured impact). Existing
     ///     entries are OVERWRITTEN (sink wins over any genuinely-merged key;
     ///     merged-only keys survive because only keys present on the sink are
     ///     touched).
@@ -192,6 +218,7 @@ internal static class SinkEvidenceReader
         {
             var raw = signal.Signal;
             if (raw.StartsWith(ContributionPrefix, StringComparison.Ordinal)) continue;
+            if (raw.StartsWith(DetectorBookkeepingPrefix, StringComparison.Ordinal)) continue;
 
             var colon = raw.IndexOf(':');
             if (colon <= 0)
