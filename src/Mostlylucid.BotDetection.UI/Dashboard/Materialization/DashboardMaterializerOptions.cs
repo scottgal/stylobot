@@ -369,14 +369,16 @@ public sealed class DashboardMaterializerOptions
     ///         never surfaces as an unobserved-task exception if/when it eventually completes).
     ///         The <c>_inFlightWarms</c> entry is NOT evicted at that point: it clears when the
     ///         attempt itself finishes (see
-    ///         <c>DashboardMaterializerCoordinator.AwaitWarmAndClearAsync</c>). Evicting it while
-    ///         the abandoned compose still ran let the next caller start a SECOND concurrent
-    ///         compose for the same envelope -- and the cache atom does not serialize same-key
-    ///         computes -- so the count of live attempts grew by one per tick for as long as the
-    ///         first hung. Now a hung attempt keeps exactly one entry and one thread; later
-    ///         callers join it under this bound, and a fresh compose starts the moment it ends.
-    ///         The envelope is never poisoned, but while an attempt is outstanding it serves its
-    ///         last-known-good bundle rather than being recomposed.
+    ///         <c>DashboardMaterializerCoordinator.AwaitWarmAndClearAsync</c>), or when the
+    ///         attempt becomes stale past <see cref="StaleAttemptSeconds"/> and no other
+    ///         superseded attempt is live. Evicting it while the abandoned compose still ran let
+    ///         the next caller start a SECOND concurrent compose for the same envelope -- and the
+    ///         cache atom does not serialize same-key computes -- so the count of live attempts
+    ///         grew by one per tick for as long as the first hung. Now a hung attempt keeps
+    ///         exactly one entry and one thread; later callers join it under this bound, and a
+    ///         fresh compose starts the moment it ends or is superseded. While an attempt is
+    ///         outstanding the envelope serves its last-known-good bundle rather than being
+    ///         recomposed.
     ///     </para>
     ///     Default 20000ms: comfortably under <see cref="MaxTickDurationMs"/> (30s) so a single
     ///     hung item can never itself exhaust an entire tick's wave-loop budget the way an
@@ -395,4 +397,24 @@ public sealed class DashboardMaterializerOptions
     /// <summary>The bound used when <see cref="ComposeTimeoutMs"/> is non-positive. Single source so
     ///     the clamp can never drift from the documented default.</summary>
     public const int DefaultComposeTimeoutMs = 20_000;
+
+    /// <summary>
+    ///     Age (seconds) past which an in-flight compose attempt may be SUPERSEDED: its
+    ///     <c>_inFlightWarms</c> entry is evicted so a later pass starts a replacement, and the
+    ///     abandoned attempt is remembered until it finishes so at most ONE replacement may be
+    ///     live per envelope (never more than two concurrent attempts for one envelope).
+    ///     <para>
+    ///         Why this exists (2026-09-09, the single-flight follow-up): clearing the entry only
+    ///         when the attempt finishes caps duplication at one attempt, but if that attempt
+    ///         never finishes the envelope is frozen for the process lifetime — the retry property
+    ///         the 2026-08-21 behaviour had. Superseding a stale attempt keeps both: duplication
+    ///         stays bounded (one superseded + one current) and the envelope still recovers when a
+    ///         fresh attempt succeeds where the hung one cannot.
+    ///     </para>
+    ///     Default 180s: far longer than <see cref="ComposeTimeoutMs"/> (20s) so a merely slow
+    ///     compose is never superseded, short enough that a genuinely hung envelope recovers
+    ///     within minutes rather than never. &lt;= 0 disables superseding (a hung attempt then
+    ///     holds its entry until it finishes).
+    /// </summary>
+    public int StaleAttemptSeconds { get; set; } = 180;
 }
