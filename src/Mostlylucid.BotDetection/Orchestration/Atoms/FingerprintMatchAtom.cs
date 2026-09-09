@@ -679,7 +679,15 @@ public sealed class FingerprintMatchAtom : DetectorAtomBase
         if (!string.IsNullOrEmpty(freshName))
             sink.Raise($"{SignalKeys.IdentityDisplayName}:{freshName}", sessionId);
 
+        // PERSIST ONLY A RESOLVED NAME (operator ruling 2026-09-09: "the id is fixed, the name
+        // is a projection that the full name must eventually REPLACE"). A provisional
+        // synthesis ("Client 6TyG2z5", "Automated Client · GB", the old "Unclassified") is a
+        // projection of current knowledge, NOT a name -- persisting it makes the full name
+        // have to displace a stored value, which is how a provisional label sticks forever.
+        // IsFallback already recognises every provisional shape, so it is the gate; the
+        // display layer computes the provisional name instead (ComposeProvisional).
         var shouldPersist = !string.IsNullOrEmpty(freshName)
+            && !FingerprintNameComposer.IsFallback(freshName)
             && !string.Equals(freshName, matched.InducedName, StringComparison.Ordinal);
         if (shouldPersist)
         {

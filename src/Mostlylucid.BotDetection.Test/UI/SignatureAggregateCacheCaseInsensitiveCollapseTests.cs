@@ -39,12 +39,19 @@ public class SignatureAggregateCacheCaseInsensitiveCollapseTests
         // distinct -- the case-insensitive fold groups same-name rows only.
         var cache = new SignatureAggregateCache(new StyloBotDashboardOptions());
 
-        cache.UpdateFromDetection(MakeDetection("sig-g", "Googlebot", DateTime.UtcNow.AddSeconds(-30)));
-        cache.UpdateFromDetection(MakeDetection("sig-b", "bingbot",   DateTime.UtcNow));
+        // Real signature shape (22-char base64url, as SignatureAtom computes) -- NOT the
+        // "sig-g" placeholder it used to be. The projection's discriminator is the first 8
+        // chars, so a sub-8-char id projects to a role-only name and two distinct nameless
+        // rows would fold together; real ids always carry the fp8 and stay distinct.
+        const string sigG = "LbLGywIy5JHweex7_Jd3Zg";
+        const string sigB = "Zq8mNv3Rt5KpWx2Yc7BhA";
+
+        cache.UpdateFromDetection(MakeDetection(sigG, "Googlebot", DateTime.UtcNow.AddSeconds(-30)));
+        cache.UpdateFromDetection(MakeDetection(sigB, "bingbot",   DateTime.UtcNow));
         // is-bot + bot type are read through the fingerprint LFU (single source);
         // seed the resolved verdicts so the "bots" filter sees both rows as bots.
-        SeedBotVerdict(cache, "sig-g");
-        SeedBotVerdict(cache, "sig-b");
+        SeedBotVerdict(cache, sigG);
+        SeedBotVerdict(cache, sigB);
 
         var (items, totalCount, _, _) =
             cache.GetFiltered("bots", "lastSeen", "desc", page: 1, pageSize: 50);

@@ -406,13 +406,30 @@ public static class WidgetRenderHelpers
         string? fingerprintId = null,
         bool internalOnly = false)
     {
+        // Resolve each row's display name BEFORE collapse. A fallback-shaped name
+        // ("Unclassified", a UA prefix, a bare country) means "no name yet", so the
+        // row's own class + country + fp8 are projected instead (operator ruling
+        // 2026-09-09: the name is a projection, never a stored value). Projecting
+        // first also keeps the collapse honest: the identity key then carries the
+        // fp8 discriminator, so two UA-less scrapers in the same country stay two
+        // rows instead of folding into one "Unclassified" pile.
+        var named = source.ToList();
+        for (var i = 0; i < named.Count; i++)
+        {
+            var e = named[i];
+            var projected = ProvisionalNameProjection.Resolve(
+                e.BotName, e.PrimarySignature, e.BotType, e.CountryCode, e.UserAgent);
+            if (!string.Equals(projected, e.BotName, StringComparison.Ordinal))
+                named[i] = e with { BotName = projected };
+        }
+
         // Apply the SAME centroid collapse the Top Bots widget uses BEFORE
         // projection. The gateway-local /dashboard/visitors render path used
         // to skip this step and showed every fingerprint as its own row, so
         // a single bot identity (Googlebot, GPTBot) surfaced as N rows --
         // one per fingerprint that resolved to it. Single collapse function,
         // case-insensitive identity key, every list view consistent.
-        var collapsed = CollapseGroupableIdentities(source.ToList());
+        var collapsed = CollapseGroupableIdentities(named);
 
         var snapshot = collapsed.Select(e => new ProjectedVisitor
         {

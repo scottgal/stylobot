@@ -801,7 +801,10 @@ public sealed class SignatureAggregateCache
                 LastPath = agg.LastPath,
                 Paths = agg.Paths.ToList(),
                 Action = "Allow",
-                BotName = GetResolvedName(signature),
+                // A fallback-shaped resolved name means "no name yet" -- project the
+                // aggregate's own class/country/fp8 instead (operator ruling 2026-09-09).
+                BotName = ProvisionalNameProjection.Resolve(
+                    GetResolvedName(signature), signature, verdict?.BotType, agg.CountryCode, agg.UserAgent),
                 BotType = verdict?.BotType,
                 CountryCode = agg.CountryCode,
                 UserAgent = agg.UserAgent,
@@ -1208,9 +1211,10 @@ public sealed class SignatureAggregateCache
                 HitCount = agg.HitCount,
                 // Display name resolved from the store-gated dict (populated via
                 // ApplyResolvedNames from IFingerprintStore.GetDisplayNamesBySignaturesAsync).
-                // Null until that read has populated the entry; views must tolerate
-                // null and fall through to entity-id / UA-family labels per spec.
-                BotName = GetResolvedName(signature),
+                // A null or fallback-shaped value means "no name yet" -- the aggregate's
+                // own class/country/fp8 are projected instead (operator ruling 2026-09-09).
+                BotName = ProvisionalNameProjection.Resolve(
+                    GetResolvedName(signature), signature, verdict?.BotType, agg.CountryCode, agg.UserAgent),
                 CustomBotName = customName,
                 BotType = verdict?.BotType,
                 RiskBand = verdict?.RiskBand,
