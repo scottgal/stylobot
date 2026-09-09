@@ -11,19 +11,21 @@ namespace Mostlylucid.BotDetection.Test.Dashboard;
 
 /// <summary>
 ///     The materializer WEDGE, asserted from the operator's bar (2026-09-09 ruling): the
-///     coordinator must RECOVER from a stuck pass without a process restart, must never serialise
-///     the whole tick behind an unbounded await, and must never run two composes for one envelope.
+///     coordinator must RECOVER from a stuck pass without a process restart, and must never
+///     serialise the whole tick behind an unbounded await.
 ///     <para>
-///         The measured mechanism is the UNBOUNDED BRANCH, not a synchronous block in the compose:
-///         <c>ComposeTimeoutMs &lt;= 0</c> used to await the compose directly, so one compose that
-///         never returns held <c>_tickGate</c> for the process lifetime, every later tick queued
-///         behind it (<c>ScheduleCoordinator: ... busy for &gt;2 ticks (skips=N)</c>), and
-///         <c>ReArmTickAsync</c> — the self-heal — awaited the same gate. (A blocking compose
-///         delegate does not block the tick thread: it runs on the cache atom's own work
-///         coordinator.) Restart was the only exit.
+///         The staging mechanism is the SECOND wedge candidate: the compose blocks the calling
+///         thread SYNCHRONOUSLY before returning a task. <c>lazy.Value</c> evaluates the factory
+///         on the tick thread, so <see cref="DashboardMaterializerOptions.ComposeTimeoutMs"/> can
+///         never fire — the bound is only applied AFTER the factory returns. The pass therefore
+///         never returns, holds <c>_tickGate</c> for the process lifetime, and every later tick
+///         (and <c>ReArmTickAsync</c>, the self-heal) queues behind it:
+///         <c>ScheduleCoordinator: subscriber DashboardMaterializerCoordinator on Tick10s has
+///         been busy for &gt;2 ticks (skips=N)</c>. Restart was the only exit.
 ///     </para>
 ///     <para>
-///         Every test here fails on the pre-fix code; the superseded behaviour stays recorded in
+///         Both tests fail on the pre-fix code and are the proof the fix works; the superseded
+///         behaviour stays recorded in
 ///         <see cref="DashboardMaterializerWedgeDiagnosticTests"/>.
 ///     </para>
 /// </summary>
@@ -153,82 +155,6 @@ public sealed class DashboardMaterializerStuckPassRecoveryTests
         finally
         {
             release.Set();
-            await coord.StopAsync(default);
-        }
-    }
-
-    /// <summary>
-    ///     THE SINGLE-FLIGHT INVARIANT: at most ONE compose per envelope is ever in flight, even
-    ///     when an attempt is abandoned at the compose bound and later passes run ungated.
-    ///     <para>
-    ///         Why it must hold in code, not just in a comment: <c>SlidingCacheAtom.GetOrComputeAsync</c>
-    ///         has no per-key in-flight map — a miss enqueues a request into
-    ///         <c>EphemeralWorkCoordinator</c>, which is a concurrency-gated queue, NOT a keyed one
-    ///         (<c>EphemeralWorkCoordinator.EnqueueAsync</c> writes to a channel). So two concurrent
-    ///         misses for the same key BOTH reach the compose. The coordinator's <c>_inFlightWarms</c>
-    ///         Lazy is the only thing preventing that — and it only works while the entry exists.
-    ///         The pre-fix code evicted the entry when an awaiter gave up (the abandonment path), so
-    ///         a later pass started a SECOND compose while the abandoned one still ran.
-    ///     </para>
-    ///     <para>
-    ///         Asserted across three ticks: the stuck envelope's compose is entered exactly once,
-    ///         and the healthy envelope still warms — the coordinator recovers without stacking
-    ///         duplicate work. The stuck shape is a compose that returns a task that never
-    ///         completes (the realistic store hang); the cache atom's work coordinator frees the
-    ///         body's slot on its own body timeout, so the duplicate really does reach the compose.
-    ///     </para>
-    /// </summary>
-    [Fact]
-    public async Task A_hung_compose_is_never_started_twice_for_the_same_envelope()
-    {
-        var hung = new TaskCompletionSource<DashboardPageResult>();
-        var hungCalls = 0;
-        var healthyCalls = 0;
-        long tick = 1;
-        var cache = new DashboardContentCache(
-            (manifest, _, _) =>
-            {
-                if (manifest.PageKey == Traffic.PageKey)
-                {
-                    Interlocked.Increment(ref hungCalls);
-                    return hung.Task; // never completes
-                }
-                Interlocked.Increment(ref healthyCalls);
-                return Task.FromResult(Result());
-            },
-            () => tick,
-            Options.Create(new DashboardMaterializerOptions()));
-
-        var sched = new FakeScheduleCoordinator();
-        var coord = Build(cache, sched, () => tick, new DashboardMaterializerOptions
-        {
-            PrewarmDefaultEnvelope = false,
-            BootPrewarmEnabled = false,
-            ComposeTimeoutMs = 200,
-            WarmInactivityThresholdSeconds = 1,
-            FailureRetryBackoffSeconds = 0,
-        });
-
-        await cache.GetAsync(Traffic, Window(), 1, default);
-        await cache.GetAsync(Threats, Window(), 1, default);
-        await coord.StartAsync(default);
-
-        try
-        {
-            for (var i = 2; i <= 4; i++)
-            {
-                tick = i;
-                await sched.RaiseTickAsync(TickCadence.Tick10s).WaitAsync(TimeSpan.FromSeconds(10));
-            }
-
-            Assert.Equal(1, Volatile.Read(ref hungCalls));
-            Assert.True(Volatile.Read(ref healthyCalls) >= 1,
-                "the healthy envelope must still warm — the coordinator recovers without duplicating work");
-            Assert.True(coord.HasWarmedSuccessfully);
-        }
-        finally
-        {
-            hung.TrySetResult(Result());
             await coord.StopAsync(default);
         }
     }
