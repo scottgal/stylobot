@@ -418,8 +418,14 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
     {
         var envelope = DashboardContentEnvelope.From(manifest, window);
+        // The factory starts the compose on a pool thread and returns its Task IMMEDIATELY, so
+        // `lazy.Value` never blocks: the first caller starts the attempt, and every later caller
+        // gets the SAME task without waiting on Lazy's ExecutionAndPublication lock. (Hopping
+        // inside the factory rather than around `lazy.Value` matters: a factory that blocks
+        // before its first await would otherwise hold that lock, and each joining pass would
+        // block a pool thread for the whole hang.)
         var lazy = _inFlightWarms.GetOrAdd(envelope, _ => new Lazy<Task<DashboardPageResult>>(
-            () => _cache.WarmAsync(manifest, window, tick, ct),
+            () => Task.Run(() => _cache.WarmAsync(manifest, window, tick, ct), CancellationToken.None),
             LazyThreadSafetyMode.ExecutionAndPublication));
 
         return AwaitWarmAndClearAsync(envelope, lazy);
@@ -436,7 +442,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     <c>Task.WhenAll</c> from ever returning.
     /// </summary>
     private async Task<DashboardPageResult> AwaitWithComposeTimeoutAsync(
-        DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
+        DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy, Task<DashboardPageResult> compose)
     {
         // No unbounded branch (2026-09-09 wedge ruling): a non-positive ComposeTimeoutMs used
         // to await the compose directly, which is exactly the "never returns, holds _tickGate
@@ -451,14 +457,6 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                     "DashboardMaterializerCoordinator: ComposeTimeoutMs={Configured} is non-positive; clamping to {Default}ms. An unbounded compose wait wedges the tick pass (and _tickGate) for the process lifetime.",
                     _options.ComposeTimeoutMs, timeoutMs);
         }
-
-        // Run the compose OFF the caller's thread. `lazy.Value` executes the factory
-        // SYNCHRONOUSLY under Lazy's ExecutionAndPublication lock, so a factory that blocks
-        // before its first await would wedge the tick thread BEFORE the bound below could ever
-        // apply -- the second wedge candidate. Task.Run moves that synchronous prefix to a pool
-        // thread, where the bound can abandon the wait (the blocked factory thread is the
-        // compose's own doing and cannot be cancelled from here).
-        var compose = Task.Run(() => lazy.Value, CancellationToken.None);
 
         var winner = await Task.WhenAny(compose, Task.Delay(timeoutMs, CancellationToken.None)).ConfigureAwait(false);
         if (winner != compose)
@@ -480,9 +478,13 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private async Task<DashboardPageResult> AwaitWarmAndClearAsync(
         DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
     {
+        // The ONE task representing this envelope's attempt (see WarmEnvelopeAsync: the factory
+        // hops to a pool thread and returns immediately, so this never blocks and every joiner
+        // shares the same task).
+        var compose = lazy.Value;
         try
         {
-            var result = await AwaitWithComposeTimeoutAsync(envelope, lazy).ConfigureAwait(false);
+            var result = await AwaitWithComposeTimeoutAsync(envelope, lazy, compose).ConfigureAwait(false);
             // Stage 2b: record the real warm timestamp AFTER a successful compute (never on
             // a skip) so DashboardRefreshCadence's due-time check always measures from the
             // last GENUINE warm, whether it came from the tick loop or a MarkDirtyAsync force.
@@ -531,9 +533,36 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         }
         finally
         {
-            // Only clears the entry if it's still THIS in-flight warm (a later caller may
-            // already have started a fresh one for the same envelope after this one cleared).
-            _inFlightWarms.TryRemove(new KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>(envelope, lazy));
+            // SINGLE-FLIGHT INVARIANT: an envelope's entry is cleared only once its attempt has
+            // FINISHED. This used to remove unconditionally, so an ABANDONED (still-running)
+            // compose lost its entry and the next pass published a fresh Lazy -> a SECOND
+            // concurrent compose for the same envelope. That is not a theoretical race:
+            // SlidingCacheAtom.GetOrComputeAsync keeps no per-key in-flight map (a miss enqueues
+            // into EphemeralWorkCoordinator, a concurrency-gated queue, not a keyed one), so both
+            // computes reach the compose. Keeping the entry until the attempt ends is what makes
+            // "at most one compose per envelope" true; a hung attempt therefore holds exactly one
+            // entry (and one thread) and later passes JOIN it under the compose bound instead of
+            // stacking new attempts. The entry clears when the attempt completes, faults or is
+            // abandoned, so a later pass retries fresh exactly then.
+            var entry = new KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>(envelope, lazy);
+            if (compose.IsCompleted)
+            {
+                // Still only clears the entry if it's still THIS in-flight warm.
+                _inFlightWarms.TryRemove(entry);
+            }
+            else
+            {
+                _ = compose.ContinueWith(
+                    static (_, state) =>
+                    {
+                        var (dict, kv) = ((ConcurrentDictionary<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>, KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>))state!;
+                        dict.TryRemove(kv);
+                    },
+                    (_inFlightWarms, entry),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
         }
     }
 
