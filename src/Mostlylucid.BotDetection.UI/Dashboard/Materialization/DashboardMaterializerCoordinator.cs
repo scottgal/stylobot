@@ -948,9 +948,31 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     <para>
     ///         The stuck holder still owns the gate (it may be blocked in a compose this process
     ///         cannot cancel); when it eventually returns it releases it and the gate is back in
-    ///         service. Two overlapping passes are acceptable: <c>_inFlightWarms</c> already
-    ///         coalesces concurrent composes of the SAME envelope, so the overlap can only warm
-    ///         different envelopes concurrently.
+    ///         service.
+    ///     </para>
+    ///     <para>
+    ///         WHAT THE UNGATED PASS DOES NOT GUARANTEE (stated plainly — an earlier version of
+    ///         this comment claimed otherwise and was wrong): <c>_inFlightWarms</c> coalesces
+    ///         concurrent warms of the SAME envelope only while that entry exists, and
+    ///         <c>AwaitWarmAndClearAsync</c> clears it in a <c>finally</c> that also runs on the
+    ///         ABANDON path. So a pass that abandoned an envelope at
+    ///         <see cref="DashboardMaterializerOptions.ComposeTimeoutMs"/> — precisely the case
+    ///         that leaves a gate holder stuck, i.e. the case this method exists for — plus a later
+    ///         ungated pass can compose the SAME envelope concurrently, while the abandoned compose
+    ///         is still running. The cache atom does not serialize that for us
+    ///         (<c>SlidingCacheAtom.GetOrComputeAsync</c> keeps no per-key in-flight map; a miss
+    ///         awaits <c>EphemeralWorkCoordinator.EnqueueAsync</c>, a concurrency-gated channel,
+    ///         not a keyed queue), so both really do reach the compose.
+    ///     </para>
+    ///     <para>
+    ///         The overlap is ACCEPTED, not overlooked: it is wasteful at worst (a duplicate
+    ///         whole-page compose, each still bounded by <c>ComposeTimeoutMs</c>), and the
+    ///         alternative — refusing to run a pass until the stuck holder returns — is the wedge
+    ///         this method exists to end, where the only exit was a process restart. Bounding the
+    ///         duplication instead (clearing the in-flight entry only when the compose task
+    ///         completes) was tried and rejected: it leaves an envelope permanently "in flight"
+    ///         when a compose never completes, so later callers join a hung task and that
+    ///         envelope's data never refreshes. See the compose-bound docs for the trade.
     ///     </para>
     /// </summary>
     private async Task<bool> EnterTickGateAsync(CancellationToken ct)

@@ -14,14 +14,13 @@ namespace Mostlylucid.BotDetection.Test.Dashboard;
 ///     coordinator must RECOVER from a stuck pass without a process restart, and must never
 ///     serialise the whole tick behind an unbounded await.
 ///     <para>
-///         The staging mechanism is the SECOND wedge candidate: the compose blocks the calling
-///         thread SYNCHRONOUSLY before returning a task. <c>lazy.Value</c> evaluates the factory
-///         on the tick thread, so <see cref="DashboardMaterializerOptions.ComposeTimeoutMs"/> can
-///         never fire — the bound is only applied AFTER the factory returns. The pass therefore
-///         never returns, holds <c>_tickGate</c> for the process lifetime, and every later tick
-///         (and <c>ReArmTickAsync</c>, the self-heal) queues behind it:
-///         <c>ScheduleCoordinator: subscriber DashboardMaterializerCoordinator on Tick10s has
-///         been busy for &gt;2 ticks (skips=N)</c>. Restart was the only exit.
+///         The measured mechanism is the UNBOUNDED BRANCH, not a synchronous block in the compose:
+///         <c>ComposeTimeoutMs &lt;= 0</c> used to await the compose directly, so one compose that
+///         never returns held <c>_tickGate</c> for the process lifetime, every later tick queued
+///         behind it (<c>ScheduleCoordinator: ... busy for &gt;2 ticks (skips=N)</c>), and
+///         <c>ReArmTickAsync</c> — the self-heal — awaited the same gate. (A compose delegate that
+///         blocks does not block the tick thread: it runs on the cache atom's own work
+///         coordinator.) Restart was the only exit.
 ///     </para>
 ///     <para>
 ///         Both tests fail on the pre-fix code and are the proof the fix works; the superseded
