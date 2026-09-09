@@ -91,6 +91,10 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         var html = await page.Content.ReadAsStringAsync();
         Assert.Contains("data-sb-widget=\"time-chart\"", html);
         Assert.Contains("data-sb-depends=\"summary\"", html);
+        // The morph target. hx-swap-oob="morph" resolves BY ID, so data-sb-widget without
+        // an id would be visible-but-unswappable: the swap renders, the logs look right,
+        // and nothing changes on screen.
+        Assert.Contains("id=\"time-chart\"", html);
 
         // The beacon's OOB re-render. The client builds this URL from the widget's
         // data-sb-params (sb-live-updates.js flush), so the window rides along prefixed.
@@ -100,6 +104,8 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
 
         Assert.Contains("data-sb-widget=\"time-chart\"", swapped);
         Assert.Contains("hx-swap-oob", swapped);
+        // Same outer element identity as SSR — a mismatched id is the silent-no-op trap.
+        Assert.Contains("id=\"time-chart\"", swapped);
         // The chart itself, not an empty shell — the whole point of the re-activation.
         Assert.Contains("sb-chartlet", swapped);
         Assert.DoesNotContain("Warming up", swapped);

@@ -20,16 +20,18 @@ namespace Mostlylucid.BotDetection.Test.UI;
 /// </summary>
 public sealed class SbWidgetTagHelperWidgetIdTests
 {
-    private static TagHelperOutput Render(SbWidgetTagHelper helper)
+    private static TagHelperOutput Render(SbWidgetTagHelper helper, string? explicitId = null)
     {
         var context = new TagHelperContext(
             tagName: "sb-widget",
             allAttributes: new TagHelperAttributeList(),
             items: new Dictionary<object, object>(),
             uniqueId: "test");
+        var attrs = new TagHelperAttributeList();
+        if (explicitId is not null) attrs.Add("id", explicitId);
         var output = new TagHelperOutput(
             "sb-widget",
-            new TagHelperAttributeList(),
+            attrs,
             (_, _) => Task.FromResult<TagHelperContent>(new DefaultTagHelperContent()));
         output.Content.SetHtmlContent("<canvas id=\"chart-canvas\"></canvas>");
 
@@ -38,7 +40,7 @@ public sealed class SbWidgetTagHelperWidgetIdTests
     }
 
     [Fact]
-    public void WidgetId_emits_data_sb_widget_so_the_live_bridge_can_see_the_widget()
+    public void WidgetId_emits_data_sb_widget_and_a_matching_id()
     {
         var output = Render(new SbWidgetTagHelper
         {
@@ -51,14 +53,29 @@ public sealed class SbWidgetTagHelperWidgetIdTests
 
         Assert.Equal("time-chart", output.Attributes["data-sb-widget"].Value);
         Assert.Equal("summary", output.Attributes["data-sb-depends"].Value);
+        // The OOB fragment is stamped hx-swap-oob="morph" and Idiomorph resolves the swap
+        // target BY ID — data-sb-widget alone would be visible-but-unswappable.
+        Assert.Equal("time-chart", output.Attributes["id"].Value);
     }
 
     [Fact]
-    public void No_widget_id_omits_the_attribute_so_existing_callers_are_unaffected()
+    public void Explicit_id_wins_over_the_widget_id()
+    {
+        var output = Render(
+            new SbWidgetTagHelper { Width = "full", Height = "tall", WidgetId = "time-chart" },
+            explicitId: "my-dom-id");
+
+        Assert.Equal("time-chart", output.Attributes["data-sb-widget"].Value);
+        Assert.Equal("my-dom-id", output.Attributes["id"].Value);
+    }
+
+    [Fact]
+    public void No_widget_id_omits_both_attributes_so_existing_callers_are_unaffected()
     {
         var output = Render(new SbWidgetTagHelper { Width = "full", Height = "tall" });
 
         Assert.Null(output.Attributes.SingleOrDefault(a => a.Name == "data-sb-widget"));
+        Assert.Null(output.Attributes.SingleOrDefault(a => a.Name == "id"));
     }
 
     [Fact]
