@@ -76,6 +76,14 @@ public sealed class DashboardMaterializerStaleAttemptTests
     /// <summary>
     ///     A hung attempt must not freeze its envelope forever: once it is stale, exactly one
     ///     replacement starts and the envelope warms again.
+    ///     <para>
+    ///         THE RETRY PROPERTY, stated because restoring it is the whole point of the bound: a
+    ///         FRESH attempt can succeed where the hung one cannot (a leaked connection, a store
+    ///         call that never returns), so the envelope must be allowed to try again — which is
+    ///         what the 2026-08-21 behaviour had and plain single-flight lost. The bound restores
+    ///         it without restoring the unbounded duplication: the replacement is allowed only
+    ///         past <c>StaleAttemptSeconds</c> and only while no other superseded attempt is live.
+    ///     </para>
     /// </summary>
     [Fact]
     public async Task A_stale_attempt_is_superseded_once_so_the_envelope_recovers()
@@ -122,7 +130,9 @@ public sealed class DashboardMaterializerStaleAttemptTests
     /// <summary>
     ///     The cap: while a superseded attempt is still running, a later stale attempt must NOT be
     ///     superseded again — otherwise the duplicate-compose count grows without bound, which is
-    ///     exactly what single-flight removed.
+    ///     exactly what single-flight removed. The invariant is "at most TWO concurrent attempts
+    ///     per envelope, EVER" — one superseded plus one current — not "a replacement per stale
+    ///     interval", which would drift straight back to unbounded.
     /// </summary>
     [Fact]
     public async Task At_most_one_superseded_attempt_is_live_per_envelope()
