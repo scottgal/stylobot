@@ -171,7 +171,16 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // Concurrency guard (B3, review 2026-08-28): the schedule tick, the watchdog re-arm, and the
     // request-path re-warm can all invoke MaterializeTickAsync — serialize them so two passes never
     // run simultaneously (a duplicate warm of the same envelopes would be wasteful at best).
+    //
+    // 2026-09-09 wedge ruling: the wait is BOUNDED (see EnterTickGateAsync). Holding this for the
+    // whole pass is only safe if a pass can never be unbounded; the wait's own bound is the
+    // structural guarantee that a stuck holder cannot serialise every later tick behind it — and
+    // that the self-heal (ReArmTickAsync -> MaterializeTickAsync) can still run.
     private readonly SemaphoreSlim _tickGate = new(1, 1);
+
+    // One-shot latch for the "ComposeTimeoutMs was non-positive, clamped" warning (see
+    // AwaitWithComposeTimeoutAsync) so a per-tick config mistake logs once, not every envelope.
+    private int _warnedNonPositiveComposeTimeout;
 
     /// <summary>
     ///     True once the tick materializer has warmed at least one envelope successfully --
@@ -429,23 +438,43 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private async Task<DashboardPageResult> AwaitWithComposeTimeoutAsync(
         DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
     {
+        // No unbounded branch (2026-09-09 wedge ruling): a non-positive ComposeTimeoutMs used
+        // to await the compose directly, which is exactly the "never returns, holds _tickGate
+        // for the process lifetime, restart is the only exit" shape. Clamp to the documented
+        // default and say so, once per coordinator.
         var timeoutMs = _options.ComposeTimeoutMs;
-        if (timeoutMs <= 0) return await lazy.Value.ConfigureAwait(false);
+        if (timeoutMs <= 0)
+        {
+            timeoutMs = DashboardMaterializerOptions.DefaultComposeTimeoutMs;
+            if (Interlocked.Exchange(ref _warnedNonPositiveComposeTimeout, 1) == 0)
+                _logger?.LogWarning(
+                    "DashboardMaterializerCoordinator: ComposeTimeoutMs={Configured} is non-positive; clamping to {Default}ms. An unbounded compose wait wedges the tick pass (and _tickGate) for the process lifetime.",
+                    _options.ComposeTimeoutMs, timeoutMs);
+        }
 
-        var winner = await Task.WhenAny(lazy.Value, Task.Delay(timeoutMs)).ConfigureAwait(false);
-        if (winner != lazy.Value)
+        // Run the compose OFF the caller's thread. `lazy.Value` executes the factory
+        // SYNCHRONOUSLY under Lazy's ExecutionAndPublication lock, so a factory that blocks
+        // before its first await would wedge the tick thread BEFORE the bound below could ever
+        // apply -- the second wedge candidate. Task.Run moves that synchronous prefix to a pool
+        // thread, where the bound can abandon the wait (the blocked factory thread is the
+        // compose's own doing and cannot be cancelled from here).
+        var compose = Task.Run(() => lazy.Value, CancellationToken.None);
+
+        var winner = await Task.WhenAny(compose, Task.Delay(timeoutMs, CancellationToken.None)).ConfigureAwait(false);
+        if (winner != compose)
         {
             _logger?.LogWarning(
                 "DashboardMaterializerCoordinator: compose for {PageKey} ({Envelope}) exceeded ComposeTimeoutMs={TimeoutMs}ms; abandoning the wait so this envelope is not poisoned forever. The underlying compose may still be running in the background.",
                 envelope.PageKey, envelope, timeoutMs);
-            // The abandoned task may still complete (or fault) later, off in the background --
-            // observe it so that never surfaces as an unobserved-task exception.
-            ObserveFault(lazy.Value);
+            // Observe the ALREADY-STARTED task (never re-evaluate lazy.Value: on a factory that
+            // blocks synchronously that call would block here forever) so a later completion or
+            // fault never surfaces as an unobserved-task exception.
+            ObserveFault(compose);
             throw new TimeoutException(
                 $"Dashboard compose for '{envelope.PageKey}' exceeded ComposeTimeoutMs={timeoutMs}ms and was abandoned.");
         }
 
-        return await lazy.Value.ConfigureAwait(false);
+        return await compose.ConfigureAwait(false);
     }
 
     private async Task<DashboardPageResult> AwaitWarmAndClearAsync(
@@ -582,7 +611,8 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
 
         // Concurrency guard (B3, review 2026-08-28): serialize the schedule tick, the watchdog
         // re-arm, and the request-path re-warm so two materializer passes never run simultaneously.
-        await _tickGate.WaitAsync(ct).ConfigureAwait(false);
+        // Bounded (2026-09-09 wedge ruling) — see EnterTickGateAsync.
+        var gated = await EnterTickGateAsync(ct).ConfigureAwait(false);
         try
         {
         // Boot-pass detection: the StartAsync-fired first pass owns the pinned wave bump
@@ -902,8 +932,42 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         }
         finally
         {
-            _tickGate.Release();
+            // Only release what this pass took: a pass that proceeded WITHOUT the gate (the
+            // stuck-holder case) must not free a gate some other pass is legitimately holding.
+            if (gated) _tickGate.Release();
         }
+    }
+
+    /// <summary>
+    ///     Take the pass gate, bounded. A pass that has held the gate longer than
+    ///     <see cref="DashboardMaterializerOptions.WarmInactivityThresholdSeconds"/> is stuck by the
+    ///     same definition the liveness watchdog uses, so this pass logs LOUD and proceeds WITHOUT
+    ///     the gate rather than queueing behind it forever — that queue is the wedge: the schedule
+    ///     handler never returns (<c>busy for &gt;2 ticks, skips=N</c>) and the self-heal, which
+    ///     calls this same method, deadlocks behind the failure it is recovering from.
+    ///     <para>
+    ///         The stuck holder still owns the gate (it may be blocked in a compose this process
+    ///         cannot cancel); when it eventually returns it releases it and the gate is back in
+    ///         service. Two overlapping passes are acceptable: <c>_inFlightWarms</c> already
+    ///         coalesces concurrent composes of the SAME envelope, so the overlap can only warm
+    ///         different envelopes concurrently.
+    ///     </para>
+    /// </summary>
+    private async Task<bool> EnterTickGateAsync(CancellationToken ct)
+    {
+        if (_options.WarmInactivityThresholdSeconds <= 0)
+        {
+            await _tickGate.WaitAsync(ct).ConfigureAwait(false);
+            return true;
+        }
+
+        var stuckAfter = TimeSpan.FromSeconds(_options.WarmInactivityThresholdSeconds);
+        if (await _tickGate.WaitAsync(stuckAfter, ct).ConfigureAwait(false)) return true;
+
+        _logger?.LogError(
+            "DashboardMaterializerCoordinator: a previous materializer pass has held _tickGate for >{Seconds}s — it is stuck (this is the 'busy for >2 ticks, skips=N' wedge). Running this pass WITHOUT the gate so the dashboard cache can recover without a process restart; the stuck pass releases the gate if it ever returns.",
+            _options.WarmInactivityThresholdSeconds);
+        return false;
     }
 
     /// <summary>

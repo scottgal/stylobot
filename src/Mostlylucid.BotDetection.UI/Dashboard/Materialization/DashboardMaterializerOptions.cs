@@ -374,8 +374,19 @@ public sealed class DashboardMaterializerOptions
     ///     </para>
     ///     Default 20000ms: comfortably under <see cref="MaxTickDurationMs"/> (30s) so a single
     ///     hung item can never itself exhaust an entire tick's wave-loop budget the way an
-    ///     unbounded wait could. &lt;= 0 disables the bound (restores the pre-fix
-    ///     wait-forever behavior) -- not recommended.
+    ///     unbounded wait could.
+    ///     <para>
+    ///         &lt;= 0 NO LONGER means "unbounded" (2026-09-09 wedge ruling: "a fix must make the
+    ///         coordinator recover from a stuck pass without a process restart, and must not
+    ///         serialise the whole tick behind an unbounded await"). An unbounded per-envelope
+    ///         wait was the wedge's precondition -- with it, one compose that never returns holds
+    ///         <c>_tickGate</c> for the process lifetime and only a restart clears it. A
+    ///         non-positive value is treated as this default, and the coordinator logs a warning.
+    ///     </para>
     /// </summary>
-    public int ComposeTimeoutMs { get; set; } = 20_000;
+    public int ComposeTimeoutMs { get; set; } = DefaultComposeTimeoutMs;
+
+    /// <summary>The bound used when <see cref="ComposeTimeoutMs"/> is non-positive. Single source so
+    ///     the clamp can never drift from the documented default.</summary>
+    public const int DefaultComposeTimeoutMs = 20_000;
 }
