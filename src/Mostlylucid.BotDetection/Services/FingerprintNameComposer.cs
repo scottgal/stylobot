@@ -109,6 +109,30 @@ internal static class FingerprintNameComposer
         return fresh;
     }
 
+    /// <summary>
+    ///     PROVISIONAL display name: what this fingerprint currently looks like, composed from
+    ///     the signals we hold, and NEVER written back into any name slot.
+    ///     <para>
+    ///         Operator ruling 2026-09-09 ("the id is fixed, the name is a projection that the
+    ///         full name must eventually REPLACE"): the signature id is the stable identity; the
+    ///         name is a projection of current knowledge. So this is a pure function of
+    ///         (signature id, signals) that the DISPLAY layer calls when no resolved name exists
+    ///         -- storing it would make a provisional label a value the full name then has to
+    ///         displace, which is exactly the failure mode the ruling forbids.
+    ///     </para>
+    ///     <para>
+    ///         Total: never null/empty, and never a variant of "unknown"/"unclassified".
+    ///         Discriminating: the fp8 id prefix keeps two otherwise-similar unresolved
+    ///         fingerprints distinct. Stable: same fingerprint + same signals ⇒ same string,
+    ///         and it changes only when the knowledge changes (which is intended).
+    ///     </para>
+    /// </summary>
+    public static string ComposeProvisional(
+        IReadOnlyDictionary<string, object> signals,
+        string? signatureId = null,
+        string? userAgent = null)
+        => SynthesizeBehavioralIdentity(signals, signatureId, userAgent, treatAsBot: false);
+
     private static string? ComposeFresh(
         IReadOnlyDictionary<string, object> signals,
         string? userAgent,
@@ -393,20 +417,55 @@ internal static class FingerprintNameComposer
     {
         var role = DeriveBehavioralRole(signals, treatAsBot);
         var identity = DeriveIdentityQualifier(signals, rawUa);
+        var discriminator = !string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8
+            ? fingerprintId[..8]
+            : null;
 
         if (!string.IsNullOrEmpty(role) && !string.IsNullOrEmpty(identity))
             return $"{role} · {identity}";
         if (!string.IsNullOrEmpty(role))
             return role;
-        if (!string.IsNullOrEmpty(identity))
-            return identity;
 
-        // No behaviour and no network identity: still name it by the stable fingerprint id
-        // rather than "Unknown". "Client {fp8}" is recognised by IsFallback so any later
-        // real name (catalog / browser / behavioural role) overrides it.
-        if (!string.IsNullOrEmpty(fingerprintId) && fingerprintId.Length >= 8)
-            return $"Client {fingerprintId[..8]}";
-        return "Unclassified";
+        // Identity alone ("GB") is not a NAME -- it names the network, not the visitor, and
+        // every unresolved fingerprint behind that country would share it. Pair it with the
+        // fingerprint discriminator so two of them stay distinguishable ("Client 6TyG2z5 · GB").
+        if (!string.IsNullOrEmpty(identity))
+            return discriminator is not null ? $"Client {discriminator} · {identity}" : identity;
+
+        // No behaviour and no network identity: name it by the stable fingerprint id.
+        // "Client {fp8}" is recognised by IsFallback so any later real name (catalog /
+        // browser / behavioural role) overrides it -- and since the operator's 2026-09-09
+        // ruling it is never PERSISTED (see FingerprintMatchAtom's persist gate).
+        if (discriminator is not null)
+            return $"Client {discriminator}";
+
+        // Total terminal for a caller that passed no id. Operator directive 2026-09-09:
+        // no variant of "unknown"/"unclassified" may ever render -- describe what we DO
+        // hold (the transport) rather than admitting we know nothing. The fp8 branch above
+        // is the normal path; this one exists so the method stays total.
+        //
+        // The shape MUST stay "Client <descriptor>" (leading "Client "): IsFallback keys on
+        // that prefix, and the hysteresis gate depends on IsFallback recognising every
+        // provisional shape -- the ruling forbids changing IsFallback itself.
+        var transport = DescribeTransport(signals);
+        return string.IsNullOrEmpty(transport) ? "Client Provisional" : $"Client {transport}";
+    }
+
+    /// <summary>
+    ///     Best transport descriptor for the total terminal: the negotiated protocol when the
+    ///     pipeline recorded it, else the IP family. Both are raised before/around the compose
+    ///     point (RequestHydrator at Priority 1, TransportProtocol at Priority 5) so this is
+    ///     normally populated; returns empty when neither is present.
+    /// </summary>
+    private static string DescribeTransport(IReadOnlyDictionary<string, object> signals)
+    {
+        var protocol = GetString(signals, "request.protocol");
+        if (!string.IsNullOrEmpty(protocol) && protocol.StartsWith("HTTP", StringComparison.OrdinalIgnoreCase))
+            return protocol;
+        var ipType = GetString(signals, "ip.type");
+        if (string.Equals(ipType, "ipv6", StringComparison.OrdinalIgnoreCase)) return "IPv6";
+        if (string.Equals(ipType, "ipv4", StringComparison.OrdinalIgnoreCase)) return "IPv4";
+        return string.Empty;
     }
 
     /// <summary>

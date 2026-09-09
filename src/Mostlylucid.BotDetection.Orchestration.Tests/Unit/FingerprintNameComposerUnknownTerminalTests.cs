@@ -38,7 +38,7 @@ public class FingerprintNameComposerUnknownTerminalTests
         var name = FingerprintNameComposer.Compose(signals, fingerprintId: null, userAgent: null);
 
         AssertNeverUnknown(name, "empty request");
-        Assert.Equal("Unclassified", name);
+        Assert.Equal("Client Provisional", name);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class FingerprintNameComposerUnknownTerminalTests
         var name = FingerprintNameComposer.Compose(signals, fingerprintId: "abc", userAgent: null);
 
         AssertNeverUnknown(name, "short fingerprint id");
-        Assert.Equal("Unclassified", name);
+        Assert.Equal("Client Provisional", name);
     }
 
     [Fact]
@@ -86,7 +86,11 @@ public class FingerprintNameComposerUnknownTerminalTests
         var name = FingerprintNameComposer.Compose(signals, fingerprintId: "e91adac5526fc9c5", userAgent: null);
 
         AssertNeverUnknown(name, "hosting provider");
-        Assert.Equal("Azure", name);
+        // SUPERSEDED CONTRACT (operator 2026-09-09): identity alone ("Azure") names the
+        // NETWORK, not the visitor -- every unresolved fingerprint behind that provider
+        // would share it. The ruled shape pairs it with the fp8 discriminator so two of
+        // them stay distinguishable.
+        Assert.Equal("Client e91adac5 · Azure", name);
     }
 
     [Fact]
@@ -214,7 +218,9 @@ public class FingerprintNameComposerUnknownTerminalTests
         // specific role / browser / catalog name must win via hysteresis.
         Assert.True(FingerprintNameComposer.IsFallback("Automated Client · Azure"));
         Assert.True(FingerprintNameComposer.IsFallback("Client abcdef12"));
-        Assert.True(FingerprintNameComposer.IsFallback("Unclassified"));
+        // "Unclassified" is retired (operator 2026-09-09); the total terminal is now
+        // "Client Provisional", which the SAME predicate must still recognise.
+        Assert.True(FingerprintNameComposer.IsFallback("Client Provisional"));
 
         // A specific behavioural role is NOT a fallback -- it is a real, informative name.
         Assert.False(FingerprintNameComposer.IsFallback("Config Scanner · paloaltonetworks.com"));

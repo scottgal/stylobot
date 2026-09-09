@@ -146,19 +146,20 @@ public class DeterministicBotNameTests
     // ─── Priority 4: cold state ────────────────────────────────────────
 
     [Fact]
-    public async Task EmptySignals_ReturnsUnknownTerminal()
+    public async Task EmptySignals_ReturnsProvisionalClientTerminal()
     {
-        // Updated contract (2026-07-30, "Unknown is not a valid state"): the composer is the
-        // SOLE writer of Fingerprint.DisplayName and must never emit "Unknown". With literally
-        // nothing to compose from (no UA, no network identity, no fingerprint id) the terminal
-        // is "Unclassified" -- IsFallback recognises it so a real Priority 1-3 name still
-        // wins on a later request.
+        // SUPERSEDED CONTRACT (operator 2026-09-09): the 2026-07-30 rule made the terminal
+        // "Unclassified", which is still an admission of knowing nothing -- and it was
+        // PERSISTED, so a full name had to displace a stored provisional value. The terminal
+        // now describes what we hold ("Client Provisional") and is never stored: IsFallback
+        // recognises it, so the induced-name writer skips it and a real name wins later.
         var signals = new Dictionary<string, object?>();
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Equal("Unclassified", name);
+        Assert.Equal("Client Provisional", name);
         Assert.DoesNotContain("Unknown", name!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Unclassified", name!, StringComparison.OrdinalIgnoreCase);
     }
 
     // ─── Detailed (name + description) ─────────────────────────────────

@@ -70,7 +70,7 @@ public class SemrushNameRegressionDiagnostic
         _out.WriteLine($"Compose({{}}) -> '{name}'");
         Assert.False(string.IsNullOrEmpty(name), "terminal must never be null/empty");
         Assert.DoesNotContain("Unknown", name!, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal("Unclassified", name);
+        Assert.Equal("Client Provisional", name);
     }
 
     [Fact]

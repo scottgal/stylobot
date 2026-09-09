@@ -148,14 +148,15 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_ReturnsUnknownTerminal_WhenNoUsableSignal()
+    public void Compose_ReturnsProvisionalClientTerminal_WhenNoUsableSignal()
     {
         // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks enough
-        // information to label this visitor. Under "Unknown is not a valid state" (2026-07-30)
-        // the terminal synthesises what we DO know: with nothing at all, "Unclassified";
-        // with a fingerprint id, "Client <hex>". Never the word "Unknown". IsFallback still
-        // recognises both so a real Priority 1-3 name later wins via hysteresis.
-        Assert.Equal("Unclassified",
+        // information to label this visitor. SUPERSEDED CONTRACT (operator 2026-09-09): the
+        // 2026-07-30 "Unclassified" terminal is retired -- no variant of unknown may render,
+        // and the terminal is a projection that is never persisted. With nothing at all the
+        // total terminal is "Client Provisional"; with a fingerprint id, "Client <fp8>".
+        // IsFallback recognises both so the writer skips them and a real name wins later.
+        Assert.Equal("Client Provisional",
             FingerprintNameComposer.Compose(new Dictionary<string, object>()));
         Assert.Equal("Client abc123de",
             FingerprintNameComposer.Compose(
@@ -296,7 +297,7 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_ReturnsUnknownTerminal_WhenFreshDegeneratesAndPreviousIsFallback()
+    public void Compose_ReturnsProvisionalClientTerminal_WhenFreshDegeneratesAndPreviousIsFallback()
     {
         // Hysteresis only kicks in when previousName is a REAL Priority 1-3 name, not
         // another fallback. With "analysing" (a fallback) as previousName and no signals
@@ -307,7 +308,7 @@ public class FingerprintNameComposerTests
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
             previousName: "analysing");
-        Assert.Equal("Unclassified", name);
+        Assert.Equal("Client Provisional", name);
     }
 
     [Fact]
