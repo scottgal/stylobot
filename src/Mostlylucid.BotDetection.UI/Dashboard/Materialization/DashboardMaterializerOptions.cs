@@ -415,6 +415,15 @@ public sealed class DashboardMaterializerOptions
     ///     compose is never superseded, short enough that a genuinely hung envelope recovers
     ///     within minutes rather than never. &lt;= 0 disables superseding (a hung attempt then
     ///     holds its entry until it finishes).
+    ///     <para>
+    ///         HONEST COST OF THE CAP, stated rather than left to be inferred: if an abandoned
+    ///         attempt NEVER finishes, its <c>_supersededAttempts</c> entry persists for the
+    ///         process lifetime — so that envelope keeps one dictionary entry and one thread
+    ///         (awaiting the never-completing compose) forever. That is bounded: one per hung
+    ///         envelope, never one per tick, which is what the unbounded behaviour did. It is the
+    ///         price of allowing a replacement at all; the alternative — never superseding —
+    ///         leaves the envelope permanently frozen instead.
+    ///     </para>
     /// </summary>
     public int StaleAttemptSeconds { get; set; } = 180;
 }
