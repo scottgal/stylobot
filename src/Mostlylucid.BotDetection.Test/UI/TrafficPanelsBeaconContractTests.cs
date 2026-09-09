@@ -19,19 +19,24 @@ using Xunit;
 namespace Mostlylucid.BotDetection.Test.UI;
 
 /// <summary>
-///     The four Traffic side panels' SSR-only render contract (dash- 2026-08-16, after the
-///     operator's rip-out a62024fd):
+///     The four Traffic side panels' render + beacon contract.
+///     <para>
+///         ORIGINALLY (dash- 2026-08-16, after the operator's rip-out a62024fd) this test
+///         pinned the ABSENCE of the beacon widget attrs: they stayed DELETED until the
+///         update machinery returned as the gated re-activation. That return is now
+///         sanctioned (operator 2026-09-09 — the SSR chart renders correctly and stably),
+///         so this test is INVERTED to pin the RESTORED contract rather than deleted:
+///     </para>
 ///     <list type="bullet">
 ///         <item>First paint is the SSR-complete page with REAL data (page 200 + the
 ///             widgets' data present when the store has it).</item>
-///         <item>No beacon widget attrs on the panels: data-sb-widget / data-sb-depends stay
-///             DELETED until the update machinery returns as the gated re-activation. The
-///             container keeps id="traffic-panels" + data-sb-params (render-state only).</item>
-///         <item>No "Warming up" strip anywhere — the spinner is dead; a cold miss renders
-///             the honest empty state.</item>
-///         <item>The /dashboard/partials/update batch endpoint survives server-side
-///             (dormant structure for the re-activation), but no test pins a client batch
-///             fetch — the client never calls it today.</item>
+///         <item>The panels container carries the beacon contract: id="traffic-panels" +
+///             data-sb-widget="traffic-panels" + data-sb-depends="countries,signature,threats"
+///             + data-sb-params (the page's filters). Without data-sb-widget the bridge's
+///             [data-sb-widget] enumeration never sees the panels, so the depends marker is
+///             dead wiring and the panels can never warm-replace.</item>
+///         <item>No "Warming up" strip anywhere — a cold miss renders the honest empty
+///             state, and the beacon now replaces it when the bundle warms.</item>
 ///     </list>
 /// </summary>
 public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
@@ -49,7 +54,7 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task First_load_renders_real_data_with_no_beacon_contract()
+    public async Task First_load_renders_real_data_with_the_restored_beacon_contract()
     {
         var store = new SeededEventStore();
         var manifests = new DefaultDashboardPageManifestSource();
@@ -92,13 +97,12 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var html = await response.Content.ReadAsStringAsync();
 
-        // SSR-only contract: no beacon widget attrs on the TRAFFIC PANELS container —
-        // the client does NOTHING for these widgets. The container keeps its render-state
-        // id + params only. (Other widgets elsewhere on the page may still carry their own
-        // attrs; the rip-out a62024fd scoped the traffic panels.)
+        // Restored beacon contract: the panels container IS a widget to the bridge —
+        // identity + the surface kinds its four panels render + the page's filters, so a
+        // content-ready beacon re-renders the SAME filtered view in place.
         Assert.Contains("id=\"traffic-panels\"", html);
-        Assert.DoesNotContain("data-sb-widget=\"traffic-panels\"", html);
-        Assert.DoesNotContain("data-sb-depends=\"countries,signature,threats\"", html);
+        Assert.Contains("data-sb-widget=\"traffic-panels\"", html);
+        Assert.Contains("data-sb-depends=\"countries,signature,threats\"", html);
         Assert.Contains("data-sb-params=\"window=", html);
         Assert.DoesNotContain("Warming up", html);
         Assert.Contains("GPTBot", html); // seeded bot surfaces in the panels (by source / top visitors / threats)

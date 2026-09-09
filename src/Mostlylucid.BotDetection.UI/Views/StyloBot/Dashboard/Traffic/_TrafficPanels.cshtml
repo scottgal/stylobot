@@ -73,9 +73,16 @@
     swap replaces this whole grid, so all four panels warm-replace together the moment the
     content-ready ping arrives. Before this, the four panels had no beacon contract at all:
     a cold-miss first paint showed "Warming up" and nothing ever replaced it.
+
+    RE-ACTIVATED 2026-09-09 (gated re-activation): the widget attrs were stripped by the
+    2026-08-16 rip-out (a62024fd) while the SSR chart was proven stable, then restored here
+    once the operator sanctioned the return of the update machinery. Do not strip them
+    again without re-running TrafficPanelsBeaconContractTests, which now pins their
+    PRESENCE (it previously pinned their absence).
 *@
 <div id="traffic-panels" class="sb-widget-grid"
-
+     data-sb-widget="traffic-panels"
+     data-sb-depends="countries,signature,threats"
      data-sb-params="window=@Uri.EscapeDataString(Model.Filters.Window)&country=@Uri.EscapeDataString(Model.Filters.Country ?? "")&bot_type=@Uri.EscapeDataString(Model.Filters.BotType ?? "")&threat=@Uri.EscapeDataString(Model.Filters.Threat ?? "")">
     @if (showMap)
     {
