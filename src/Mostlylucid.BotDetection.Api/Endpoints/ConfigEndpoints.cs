@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
@@ -20,8 +21,23 @@ public static class ConfigEndpoints
 
         group.MapGet("/manifests", HandleList).WithName("GetConfigManifests");
         group.MapGet("/manifests/{slug}", HandleGet).WithName("GetConfigManifest");
+        group.MapGet("/sections", HandleSections).WithName("GetConfigSections");
 
         return endpoints;
+    }
+
+    /// <summary>
+    ///     The effective-config sections the dashboard's config rail can render — the same list
+    ///     the dashboard middleware serves at <c>/api/config/sections</c>
+    ///     (<c>StyloBotDashboardMiddleware.ServeConfigSectionsListAsync</c>), so the admin console
+    ///     reads BOTH config halves from this API surface: one host, one key. Deliberately inside
+    ///     the existing group, so it inherits the manifests endpoints' auth shape exactly (API-key
+    ///     authentication + the group's bot policy) rather than inventing a third posture.
+    /// </summary>
+    private static Ok<PaginatedResponse<ConfigSectionInfo>> HandleSections()
+    {
+        var sections = EffectiveConfigSerializer.DiscoverSections();
+        return ApiEndpointHelpers.Paginated(sections, offset: 0, limit: sections.Count);
     }
 
     private static async Task<Results<Ok<PaginatedResponse<DetectorManifestSummary>>, ServiceUnavailableHttpResult>> HandleList(
