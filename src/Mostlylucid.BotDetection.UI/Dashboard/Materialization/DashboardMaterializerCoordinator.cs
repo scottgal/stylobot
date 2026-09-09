@@ -69,15 +69,6 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // triggering a second compute. Keyed on envelope (manifest+window), not envelope+tick, so
     // an overlapping warm at a slightly different tick still coalesces onto the in-flight one
     // rather than racing it -- the in-flight compute is about to produce a fresh result anyway.
-    //
-    // SINGLE-FLIGHT IS LOAD-BEARING FOR CORRECTNESS, not just for efficiency (2026-09-09). The
-    // tick gate used to guarantee "one pass at a time"; it is now bounded and a pass can proceed
-    // ungated when a previous one is stuck, so this dictionary is the ONLY thing keeping two
-    // passes from composing one envelope twice. That matters because the atom has no per-key
-    // in-flight map (see above): both composes would reach the compose. What enforces the
-    // invariant: an entry is removed ONLY when its attempt has finished
-    // (AwaitWarmAndClearAsync), and the off-thread hop lives inside the Lazy factory
-    // (WarmEnvelopeAsync) so lazy.Value never blocks and joiners share the same task.
     private readonly ConcurrentDictionary<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>> _inFlightWarms = new();
 
     // Stage 2b: per-envelope "when did this last actually get warmed" tracking, so the
@@ -986,10 +977,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     <para>
     ///         The stuck holder still owns the gate (it may be blocked in a compose this process
     ///         cannot cancel); when it eventually returns it releases it and the gate is back in
-    ///         service. Two overlapping passes are safe ONLY because of the single-flight
-    ///         invariant on <see cref="_inFlightWarms"/>: with the gate no longer guaranteeing
-    ///         one pass at a time, that dictionary is what prevents two passes from composing one
-    ///         envelope twice, and the cache atom does not serialize same-key computes on its own.
+    ///         service. Two overlapping passes are acceptable: <c>_inFlightWarms</c> already
+    ///         coalesces concurrent composes of the SAME envelope, so the overlap can only warm
+    ///         different envelopes concurrently.
     ///     </para>
     /// </summary>
     private async Task<bool> EnterTickGateAsync(CancellationToken ct)
