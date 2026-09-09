@@ -70,33 +70,45 @@ public static class SessionEnrichmentExtensions
         this Dictionary<string, string?> signatureLookup,
         SignatureAggregateCache? cache,
         string signature,
-        string? storedName)
+        string? storedName,
+        string? botType = null,
+        string? countryCode = null,
+        string? userAgent = null)
     {
         var cached = cache?.GetResolvedName(signature);
+
+        // The documented precedence chain, unchanged: a REAL name in any tier wins outright.
+        // Only when the chain bottoms out in a fallback-shaped value or null does the display
+        // tier project the row's own knowledge instead (2026-09-09 ruling) -- so this is a
+        // disposition applied to the chain's RESULT, never a re-ordering of the chain itself.
+        string? resolved;
 
         // Cache wins over stored as long as the cache value isn't a fallback
         // ("Unknown ..." / "analysing" / UA-prefix). A fresh real name from the
         // matcher recompose beats a stale stored name on the detection row.
         if (!string.IsNullOrEmpty(cached)
             && !Mostlylucid.BotDetection.Services.FingerprintNameComposer.IsFallback(cached))
-            return cached;
-
+            resolved = cached;
         // Stored name is the cold-render fallback (dashboard renders before the
         // cache is seeded for this signature). Still only when it's a real name --
         // a previously-persisted fallback ("Chrome Desktop" before the verdict-
         // honest rewrite, "Unknown 0..." pre-cleanup) must yield to the cache.
-        if (!string.IsNullOrEmpty(storedName)
+        else if (!string.IsNullOrEmpty(storedName)
             && !Mostlylucid.BotDetection.Services.FingerprintNameComposer.IsFallback(storedName))
-            return storedName;
-
+            resolved = storedName;
         // Cache wins for fallbacks too -- fresh "Unknown" beats nothing.
-        if (!string.IsNullOrEmpty(cached)) return cached;
-
+        else if (!string.IsNullOrEmpty(cached)) resolved = cached;
         // Final resort: the persistent signatures-lookup dict (loaded from
         // dashboard_signatures.bot_name via LoadSignatureLookupAsync). Then null.
-        if (signatureLookup.TryGetValue(signature, out var name) && !string.IsNullOrEmpty(name))
-            return name;
-        return !string.IsNullOrEmpty(storedName) ? storedName : null;
+        else if (signatureLookup.TryGetValue(signature, out var name) && !string.IsNullOrEmpty(name))
+            resolved = name;
+        else
+            resolved = !string.IsNullOrEmpty(storedName) ? storedName : null;
+
+        // A fallback-shaped or null result is UNRESOLVED: project the row's class / country /
+        // signature instead of rendering "Unclassified" or nothing. A real name passes through
+        // untouched (ProvisionalNameProjection.Resolve returns it unchanged).
+        return ProvisionalNameProjection.Resolve(resolved, signature, botType, countryCode, userAgent);
     }
 
     /// <summary>

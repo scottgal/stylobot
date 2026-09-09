@@ -6746,7 +6746,8 @@ public class StyloBotDashboardMiddleware
         // verdict shape.
         var detailSigLookup = await _eventStore.LoadSignatureLookupAsync();
         var canonicalDetailName = detailSigLookup.ResolveBotName(
-            _signatureCache, decodedSignature, latest.BotName);
+            _signatureCache, decodedSignature, latest.BotName,
+            botType: latest.BotType, countryCode: latest.CountryCode, userAgent: latest.UserAgentRaw);
 
         // Resolve fingerprint id for the heading pencil/operator-edit affordance
         // (ED4 §7). The commercial editor endpoint addresses fingerprints, not
@@ -8081,7 +8082,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                     // fallback, not the primary.
                     var yourSigLookup = await _eventStore.LoadSignatureLookupAsync();
                     var canonicalYourName = yourSigLookup.ResolveBotName(
-                        signatureCache, sigs.PrimarySignature, d.BotName);
+                        signatureCache, sigs.PrimarySignature, d.BotName,
+                        botType: d.BotType, countryCode: d.CountryCode, userAgent: d.UserAgentRaw);
                     return new YourDetectionModel
                     {
                         HasData = true,
