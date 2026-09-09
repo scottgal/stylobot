@@ -73,6 +73,18 @@ public sealed class SbWidgetTagHelper : TagHelper
     /// <summary>Extra classes appended to the outer tier element.</summary>
     [HtmlAttributeName("class")] public string? ExtraClass { get; set; }
 
+    /// <summary>
+    ///     Widget instance id, emitted as <c>data-sb-widget</c>. Required for the widget to
+    ///     participate in the live-update contract: <c>sb-live-updates.js</c> enumerates
+    ///     <c>[data-sb-widget]</c> to build the depends→widget map and to target the OOB swap,
+    ///     and <c>SbWidgetBatchMiddleware.RenderWidgetAsync</c> dispatches on the same id. A
+    ///     widget with <c>depends</c> but no <c>widget-id</c> is invisible to the beacon — it
+    ///     renders once on SSR and never refreshes (the 2026-08-16 rip-out left every
+    ///     <c>&lt;sb-widget&gt;</c> in exactly that state; re-activated 2026-09-09).
+    ///     Null (default) omits the attribute, so existing callers are unaffected.
+    /// </summary>
+    [HtmlAttributeName("widget-id")] public string? WidgetId { get; set; }
+
     private static string WidthClass(string w) => w switch
     {
         "quarter" => "sb-w-quarter",
@@ -102,6 +114,12 @@ public sealed class SbWidgetTagHelper : TagHelper
         // once the tick materializer warms it (matches the list-widget convention).
         if (!string.IsNullOrWhiteSpace(Depends))
             output.Attributes.SetAttribute("data-sb-depends", Depends);
+
+        // Widget identity for the live-update bridge. Without it the depends marker is
+        // inert: sb-live-updates.js enumerates [data-sb-widget] and never sees this
+        // element, so the beacon can't refresh it (and the OOB swap has no target).
+        if (!string.IsNullOrWhiteSpace(WidgetId))
+            output.Attributes.SetAttribute("data-sb-widget", WidgetId);
 
         var head = string.IsNullOrEmpty(Heading)
             ? string.Empty
