@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 using Xunit;
@@ -112,6 +113,90 @@ public sealed class ProvisionalNameIsProjectedNotStoredTests
 
         before.Should().NotBe(after);
     }
+
+    /// <summary>
+    ///     The worked example the operator asked for, produced by the REAL composer inputs the
+    ///     live signature actually carries (`bot_type=Scraper`, country GB, no UA): the class
+    ///     the row asserts + the fp8 discriminator + the country, and no variant of unknown.
+    /// </summary>
+    [Fact]
+    public void The_live_UA_less_signature_projects_to_its_class_and_discriminator()
+    {
+        var signals = Signals(
+            (SignalKeys.UserAgentBotType, nameof(BotType.Scraper)),
+            (SignalKeys.GeoCountryCode, "GB"),
+            ("ua.empty", true));
+
+        var name = FingerprintNameComposer.ComposeProvisional(signals, signatureId: "6TyG2z5IQguu37X");
+
+        name.Should().Be("Scraper 6TyG2z5I · GB");
+        name.Should().NotContainEquivalentOf("unknown").And.NotContainEquivalentOf("unclassified");
+    }
+
+    [Fact]
+    public void A_second_UA_less_fingerprint_of_the_same_class_and_country_is_distinguishable()
+    {
+        var signals = Signals(
+            (SignalKeys.UserAgentBotType, nameof(BotType.Scraper)),
+            (SignalKeys.GeoCountryCode, "GB"));
+
+        var first = FingerprintNameComposer.ComposeProvisional(signals, signatureId: "6TyG2z5IQguu37X");
+        var second = FingerprintNameComposer.ComposeProvisional(signals, signatureId: "7KpQ2w9xABCDEFGH");
+
+        first.Should().Be("Scraper 6TyG2z5I · GB");
+        second.Should().Be("Scraper 7KpQ2w9x · GB");
+        first.Should().NotBe(second, "two UA-less scrapers in the same country must not render identically");
+    }
+
+    /// <summary>
+    ///     The CONFIRMED role-vs-projection condition (overview- ruling): a role-bearing name IS
+    ///     persisted, so it must sit where a later resolved identity beats it. It lives in
+    ///     <c>induced</c> -- the lowest tier of <c>given ?? llm ?? induced</c> -- so a catalog /
+    ///     llm / given name wins by tier order, and the composer's hysteresis must not pin the
+    ///     stored role once a real name arrives.
+    /// </summary>
+    [Fact]
+    public void A_persisted_role_shaped_name_is_beaten_by_every_higher_tier()
+    {
+        const string storedRole = "Scraper 6TyG2z5I · GB";
+        FingerprintNameComposer.IsFallback(storedRole).Should().BeFalse(
+            "a specific behavioural role is a real description, so the writer persists it");
+
+        FingerprintNameResolver.Resolve(Build(given: "Googlebot", induced: storedRole))
+            .Should().Be("Googlebot", "given is the highest tier");
+        FingerprintNameResolver.Resolve(Build(llm: "SEO Crawler", induced: storedRole))
+            .Should().Be("SEO Crawler", "llm beats induced");
+        FingerprintNameResolver.Resolve(Build(induced: storedRole))
+            .Should().Be(storedRole, "with nothing higher, the persisted role is what we show");
+
+        // Hysteresis must not pin it against a fresh REAL name either: a non-fallback fresh
+        // result replaces the stored role-shaped previousName.
+        FingerprintNameComposer.Compose(
+                Signals((SignalKeys.UserAgentBotName, "SemrushBot")),
+                previousName: storedRole)
+            .Should().StartWith("SemrushBot", "a fresh resolved name beats the stored role");
+    }
+
+    private static Fingerprint Build(string? given = null, string? llm = null, string? induced = null) =>
+        new()
+        {
+            FingerprintId = "x",
+            Centroid = new float[] { 0f },
+            CentroidMaturity = 0,
+            Weights = new float[] { 1f },
+            MemberCount = 0,
+            ObservationCount = 0,
+            CorrectionCount = 0,
+            FirstSeen = DateTime.UtcNow,
+            LastSeen = DateTime.UtcNow,
+            Quality = 0.0,
+            InferredClientType = "unknown",
+            InferredTypeConfidence = 0.0,
+            InferredTypeChangedAt = DateTime.UtcNow,
+            GivenName = given,
+            LlmName = llm,
+            InducedName = induced,
+        };
 
     [Fact]
     public void A_real_stored_name_wins_over_the_provisional_projection()

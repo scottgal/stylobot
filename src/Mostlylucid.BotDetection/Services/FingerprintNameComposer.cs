@@ -421,10 +421,18 @@ internal static class FingerprintNameComposer
             ? fingerprintId[..8]
             : null;
 
-        if (!string.IsNullOrEmpty(role) && !string.IsNullOrEmpty(identity))
-            return $"{role} · {identity}";
+        // Discriminator ALWAYS (operator ruling 2026-09-09): "somewhat unique" is a hard
+        // requirement, so every shape carries the fp8 id -- two UA-less scrapers in the same
+        // country must not render identically ("Scraper 6TyG2z5 · GB" vs "Scraper 7KpQ2w9x · GB").
+        // The descriptor is the specific behavioural role when one exists, else "Client".
         if (!string.IsNullOrEmpty(role))
-            return role;
+        {
+            if (discriminator is null)
+                return string.IsNullOrEmpty(identity) ? role : $"{role} · {identity}";
+            return string.IsNullOrEmpty(identity)
+                ? $"{role} {discriminator}"
+                : $"{role} {discriminator} · {identity}";
+        }
 
         // Identity alone ("GB") is not a NAME -- it names the network, not the visitor, and
         // every unresolved fingerprint behind that country would share it. Pair it with the
