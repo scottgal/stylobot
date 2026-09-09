@@ -75,10 +75,23 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // ungated when a previous one is stuck, so this dictionary is the ONLY thing keeping two
     // passes from composing one envelope twice. That matters because the atom has no per-key
     // in-flight map (see above): both composes would reach the compose. What enforces the
-    // invariant: an entry is removed ONLY when its attempt has finished
-    // (AwaitWarmAndClearAsync), and the off-thread hop lives inside the Lazy factory
-    // (WarmEnvelopeAsync) so lazy.Value never blocks and joiners share the same task.
-    private readonly ConcurrentDictionary<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>> _inFlightWarms = new();
+    // invariant: an entry is removed when its attempt FINISHES (AwaitWarmAndClearAsync), or when
+    // the attempt is stale past StaleAttemptSeconds AND no other superseded attempt is live for
+    // the envelope — that second path is the only one that admits a replacement, and the
+    // _supersededAttempts cap keeps it at two concurrent attempts per envelope at most. The
+    // off-thread hop lives inside the Lazy factory (WarmEnvelopeAsync) so lazy.Value never blocks
+    // and joiners share the same task.
+    private readonly ConcurrentDictionary<DashboardContentEnvelope, InFlightAttempt> _inFlightWarms = new();
+
+    /// <summary>One envelope's in-flight compose attempt: the shared task plus when it started, so
+    ///     the cleanup can tell a merely slow attempt from a stale (hung) one.</summary>
+    private sealed record InFlightAttempt(Lazy<Task<DashboardPageResult>> Lazy, DateTimeOffset StartedAt);
+
+    // Envelopes with a SUPERSEDED (stale, still-running) attempt. Membership caps replacement at
+    // one per envelope: while a superseded attempt is live, a later stale attempt keeps its entry
+    // instead of evicting it, so at most two composes for one envelope can ever run concurrently.
+    // The superseded attempt's continuation removes its own key when it finally finishes.
+    private readonly ConcurrentDictionary<DashboardContentEnvelope, byte> _supersededAttempts = new();
 
     // Stage 2b: per-envelope "when did this last actually get warmed" tracking, so the
     // tick loop can skip an envelope that isn't due yet (DashboardRefreshCadence). Updated
@@ -433,11 +446,13 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         // inside the factory rather than around `lazy.Value` matters: a factory that blocks
         // before its first await would otherwise hold that lock, and each joining pass would
         // block a pool thread for the whole hang.)
-        var lazy = _inFlightWarms.GetOrAdd(envelope, _ => new Lazy<Task<DashboardPageResult>>(
-            () => Task.Run(() => _cache.WarmAsync(manifest, window, tick, ct), CancellationToken.None),
-            LazyThreadSafetyMode.ExecutionAndPublication));
+        var attempt = _inFlightWarms.GetOrAdd(envelope, _ => new InFlightAttempt(
+            new Lazy<Task<DashboardPageResult>>(
+                () => Task.Run(() => _cache.WarmAsync(manifest, window, tick, ct), CancellationToken.None),
+                LazyThreadSafetyMode.ExecutionAndPublication),
+            _time.GetUtcNow()));
 
-        return AwaitWarmAndClearAsync(envelope, lazy);
+        return AwaitWarmAndClearAsync(envelope, attempt);
     }
 
     /// <summary>
@@ -485,8 +500,9 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     }
 
     private async Task<DashboardPageResult> AwaitWarmAndClearAsync(
-        DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
+        DashboardContentEnvelope envelope, InFlightAttempt attempt)
     {
+        var lazy = attempt.Lazy;
         // The ONE task representing this envelope's attempt (see WarmEnvelopeAsync: the factory
         // hops to a pool thread and returns immediately, so this never blocks and every joiner
         // shares the same task).
@@ -551,20 +567,47 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
             // computes reach the compose. Keeping the entry until the attempt ends is what makes
             // "at most one compose per envelope" true; a hung attempt therefore holds exactly one
             // entry (and one thread) and later passes JOIN it under the compose bound instead of
-            // stacking new attempts. The entry clears when the attempt completes, faults or is
-            // abandoned, so a later pass retries fresh exactly then.
-            var entry = new KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>(envelope, lazy);
+            // stacking new attempts. The entry clears when the attempt completes or faults, or —
+            // the one deliberate exception — when the attempt is stale past StaleAttemptSeconds
+            // and no other superseded attempt is live (see the branch below), which is what lets
+            // an envelope recover when its first attempt never finishes. So a later pass retries
+            // fresh exactly then, never more than one replacement at a time.
+            var entry = new KeyValuePair<DashboardContentEnvelope, InFlightAttempt>(envelope, attempt);
             if (compose.IsCompleted)
             {
                 // Still only clears the entry if it's still THIS in-flight warm.
                 _inFlightWarms.TryRemove(entry);
+            }
+            else if (IsStale(attempt) && _supersededAttempts.TryAdd(envelope, 0))
+            {
+                // STALE SUPERSEDE (2026-09-09 follow-up): the attempt has run past
+                // StaleAttemptSeconds and no other superseded attempt is live for this envelope,
+                // so evict the entry — a later pass starts a replacement — and remember this
+                // abandoned attempt until it finishes. TryAdd is the cap: while one superseded
+                // attempt is live, a later stale attempt falls through to the join branch below,
+                // so at most two composes for one envelope ever run concurrently.
+                _inFlightWarms.TryRemove(entry);
+                _logger?.LogWarning(
+                    "DashboardMaterializerCoordinator: compose for {PageKey} ({Envelope}) has been in flight for {AgeSeconds:F0}s (StaleAttemptSeconds={Stale}s); superseding it so a fresh attempt can warm the envelope. The abandoned compose may still be running.",
+                    envelope.PageKey, envelope,
+                    (_time.GetUtcNow() - attempt.StartedAt).TotalSeconds, _options.StaleAttemptSeconds);
+                _ = compose.ContinueWith(
+                    static (completed, state) =>
+                    {
+                        var (superseded, env) = ((ConcurrentDictionary<DashboardContentEnvelope, byte>, DashboardContentEnvelope))state!;
+                        superseded.TryRemove(env, out _);
+                    },
+                    (_supersededAttempts, envelope),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
             }
             else
             {
                 _ = compose.ContinueWith(
                     static (_, state) =>
                     {
-                        var (dict, kv) = ((ConcurrentDictionary<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>, KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>))state!;
+                        var (dict, kv) = ((ConcurrentDictionary<DashboardContentEnvelope, InFlightAttempt>, KeyValuePair<DashboardContentEnvelope, InFlightAttempt>))state!;
                         dict.TryRemove(kv);
                     },
                     (_inFlightWarms, entry),
@@ -977,6 +1020,16 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     }
 
     /// <summary>
+    ///     True when an in-flight attempt has run past
+    ///     <see cref="DashboardMaterializerOptions.StaleAttemptSeconds"/> and may therefore be
+    ///     superseded (evicted so a later pass starts a replacement). Disabled when the option is
+    ///     non-positive, in which case a hung attempt keeps its entry until it finishes.
+    /// </summary>
+    private bool IsStale(InFlightAttempt attempt)
+        => _options.StaleAttemptSeconds > 0
+           && _time.GetUtcNow() - attempt.StartedAt >= TimeSpan.FromSeconds(_options.StaleAttemptSeconds);
+
+    /// <summary>
     ///     Take the pass gate, bounded. A pass that has held the gate longer than
     ///     <see cref="DashboardMaterializerOptions.WarmInactivityThresholdSeconds"/> is stuck by the
     ///     same definition the liveness watchdog uses, so this pass logs LOUD and proceeds WITHOUT
@@ -990,6 +1043,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///         invariant on <see cref="_inFlightWarms"/>: with the gate no longer guaranteeing
     ///         one pass at a time, that dictionary is what prevents two passes from composing one
     ///         envelope twice, and the cache atom does not serialize same-key computes on its own.
+    ///         The invariant admits exactly one exception — a stale attempt
+    ///         (<see cref="DashboardMaterializerOptions.StaleAttemptSeconds"/>) may be superseded
+    ///         once, capped by <c>_supersededAttempts</c>, so an ungated pass can compose an
+    ///         envelope concurrently with at most ONE abandoned attempt.
     ///     </para>
     /// </summary>
     private async Task<bool> EnterTickGateAsync(CancellationToken ct)
