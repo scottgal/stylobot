@@ -100,13 +100,24 @@ public sealed class DashboardMaterializerCoordinatorTests
     }
 
     /// <summary>
-    ///     Companion to the hang test above: once a hung compose's wait is abandoned, the
-    ///     envelope must NOT stay poisoned -- the next attempt (a later tick, here) has to
-    ///     start a genuinely fresh compose rather than being handed the same abandoned
-    ///     <c>Lazy&lt;Task&gt;</c> forever.
+    ///     Companion to the hang test above: once a hung compose's wait is abandoned, the envelope
+    ///     must NOT stay poisoned — a later tick has to compose again rather than being handed the
+    ///     same abandoned <c>Lazy&lt;Task&gt;</c> forever.
+    ///     <para>
+    ///         RE-PINNED 2026-09-09 (single-flight ruling). This test used to require a FRESH
+    ///         compose on the very next tick, i.e. while the abandoned attempt was still running.
+    ///         That is a second concurrent compose for one envelope, and the cache atom keeps no
+    ///         per-key in-flight map (<c>SlidingCacheAtom.GetOrComputeAsync</c> enqueues into a
+    ///         concurrency-gated, not keyed, <c>EphemeralWorkCoordinator</c>), so both reach the
+    ///         compose — unbounded: one more live attempt per tick for as long as the first hangs.
+    ///         The entry now clears when the attempt FINISHES, so the fresh compose still happens,
+    ///         just at the point where it cannot overlap. A permanently-hung attempt therefore
+    ///         keeps exactly one live thread and the envelope serves its last-known-good bundle
+    ///         until the attempt ends; that is the deliberate trade for a bounded compose count.
+    ///     </para>
     /// </summary>
     [Fact]
-    public async Task Envelope_recomposes_on_a_later_tick_after_the_first_compose_timed_out()
+    public async Task Envelope_recomposes_once_the_previous_attempt_ends_not_while_it_still_runs()
     {
         var composeCalls = 0;
         var hungGate = new TaskCompletionSource<DashboardPageResult>();
@@ -139,8 +150,16 @@ public sealed class DashboardMaterializerCoordinatorTests
 
         tick = 3;
         await Task.WhenAny(sched.RaiseTickAsync(TickCadence.Tick10s), Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, composeCalls); // single-flight: the abandoned attempt is still running
 
-        Assert.Equal(2, composeCalls); // a genuinely fresh compose, not the same abandoned task
+        // The hung attempt finally ends. Its entry clears, so the next tick composes fresh —
+        // the envelope is not poisoned, it just waits for the outstanding attempt to finish.
+        hungGate.SetResult(Result());
+        await Task.Delay(50);
+
+        tick = 4;
+        await Task.WhenAny(sched.RaiseTickAsync(TickCadence.Tick10s), Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.Equal(2, composeCalls); // a genuinely fresh compose, once it cannot overlap
 
         await coord.StopAsync(default);
     }
