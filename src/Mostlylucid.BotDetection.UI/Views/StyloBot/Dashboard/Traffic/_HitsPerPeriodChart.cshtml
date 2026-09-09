@@ -1,0 +1,29 @@
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@model HitsPerPeriodChartModel
+@*
+    The hits-per-period chart widget — the page's headline graph.
+
+    ONE markup, TWO renderers: _Body.cshtml (SSR first paint) and
+    SbWidgetBatchMiddleware.RenderTimeChartAsync (beacon OOB re-render) both come
+    through here, so the swapped-in markup is identical to the markup it replaces.
+
+    Beacon contract: data-sb-widget="time-chart" is the identity the bridge
+    enumerates ([data-sb-widget]) and the OOB swap targets; data-sb-depends="summary"
+    is the surface the chart's data belongs to (the traffic page's TimeBuckets feed
+    the same summary kind); data-sb-params carries the current window so a beacon
+    refresh reads the SAME period the operator is looking at. Re-activated
+    2026-09-09 after the 2026-08-16 rip-out.
+
+    Chart state contract (PART 2, revised 2026-08-19): NEVER a bare canvas and NEVER a
+    "no data" render — "no signal data is NOT a valid state, the signal is always in
+    that period" (operator). A cold envelope renders the honest "generating" state via
+    warming-when; the beacon replaces it once the bundle warms.
+*@
+<sb-widget width="half" height="tall" heading="@Model.Label"
+           widget-id="time-chart"
+           depends="summary"
+           data-sb-params="window=@Uri.EscapeDataString(Model.Window)"
+           warming-when="@Model.IsWarming"
+           warming-text="@($"Generating {Model.Window}…")">
+    <vc:sb-chartlet model="Model.Chart" />
+</sb-widget>

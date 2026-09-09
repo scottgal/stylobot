@@ -478,6 +478,7 @@ public sealed class SbWidgetBatchMiddleware
                 "topbots" or "top-visitors" or "live-visitors" or "live-activity" or "overview-topbots" => await RenderTopBotsAsync(context, q, widgetId),
                 "threats" => await RenderThreatsAsync(context, q),
                 "traffic-panels" => await RenderTrafficPanelsAsync(context, q),
+                "time-chart" => await RenderTimeChartAsync(context, q),
                 _ => ""
             };
         }
@@ -776,6 +777,60 @@ public sealed class SbWidgetBatchMiddleware
 
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", model, context);
+    }
+
+    /// <summary>
+    ///     Re-renders the hits-per-period chart widget from the warm page bundle for the
+    ///     beacon's OOB swap. Gated re-activation part (c), 2026-09-09: the dispatch map
+    ///     already declared <c>time-chart</c> → <c>DatasetKind.TimeBuckets</c>, but this
+    ///     switch had no case, so the widget fell through to <c>_ =&gt; ""</c> and the beacon
+    ///     had nothing to swap in — the graph could be marked dirty and never updated.
+    ///     <para>
+    ///         Same markup as SSR (<c>_HitsPerPeriodChart.cshtml</c>) and the same
+    ///         timeseries derivation as <c>TrafficController</c>
+    ///         (<see cref="HitsPerPeriodChartletBuilder.BuildSeriesWithLiveOverlay"/>), so
+    ///         the swapped-in chart can never disagree with the one it replaces. A bundle
+    ///         without the TimeBuckets slice (a partial compose, or the TimeBuckets branch's
+    ///         own cold path) returns no swap rather than painting a zero-filled axis as
+    ///         authoritative — the page keeps its SSR DOM and the next beacon retries, the
+    ///         same guard <see cref="RenderTrafficPanelsAsync"/> uses.
+    ///     </para>
+    /// </summary>
+    private async Task<string> RenderTimeChartAsync(HttpContext context, IQueryCollection q)
+    {
+        var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
+        if (pageResult is null || pageResult.IsWarming) return "";
+        if (pageResult.TimeBuckets is null) return "";
+
+        var layout = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<Models.Dashboard.Layout.DashboardLayoutOptions>>()
+            ?.Value;
+        var windowToken = q["window"].FirstOrDefault() ?? DefaultWindowTokenFor(layout);
+
+        // The compose window the bundle was built for — the SAME envelope the manifest
+        // pinned, so the bucket axis matches the page the operator is looking at.
+        // BuildPinnedWindow always populates the pair; resolve defensively anyway so a
+        // future window shape can't NRE the beacon path.
+        var window = BuildBatchWindow(context);
+        var endTime = window.EndTime ?? DateTime.UtcNow;
+        var startTime = window.StartTime
+                        ?? endTime.AddMinutes(-DashboardRoutingHelpers.WindowTokenToMinutes(
+                            windowToken, fallbackMinutes: 24 * 60));
+        var bucketSize = TimeSpan.FromMinutes(Math.Max(1, window.BucketMinutes));
+
+        var timeseries = HitsPerPeriodChartletBuilder.BuildSeriesWithLiveOverlay(
+            pageResult.TimeBuckets, pageResult.LiveTimeBuckets,
+            startTime, endTime, bucketSize);
+        var chart = HitsPerPeriodChartletBuilder.BuildFromSeries(timeseries, windowToken);
+
+        var model = new Models.Dashboard.Traffic.HitsPerPeriodChartModel(
+            Chart: chart,
+            Label: $"Hits per period (last {windowToken})",
+            Window: windowToken,
+            IsWarming: false);
+
+        return await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/StyloBot/Dashboard/Traffic/_HitsPerPeriodChart.cshtml", model, context);
     }
 
     /// <summary>

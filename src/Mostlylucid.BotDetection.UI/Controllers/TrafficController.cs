@@ -354,9 +354,8 @@ public sealed class TrafficController : Controller
         // call as everything else (DatasetKind.LiveTimeBuckets, "live-time-overlay" manifest
         // key) instead of a second round trip — the overlay never fails the page, a null
         // slice just means the compose didn't carry it.
-        var baseBuckets = page.TimeBuckets?.ToList() ?? new List<DashboardTimeSeriesPoint>();
-        var timeseries = HitsPerPeriodChartletBuilder.BuildSeries(
-            MergeLiveTimeSeries(baseBuckets, page.LiveTimeBuckets),
+        var timeseries = HitsPerPeriodChartletBuilder.BuildSeriesWithLiveOverlay(
+            page.TimeBuckets, page.LiveTimeBuckets,
             startTime, now, bucketSize);
         var botFamilies = BuildBotFamilies(visitors, windowMinutes);
 
@@ -447,24 +446,6 @@ public sealed class TrafficController : Controller
     ///     at the compose), the envelope's folds remain the base for everything else. A
     ///     null/empty live slice (no live tier on this host, or genuinely no live activity)
     ///     just returns the base unchanged — never fails the page.</summary>
-    private static List<DashboardTimeSeriesPoint> MergeLiveTimeSeries(
-        List<DashboardTimeSeriesPoint> baseBuckets, IReadOnlyList<DashboardTimeSeriesPoint>? live)
-    {
-        if (live is not { Count: > 0 }) return baseBuckets;
-        // B4 (review 2026-08-28): a degraded live slice (duplicate Timestamp makes ToDictionary
-        // throw) must never fail the page — degrade to the base buckets.
-        try
-        {
-            var byTime = baseBuckets.ToDictionary(p => p.Timestamp);
-            foreach (var p in live) byTime[p.Timestamp] = p;
-            return byTime.Values.OrderBy(p => p.Timestamp).ToList();
-        }
-        catch
-        {
-            return baseBuckets;
-        }
-    }
-
     /// <summary>
     ///     Counter strip: prefer the event-store's <see cref="DashboardSummary"/>
     ///     (per-detection-row sums over the time window, the same number the

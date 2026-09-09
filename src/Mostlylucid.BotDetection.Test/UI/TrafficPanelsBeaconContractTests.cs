@@ -56,6 +56,62 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     [Fact]
     public async Task First_load_renders_real_data_with_the_restored_beacon_contract()
     {
+        var client = await StartAppAsync();
+
+        // ---- First page load: SSR-complete first paint with real data, no beacon. ----
+        var response = await client.GetAsync("/dashboard/traffic");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var html = await response.Content.ReadAsStringAsync();
+
+        // Restored beacon contract: the panels container IS a widget to the bridge —
+        // identity + the surface kinds its four panels render + the page's filters, so a
+        // content-ready beacon re-renders the SAME filtered view in place.
+        Assert.Contains("id=\"traffic-panels\"", html);
+        Assert.Contains("data-sb-widget=\"traffic-panels\"", html);
+        Assert.Contains("data-sb-depends=\"countries,signature,threats\"", html);
+        Assert.Contains("data-sb-params=\"window=", html);
+        Assert.DoesNotContain("Warming up", html);
+        Assert.Contains("GPTBot", html); // seeded bot surfaces in the panels (by source / top visitors / threats)
+    }
+
+    /// <summary>
+    ///     The headline hits-per-period chart is the operator's "the traffic graph never
+    ///     updates" widget. Gated re-activation part (c): the dispatch map already declared
+    ///     <c>time-chart</c> but <c>RenderWidgetAsync</c> had no case, so the beacon had
+    ///     nothing to swap in. This pins BOTH halves — SSR carries the identity the bridge
+    ///     enumerates, and the batch endpoint renders the same widget OOB-tagged.
+    /// </summary>
+    [Fact]
+    public async Task Headline_chart_carries_the_beacon_contract_and_the_batch_endpoint_re_renders_it()
+    {
+        var client = await StartAppAsync();
+
+        var page = await client.GetAsync("/dashboard/traffic");
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        var html = await page.Content.ReadAsStringAsync();
+        Assert.Contains("data-sb-widget=\"time-chart\"", html);
+        Assert.Contains("data-sb-depends=\"summary\"", html);
+
+        // The beacon's OOB re-render. The client builds this URL from the widget's
+        // data-sb-params (sb-live-updates.js flush), so the window rides along prefixed.
+        var update = await client.GetAsync("/dashboard/partials/update?widgets=time-chart&time-chart.window=24h");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = await update.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-sb-widget=\"time-chart\"", swapped);
+        Assert.Contains("hx-swap-oob", swapped);
+        // The chart itself, not an empty shell — the whole point of the re-activation.
+        Assert.Contains("sb-chartlet", swapped);
+        Assert.DoesNotContain("Warming up", swapped);
+    }
+
+    /// <summary>
+    ///     Boots the dashboard host both tests share: seeded store → real composer → warm
+    ///     content cache (boot prewarm composes the pinned windows) → the widget batch
+    ///     middleware in front of the dashboard middleware, exactly as a real host wires it.
+    /// </summary>
+    private async Task<HttpClient> StartAppAsync()
+    {
         var store = new SeededEventStore();
         var manifests = new DefaultDashboardPageManifestSource();
         var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
@@ -90,25 +146,7 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         _app.UseMiddleware<StyloBotDashboardMiddleware>();
         await _app.StartAsync();
 
-        var client = _app.GetTestClient();
-
-        // ---- First page load: SSR-complete first paint with real data, no beacon. ----
-        var response = await client.GetAsync("/dashboard/traffic");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var html = await response.Content.ReadAsStringAsync();
-
-        // Restored beacon contract: the panels container IS a widget to the bridge —
-        // identity + the surface kinds its four panels render + the page's filters, so a
-        // content-ready beacon re-renders the SAME filtered view in place.
-        Assert.Contains("id=\"traffic-panels\"", html);
-        Assert.Contains("data-sb-widget=\"traffic-panels\"", html);
-        Assert.Contains("data-sb-depends=\"countries,signature,threats\"", html);
-        Assert.Contains("data-sb-params=\"window=", html);
-        Assert.DoesNotContain("Warming up", html);
-        Assert.Contains("GPTBot", html); // seeded bot surfaces in the panels (by source / top visitors / threats)
-
-        // No client batch fetch is pinned: the /dashboard/partials/update endpoint
-        // survives server-side but the client never calls it today (dash- 2026-08-16).
+        return _app.GetTestClient();
     }
 
     /// <summary>Seed store: one bot + one country so the composed bundle carries real data.</summary>
@@ -177,7 +215,12 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
             => Task.FromResult(new List<DashboardDetectionEvent>());
 
         public Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(DateTime startTime, DateTime endTime, TimeSpan bucketSize, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
-            => Task.FromResult(new List<DashboardTimeSeriesPoint>());
+            => Task.FromResult(new List<DashboardTimeSeriesPoint>
+            {
+                // One real bucket so the headline chart composes with data rather than a
+                // zero-filled axis (the beacon render must carry the same shape SSR does).
+                new() { Timestamp = startTime, HumanCount = 30, BotCount = 12, TotalCount = 42 },
+            });
 
         public Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default) => Task.FromResult(0);
         public Task RecordDegradationSnapshotAsync(DegradationSnapshot snapshot, CancellationToken ct = default) => Task.CompletedTask;
