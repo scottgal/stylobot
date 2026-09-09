@@ -238,6 +238,45 @@ public static class HitsPerPeriodChartletBuilder
         return new TrafficTimeseries(buckets, human, susp, bot);
     }
 
+    public static TrafficTimeseries BuildSeriesWithLiveOverlay(
+        IReadOnlyList<DashboardTimeSeriesPoint>? baseBuckets,
+        IReadOnlyList<DashboardTimeSeriesPoint>? liveBuckets,
+        DateTime start,
+        DateTime end,
+        TimeSpan bucketSize)
+    {
+        var merged = MergeLiveTimeSeries(baseBuckets?.ToList() ?? [], liveBuckets);
+        return BuildSeries(merged, start, end, bucketSize);
+    }
+
+    /// <summary>
+    ///     Overlays the recent window's LIVE buckets on the envelope's folded buckets so
+    ///     the graph's latest point is minutes-fresh rather than the last re-roll's. The
+    ///     live slice WINS on a timestamp collision (it is the fresher read).
+    ///     <para>
+    ///         B4 (review 2026-08-28): a degraded live slice (a duplicate Timestamp makes
+    ///         <c>ToDictionary</c> throw) must never fail the render — degrade to the base
+    ///         buckets. Shared by the TrafficController SSR path and the beacon's
+    ///         <c>time-chart</c> re-render so the two can never disagree on what the chart
+    ///         shows.
+    ///     </para>
+    /// </summary>
+    public static List<DashboardTimeSeriesPoint> MergeLiveTimeSeries(
+        List<DashboardTimeSeriesPoint> baseBuckets, IReadOnlyList<DashboardTimeSeriesPoint>? live)
+    {
+        if (live is not { Count: > 0 }) return baseBuckets;
+        try
+        {
+            var byTime = baseBuckets.ToDictionary(p => p.Timestamp);
+            foreach (var p in live) byTime[p.Timestamp] = p;
+            return byTime.Values.OrderBy(p => p.Timestamp).ToList();
+        }
+        catch
+        {
+            return baseBuckets;
+        }
+    }
+
     public static ChartletViewModel BuildFromSeries(TrafficTimeseries ts, string window)
     {
         // Multi-day windows need the date in the label; intraday just the clock.

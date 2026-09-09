@@ -73,6 +73,30 @@ public sealed class SbWidgetTagHelper : TagHelper
     /// <summary>Extra classes appended to the outer tier element.</summary>
     [HtmlAttributeName("class")] public string? ExtraClass { get; set; }
 
+    /// <summary>
+    ///     Widget instance id, emitted as BOTH <c>data-sb-widget</c> and <c>id</c>. Required
+    ///     for the widget to participate in the live-update contract: <c>sb-live-updates.js</c>
+    ///     enumerates <c>[data-sb-widget]</c> to build the depends→widget map, and
+    ///     <c>SbWidgetBatchMiddleware.RenderWidgetAsync</c> dispatches on the same id.
+    ///     <para>
+    ///         BOTH attributes come from this one property on purpose. The beacon's OOB
+    ///         fragment is tagged <c>hx-swap-oob="morph"</c>
+    ///         (<see cref="Middleware.WidgetRenderHelpers.InjectOobAttribute"/>), and Idiomorph
+    ///         resolves the swap target by the fragment root's <c>id</c> — so a widget with
+    ///         <c>data-sb-widget</c> but no <c>id</c> is visible to the bridge yet unswappable:
+    ///         the render succeeds, the logs look right, and nothing changes on screen. Deriving
+    ///         both from one value makes that mismatch unrepresentable. An explicit <c>id</c> on
+    ///         the element wins (callers that need a DOM id distinct from the widget key).
+    ///     </para>
+    ///     <para>
+    ///         A widget with <c>depends</c> but no <c>widget-id</c> is invisible to the beacon —
+    ///         it renders once on SSR and never refreshes (the 2026-08-16 rip-out left every
+    ///         <c>&lt;sb-widget&gt;</c> in exactly that state; re-activated 2026-09-09).
+    ///         Null (default) omits both attributes, so existing callers are unaffected.
+    ///     </para>
+    /// </summary>
+    [HtmlAttributeName("widget-id")] public string? WidgetId { get; set; }
+
     private static string WidthClass(string w) => w switch
     {
         "quarter" => "sb-w-quarter",
@@ -102,6 +126,17 @@ public sealed class SbWidgetTagHelper : TagHelper
         // once the tick materializer warms it (matches the list-widget convention).
         if (!string.IsNullOrWhiteSpace(Depends))
             output.Attributes.SetAttribute("data-sb-depends", Depends);
+
+        // Widget identity for the live-update bridge. Without it the depends marker is
+        // inert: sb-live-updates.js enumerates [data-sb-widget] and never sees this
+        // element, so the beacon can't refresh it. The id is emitted from the same value
+        // because the OOB fragment's morph target is resolved BY ID — see WidgetId's doc.
+        if (!string.IsNullOrWhiteSpace(WidgetId))
+        {
+            output.Attributes.SetAttribute("data-sb-widget", WidgetId);
+            if (!output.Attributes.Any(a => string.Equals(a.Name, "id", StringComparison.OrdinalIgnoreCase)))
+                output.Attributes.SetAttribute("id", WidgetId);
+        }
 
         var head = string.IsNullOrEmpty(Heading)
             ? string.Empty

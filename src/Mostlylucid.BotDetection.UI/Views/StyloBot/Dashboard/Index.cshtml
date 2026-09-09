@@ -68,7 +68,13 @@
         <label for="sb-nav-drawer" class="btn btn-ghost btn-sm self-start lg:hidden m-2" aria-label="Open dashboard navigation">
             <i class="bx bx-menu text-lg"></i>
         </label>
-        <main class="max-w-7xl mx-auto px-2 py-4 w-full">
+        @* Plain <div>, NOT <main>: this content already renders inside a <main>
+           landmark — the host _Layout's on the hosted path, and
+           WrapStandaloneDashboardPage's on the standalone FOSS path. A second,
+           nested <main> is invalid HTML and made Playwright's Locator("main")
+           ambiguous in strict mode (5 deterministic commercial reds, 2026-09-09).
+           Same rule _SignatureDetail.cshtml documents for its own root. *@
+        <div class="max-w-7xl mx-auto px-2 py-4 w-full">
 
         @* Shell-top-bar contribution slot (operator 2026-08-09): a scope-wide
            control (commercial's site-level domain/period selector) that must
@@ -217,7 +223,7 @@
            drawer/left-nav chrome around it. See _DashboardRowContent.cshtml. *@
         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_DashboardRowContent.cshtml", Model)
 
-        </main>
+        </div>
     </div>
     <div class="drawer-side z-40">
         <label for="sb-nav-drawer" class="drawer-overlay" aria-label="Close navigation"></label>
