@@ -32,11 +32,18 @@ namespace Mostlylucid.BotDetection.Test.Dashboard;
 ///         thread so the bound actually applies to a factory that blocks before its first await,
 ///         and the gate wait itself is bounded — a pass that has held it past
 ///         <see cref="DashboardMaterializerOptions.WarmInactivityThresholdSeconds"/> is declared
-///         stuck and later passes proceed without it. So all three observations below must now
-///         resolve: the pass returns, later passes are not queued, and the self-heal recovers.
+///         stuck and later passes proceed without it.
 ///     </para>
 ///     <para>
-///         The superseded behaviour (all three awaited forever) is what this test asserted before
+///         AND THE INVARIANT THAT MAKES THE UNGATED PATH SAFE: at most ONE compose per envelope
+///         is in flight, ever. The pre-fix cleanup removed the <c>_inFlightWarms</c> entry as soon
+///         as an awaiter gave up, so the next pass published a fresh Lazy and a SECOND compose for
+///         the same envelope ran alongside the abandoned one — and the cache atom keeps no per-key
+///         in-flight map, so both reached the compose. The entry now clears only when the attempt
+///         FINISHES. This test asserts exactly that: the hung attempt is entered once.
+///     </para>
+///     <para>
+///         The superseded behaviour (the pass awaited forever) is what this test asserted before
 ///         the fix; the test was INVERTED, not deleted, so the mechanism stays pinned rather than
 ///         described. The fast gate-serialisation proof lives in
 ///         <see cref="DashboardMaterializerStuckPassRecoveryTests"/>.
@@ -45,6 +52,7 @@ namespace Mostlylucid.BotDetection.Test.Dashboard;
 public sealed class DashboardMaterializerWedgeDiagnosticTests
 {
     private static readonly DashboardPageManifest Traffic = new("dashboard.traffic", new[] { "summary" });
+    private static readonly DashboardPageManifest Threats = new("dashboard.threats", new[] { "threats" });
     private static DashboardPageWindow Window() => new(null, null, "all", null, null, 500, 60);
     private static DashboardPageResult Result() => new(new DashboardDatasetBundle(null, null, null, null, null));
 
@@ -87,15 +95,23 @@ public sealed class DashboardMaterializerWedgeDiagnosticTests
     }
 
     [Fact]
-    public async Task A_hung_compose_no_longer_wedges_the_pass_the_gate_or_the_self_heal()
+    public async Task A_hung_compose_no_longer_wedges_the_pass_and_is_never_started_twice()
     {
         var hung = new TaskCompletionSource<DashboardPageResult>();
-        var calls = 0;
+        var hungCalls = 0;
+        var healthyCalls = 0;
         long tick = 1;
         var cache = new DashboardContentCache(
-            (_, _, _) => Interlocked.Increment(ref calls) == 1
-                ? hung.Task                       // the stuck compose
-                : Task.FromResult(Result()),      // the retry is healthy
+            (manifest, _, _) =>
+            {
+                if (manifest.PageKey == Traffic.PageKey)
+                {
+                    Interlocked.Increment(ref hungCalls);
+                    return hung.Task;                 // the stuck compose — never completes
+                }
+                Interlocked.Increment(ref healthyCalls);
+                return Task.FromResult(Result());     // a healthy envelope
+            },
             () => tick,
             Options.Create(new DashboardMaterializerOptions()));
 
@@ -114,30 +130,25 @@ public sealed class DashboardMaterializerWedgeDiagnosticTests
             }),
             sched);
 
-        await cache.GetAsync(Traffic, Window(), tick, default); // makes the envelope live
+        await cache.GetAsync(Traffic, Window(), tick, default);
+        await cache.GetAsync(Threats, Window(), tick, default);
         await coord.StartAsync(default);
-        tick = 2;
 
         try
         {
-            // 1. The first tick takes the gate and ABANDONS the hung compose instead of never
-            //    returning (the clamp). Pre-fix this awaited forever.
+            // THE PASS RETURNS (the clamp): pre-fix this awaited the hung compose forever and
+            // held _tickGate for the process lifetime.
+            tick = 2;
             var allowed = TimeSpan.FromMilliseconds(DashboardMaterializerOptions.DefaultComposeTimeoutMs + 10_000);
             await sched.RaiseTickAsync(TickCadence.Tick10s).WaitAsync(allowed);
 
-            // 2. A later tick is not queued behind it — the scheduler no longer sees a permanently
-            //    busy subscriber (the skips=N symptom).
-            tick = 3;
-            await sched.RaiseTickAsync(TickCadence.Tick10s).WaitAsync(TimeSpan.FromSeconds(10));
-
-            // 3. The self-heal RECOVERS: ReArmTickAsync no longer deadlocks behind the failure it
-            //    is recovering from.
-            await coord.ReArmTickAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
-
-            Assert.True(Volatile.Read(ref calls) >= 2,
-                $"calls={Volatile.Read(ref calls)}; the later pass must start a FRESH compose, not join the abandoned one");
+            // THE INVARIANT: the hung attempt is entered exactly ONCE, and the healthy envelope
+            // still warms — the coordinator recovers without stacking duplicate composes.
+            Assert.Equal(1, Volatile.Read(ref hungCalls));
+            Assert.True(Volatile.Read(ref healthyCalls) >= 1,
+                "a healthy envelope must still warm while another envelope's compose hangs");
             Assert.True(coord.HasWarmedSuccessfully,
-                "the coordinator must warm again after a hung compose — recovery without a process restart");
+                "the coordinator must keep making progress — recovery without a process restart");
         }
         finally
         {

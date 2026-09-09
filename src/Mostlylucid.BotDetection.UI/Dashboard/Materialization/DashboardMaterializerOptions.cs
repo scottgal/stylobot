@@ -364,13 +364,19 @@ public sealed class DashboardMaterializerOptions
     ///     stack evidence -- an async continuation parked on a Task nothing will ever signal).
     ///     <para>
     ///         This does NOT cancel the underlying compose (it may have no cancellation support
-    ///         at all) -- it only bounds how long THIS COORDINATOR waits on it. Past this bound,
-    ///         the wait is abandoned (faulted with <see cref="TimeoutException"/>, observed so
-    ///         it never surfaces as an unobserved-task exception if/when it eventually
-    ///         completes) and the <c>_inFlightWarms</c> entry is evicted immediately, so the
-    ///         NEXT caller for that envelope starts a fresh compose rather than joining the
-    ///         abandoned one. The envelope is not permanently poisoned even though one zombie
-    ///         task may linger in the background.
+    ///         at all) -- it only bounds how long THIS COORDINATOR waits on it. Past this bound
+    ///         the wait is abandoned (faulted with <see cref="TimeoutException"/>, observed so it
+    ///         never surfaces as an unobserved-task exception if/when it eventually completes).
+    ///         The <c>_inFlightWarms</c> entry is NOT evicted at that point: it clears when the
+    ///         attempt itself finishes (see
+    ///         <c>DashboardMaterializerCoordinator.AwaitWarmAndClearAsync</c>). Evicting it while
+    ///         the abandoned compose still ran let the next caller start a SECOND concurrent
+    ///         compose for the same envelope -- and the cache atom does not serialize same-key
+    ///         computes -- so the count of live attempts grew by one per tick for as long as the
+    ///         first hung. Now a hung attempt keeps exactly one entry and one thread; later
+    ///         callers join it under this bound, and a fresh compose starts the moment it ends.
+    ///         The envelope is never poisoned, but while an attempt is outstanding it serves its
+    ///         last-known-good bundle rather than being recomposed.
     ///     </para>
     ///     Default 20000ms: comfortably under <see cref="MaxTickDurationMs"/> (30s) so a single
     ///     hung item can never itself exhaust an entire tick's wave-loop budget the way an

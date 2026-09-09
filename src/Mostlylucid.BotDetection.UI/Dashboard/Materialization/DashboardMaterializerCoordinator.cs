@@ -69,6 +69,15 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     // triggering a second compute. Keyed on envelope (manifest+window), not envelope+tick, so
     // an overlapping warm at a slightly different tick still coalesces onto the in-flight one
     // rather than racing it -- the in-flight compute is about to produce a fresh result anyway.
+    //
+    // SINGLE-FLIGHT IS LOAD-BEARING FOR CORRECTNESS, not just for efficiency (2026-09-09). The
+    // tick gate used to guarantee "one pass at a time"; it is now bounded and a pass can proceed
+    // ungated when a previous one is stuck, so this dictionary is the ONLY thing keeping two
+    // passes from composing one envelope twice. That matters because the atom has no per-key
+    // in-flight map (see above): both composes would reach the compose. What enforces the
+    // invariant: an entry is removed ONLY when its attempt has finished
+    // (AwaitWarmAndClearAsync), and the off-thread hop lives inside the Lazy factory
+    // (WarmEnvelopeAsync) so lazy.Value never blocks and joiners share the same task.
     private readonly ConcurrentDictionary<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>> _inFlightWarms = new();
 
     // Stage 2b: per-envelope "when did this last actually get warmed" tracking, so the
@@ -418,8 +427,14 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         DashboardPageManifest manifest, DashboardPageWindow window, long tick, CancellationToken ct)
     {
         var envelope = DashboardContentEnvelope.From(manifest, window);
+        // The factory starts the compose on a pool thread and returns its Task IMMEDIATELY, so
+        // `lazy.Value` never blocks: the first caller starts the attempt, and every later caller
+        // gets the SAME task without waiting on Lazy's ExecutionAndPublication lock. (Hopping
+        // inside the factory rather than around `lazy.Value` matters: a factory that blocks
+        // before its first await would otherwise hold that lock, and each joining pass would
+        // block a pool thread for the whole hang.)
         var lazy = _inFlightWarms.GetOrAdd(envelope, _ => new Lazy<Task<DashboardPageResult>>(
-            () => _cache.WarmAsync(manifest, window, tick, ct),
+            () => Task.Run(() => _cache.WarmAsync(manifest, window, tick, ct), CancellationToken.None),
             LazyThreadSafetyMode.ExecutionAndPublication));
 
         return AwaitWarmAndClearAsync(envelope, lazy);
@@ -436,7 +451,7 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     <c>Task.WhenAll</c> from ever returning.
     /// </summary>
     private async Task<DashboardPageResult> AwaitWithComposeTimeoutAsync(
-        DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
+        DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy, Task<DashboardPageResult> compose)
     {
         // No unbounded branch (2026-09-09 wedge ruling): a non-positive ComposeTimeoutMs used
         // to await the compose directly, which is exactly the "never returns, holds _tickGate
@@ -451,14 +466,6 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
                     "DashboardMaterializerCoordinator: ComposeTimeoutMs={Configured} is non-positive; clamping to {Default}ms. An unbounded compose wait wedges the tick pass (and _tickGate) for the process lifetime.",
                     _options.ComposeTimeoutMs, timeoutMs);
         }
-
-        // Run the compose OFF the caller's thread. `lazy.Value` executes the factory
-        // SYNCHRONOUSLY under Lazy's ExecutionAndPublication lock, so a factory that blocks
-        // before its first await would wedge the tick thread BEFORE the bound below could ever
-        // apply -- the second wedge candidate. Task.Run moves that synchronous prefix to a pool
-        // thread, where the bound can abandon the wait (the blocked factory thread is the
-        // compose's own doing and cannot be cancelled from here).
-        var compose = Task.Run(() => lazy.Value, CancellationToken.None);
 
         var winner = await Task.WhenAny(compose, Task.Delay(timeoutMs, CancellationToken.None)).ConfigureAwait(false);
         if (winner != compose)
@@ -480,9 +487,13 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     private async Task<DashboardPageResult> AwaitWarmAndClearAsync(
         DashboardContentEnvelope envelope, Lazy<Task<DashboardPageResult>> lazy)
     {
+        // The ONE task representing this envelope's attempt (see WarmEnvelopeAsync: the factory
+        // hops to a pool thread and returns immediately, so this never blocks and every joiner
+        // shares the same task).
+        var compose = lazy.Value;
         try
         {
-            var result = await AwaitWithComposeTimeoutAsync(envelope, lazy).ConfigureAwait(false);
+            var result = await AwaitWithComposeTimeoutAsync(envelope, lazy, compose).ConfigureAwait(false);
             // Stage 2b: record the real warm timestamp AFTER a successful compute (never on
             // a skip) so DashboardRefreshCadence's due-time check always measures from the
             // last GENUINE warm, whether it came from the tick loop or a MarkDirtyAsync force.
@@ -531,9 +542,36 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
         }
         finally
         {
-            // Only clears the entry if it's still THIS in-flight warm (a later caller may
-            // already have started a fresh one for the same envelope after this one cleared).
-            _inFlightWarms.TryRemove(new KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>(envelope, lazy));
+            // SINGLE-FLIGHT INVARIANT: an envelope's entry is cleared only once its attempt has
+            // FINISHED. This used to remove unconditionally, so an ABANDONED (still-running)
+            // compose lost its entry and the next pass published a fresh Lazy -> a SECOND
+            // concurrent compose for the same envelope. That is not a theoretical race:
+            // SlidingCacheAtom.GetOrComputeAsync keeps no per-key in-flight map (a miss enqueues
+            // into EphemeralWorkCoordinator, a concurrency-gated queue, not a keyed one), so both
+            // computes reach the compose. Keeping the entry until the attempt ends is what makes
+            // "at most one compose per envelope" true; a hung attempt therefore holds exactly one
+            // entry (and one thread) and later passes JOIN it under the compose bound instead of
+            // stacking new attempts. The entry clears when the attempt completes, faults or is
+            // abandoned, so a later pass retries fresh exactly then.
+            var entry = new KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>(envelope, lazy);
+            if (compose.IsCompleted)
+            {
+                // Still only clears the entry if it's still THIS in-flight warm.
+                _inFlightWarms.TryRemove(entry);
+            }
+            else
+            {
+                _ = compose.ContinueWith(
+                    static (_, state) =>
+                    {
+                        var (dict, kv) = ((ConcurrentDictionary<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>, KeyValuePair<DashboardContentEnvelope, Lazy<Task<DashboardPageResult>>>))state!;
+                        dict.TryRemove(kv);
+                    },
+                    (_inFlightWarms, entry),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
         }
     }
 
@@ -948,31 +986,10 @@ public sealed class DashboardMaterializerCoordinator : IHostedService, IDisposab
     ///     <para>
     ///         The stuck holder still owns the gate (it may be blocked in a compose this process
     ///         cannot cancel); when it eventually returns it releases it and the gate is back in
-    ///         service.
-    ///     </para>
-    ///     <para>
-    ///         WHAT THE UNGATED PASS DOES NOT GUARANTEE (stated plainly — an earlier version of
-    ///         this comment claimed otherwise and was wrong): <c>_inFlightWarms</c> coalesces
-    ///         concurrent warms of the SAME envelope only while that entry exists, and
-    ///         <c>AwaitWarmAndClearAsync</c> clears it in a <c>finally</c> that also runs on the
-    ///         ABANDON path. So a pass that abandoned an envelope at
-    ///         <see cref="DashboardMaterializerOptions.ComposeTimeoutMs"/> — precisely the case
-    ///         that leaves a gate holder stuck, i.e. the case this method exists for — plus a later
-    ///         ungated pass can compose the SAME envelope concurrently, while the abandoned compose
-    ///         is still running. The cache atom does not serialize that for us
-    ///         (<c>SlidingCacheAtom.GetOrComputeAsync</c> keeps no per-key in-flight map; a miss
-    ///         awaits <c>EphemeralWorkCoordinator.EnqueueAsync</c>, a concurrency-gated channel,
-    ///         not a keyed queue), so both really do reach the compose.
-    ///     </para>
-    ///     <para>
-    ///         The overlap is ACCEPTED, not overlooked: it is wasteful at worst (a duplicate
-    ///         whole-page compose, each still bounded by <c>ComposeTimeoutMs</c>), and the
-    ///         alternative — refusing to run a pass until the stuck holder returns — is the wedge
-    ///         this method exists to end, where the only exit was a process restart. Bounding the
-    ///         duplication instead (clearing the in-flight entry only when the compose task
-    ///         completes) was tried and rejected: it leaves an envelope permanently "in flight"
-    ///         when a compose never completes, so later callers join a hung task and that
-    ///         envelope's data never refreshes. See the compose-bound docs for the trade.
+    ///         service. Two overlapping passes are safe ONLY because of the single-flight
+    ///         invariant on <see cref="_inFlightWarms"/>: with the gate no longer guaranteeing
+    ///         one pass at a time, that dictionary is what prevents two passes from composing one
+    ///         envelope twice, and the cache atom does not serialize same-key computes on its own.
     ///     </para>
     /// </summary>
     private async Task<bool> EnterTickGateAsync(CancellationToken ct)
