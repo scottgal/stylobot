@@ -20,7 +20,8 @@ namespace Mostlylucid.BotDetection.Test.UI;
 /// </summary>
 public sealed class SbWidgetTagHelperWidgetIdTests
 {
-    private static TagHelperOutput Render(SbWidgetTagHelper helper, string? explicitId = null)
+    private static TagHelperOutput Render(
+        SbWidgetTagHelper helper, string? explicitId = null, TagHelperAttributeList? extra = null)
     {
         var context = new TagHelperContext(
             tagName: "sb-widget",
@@ -29,6 +30,8 @@ public sealed class SbWidgetTagHelperWidgetIdTests
             uniqueId: "test");
         var attrs = new TagHelperAttributeList();
         if (explicitId is not null) attrs.Add("id", explicitId);
+        if (extra is not null)
+            foreach (var a in extra) attrs.Add(a);
         var output = new TagHelperOutput(
             "sb-widget",
             attrs,
@@ -67,6 +70,22 @@ public sealed class SbWidgetTagHelperWidgetIdTests
 
         Assert.Equal("time-chart", output.Attributes["data-sb-widget"].Value);
         Assert.Equal("my-dom-id", output.Attributes["id"].Value);
+    }
+
+    /// <summary>
+    ///     The window (and any other per-page state) must reach the element without the tag
+    ///     helper binding it: the bridge forwards <c>data-sb-params</c> on refresh, and a host
+    ///     that shadows the Traffic views (any deployment keeping its own copy of
+    ///     <c>_Body.cshtml</c>) passes it as an unbound attribute.
+    /// </summary>
+    [Fact]
+    public void Unbound_attributes_pass_through_so_the_view_can_supply_data_sb_params()
+    {
+        var extra = new TagHelperAttributeList { { "data-sb-params", "window=24h" } };
+        var output = Render(new SbWidgetTagHelper { WidgetId = "time-chart" }, extra: extra);
+
+        Assert.Equal("window=24h", output.Attributes["data-sb-params"].Value);
+        Assert.Equal("time-chart", output.Attributes["id"].Value);
     }
 
     [Fact]
