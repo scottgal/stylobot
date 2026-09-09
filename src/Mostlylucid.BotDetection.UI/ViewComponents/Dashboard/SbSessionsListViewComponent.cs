@@ -135,7 +135,10 @@ public class SbSessionsListViewComponent(
                     AvgBotProbability = s.AvgBotProbability,
                     RiskBand = s.RiskBand,
                     Action = s.Action,
-                    BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
+                    BotName = sigLookup.ResolveBotName(
+                        signatureCache, s.Signature, s.BotName,
+                        botType: s.BotType, countryCode: s.CountryCode,
+                        userAgent: uaLookup.ResolveUserAgent(signatureCache, s.Signature)),
                     CountryCode = s.CountryCode,
                     UserAgent = uaLookup.ResolveUserAgent(signatureCache, s.Signature),
                     ErrorCount = s.ErrorCount,

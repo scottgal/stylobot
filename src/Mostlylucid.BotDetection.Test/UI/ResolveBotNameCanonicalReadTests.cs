@@ -18,6 +18,14 @@ namespace Mostlylucid.BotDetection.Test.UI;
 ///         caused list-vs-detail divergence ("list shows X, click through shows Y")
 ///         and rendered stale "Chrome Desktop" / "Unknown 000000" rows.
 ///     </para>
+///     <para>
+///         2026-09-09: the chain's RESULT is now dispositioned — a fallback-shaped value
+///         or null is treated as UNRESOLVED and the row's class / country / signature are
+///         projected instead (operator ruling: no variant of "unknown" may render). The
+///         precedence itself is unchanged; three tests below were re-pinned from "returns
+///         the fallback / null" to "projects the row", with the superseded contract
+///         recorded in each.
+///     </para>
 /// </summary>
 public class ResolveBotNameCanonicalReadTests
 {
@@ -55,15 +63,21 @@ public class ResolveBotNameCanonicalReadTests
     }
 
     [Fact]
-    public void Cache_fallback_wins_over_no_stored_value()
+    public void Cache_fallback_is_unresolved_and_the_row_is_projected()
     {
+        // RE-PINNED 2026-09-09 (operator ruling: no variant of "unknown" may render). This used
+        // to assert the cached fallback "Unknown" was RETURNED -- i.e. the display tier rendered
+        // a value that means "we hold no name". A fallback-shaped chain result is now UNRESOLVED
+        // and the row's own knowledge is projected instead; "sig-1" carries no class, country or
+        // 8-char id, so the projection is the total terminal.
         var cache = NewCache();
         cache.ApplyResolvedNames(new Dictionary<string, string?> { ["sig-1"] = "Unknown" });
         var lookup = new Dictionary<string, string?>();
 
         var resolved = lookup.ResolveBotName(cache, "sig-1", storedName: null);
 
-        Assert.Equal("Unknown", resolved);
+        Assert.Equal("Client Provisional", resolved);
+        Assert.NotEqual("Unknown", resolved);
     }
 
     [Fact]
@@ -80,28 +94,32 @@ public class ResolveBotNameCanonicalReadTests
     }
 
     [Fact]
-    public void Stored_fallback_returned_when_everything_else_is_empty()
+    public void Stored_fallback_is_unresolved_and_the_row_is_projected()
     {
+        // RE-PINNED 2026-09-09: the last-resort return used to hand back the stored fallback
+        // ("strictly better than null") -- but a fallback-shaped value is exactly what must never
+        // render, so it is treated as unresolved and the row is projected.
         var cache = NewCache();
         var lookup = new Dictionary<string, string?>();
 
-        // Last-resort: nothing fresh anywhere. Returning the stored fallback is
-        // strictly better than null because the dashboard render layer would
-        // otherwise fall through to the signature substring.
         var resolved = lookup.ResolveBotName(cache, "sig-1", storedName: "Unknown 00000000");
 
-        Assert.Equal("Unknown 00000000", resolved);
+        Assert.Equal("Client Provisional", resolved);
+        Assert.NotEqual("Unknown 00000000", resolved);
     }
 
     [Fact]
-    public void Empty_everywhere_returns_null()
+    public void Empty_everywhere_projects_a_total_name_never_null()
     {
+        // RE-PINNED 2026-09-09: the chain used to return null when every tier was empty, which
+        // the render layer papered over with a signature substring. The disposition is total.
         var cache = NewCache();
         var lookup = new Dictionary<string, string?>();
 
         var resolved = lookup.ResolveBotName(cache, "sig-1", storedName: null);
 
-        Assert.Null(resolved);
+        Assert.Equal("Client Provisional", resolved);
+        Assert.NotNull(resolved);
     }
 
     [Fact]

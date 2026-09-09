@@ -1063,7 +1063,10 @@ public sealed class SbWidgetBatchMiddleware
             AvgBotProbability = s.AvgBotProbability,
             RiskBand = s.RiskBand,
             Action = s.Action,
-            BotName = sigLookup.ResolveBotName(_signatureCache, s.Signature, s.BotName),
+            BotName = sigLookup.ResolveBotName(
+                _signatureCache, s.Signature, s.BotName,
+                botType: s.BotType, countryCode: s.CountryCode,
+                userAgent: uaLookup.ResolveUserAgent(_signatureCache, s.Signature)),
             CountryCode = s.CountryCode,
             UserAgent = uaLookup.ResolveUserAgent(_signatureCache, s.Signature),
             ErrorCount = s.ErrorCount,
