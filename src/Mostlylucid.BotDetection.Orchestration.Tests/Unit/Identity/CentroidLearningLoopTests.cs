@@ -303,14 +303,15 @@ public sealed class CentroidLearningLoopTests : IDisposable
         await calibration.RunOnceAsync(CancellationToken.None);
         Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
 
-        // Default CoolingCycles = 3. The fingerprint stays at its crossed-the-gate novelty, exactly as
-        // production leaves it, and nothing is ever matched into the basin. The pass that CREATED the
-        // basin is itself the first below-minimum pass, so retirement lands on the third.
-        // It survives inside the window...
+        // Default CoolingCycles = 3, meaning THREE COOLING PASSES AFTER THE SEEDING PASS. The
+        // fingerprint stays at its crossed-the-gate novelty, exactly as production leaves it, and
+        // nothing is ever matched into the basin.
+        // It survives inside the window (two of the three cooling passes)...
+        await calibration.RunOnceAsync(CancellationToken.None);
         await calibration.RunOnceAsync(CancellationToken.None);
         Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
 
-        // ...and is retired once the window closes.
+        // ...and is retired when the third cooling pass closes the window.
         await calibration.RunOnceAsync(CancellationToken.None);
         Assert.DoesNotContain(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
     }

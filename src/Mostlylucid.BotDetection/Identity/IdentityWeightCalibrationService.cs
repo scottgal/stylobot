@@ -277,6 +277,10 @@ public sealed class IdentityWeightCalibrationService : IDisposable
 
         var byId = new HashSet<string>(archetypes.Select(a => a.ArchetypeId), StringComparer.OrdinalIgnoreCase);
         var novel = fingerprints.Where(fp => fp.NoveltyCount >= opts.NoveltyThreshold).ToList();
+        // Basins created THIS pass. They are excluded from the cooling walk below, because the pass that
+        // seeds a basin is the START of its cooling window, not the first cooling pass inside it --
+        // CoolingCycles = 3 must mean three passes AFTER seeding (see the cooling walk).
+        var seededThisPass = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var survivors = new List<IdentityArchetype>(archetypes.Count + 4);
         survivors.AddRange(archetypes);
 
@@ -294,6 +298,7 @@ public sealed class IdentityWeightCalibrationService : IDisposable
 
             _retiredSeeds.Remove(seedId);
             byId.Add(seedId);
+            seededThisPass.Add(seedId);
             var seeded = BuildSeededBasin(fp, seedId);
             survivors.Add(seeded);
             try
@@ -316,6 +321,16 @@ public sealed class IdentityWeightCalibrationService : IDisposable
         foreach (var archetype in survivors)
         {
             if (!IsSeededBasin(archetype.ArchetypeId))
+            {
+                kept.Add(archetype);
+                continue;
+            }
+
+            // The pass that seeded this basin is where its cooling window STARTS, not a cooling pass
+            // inside it -- otherwise CoolingCycles = 3 would retire on the third pass *since seeding*,
+            // which is two of cooling. The counter below therefore begins on the next pass, so the name
+            // means what it says: N passes of cooling after the seed.
+            if (seededThisPass.Contains(archetype.ArchetypeId))
             {
                 kept.Add(archetype);
                 continue;
