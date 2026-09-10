@@ -156,7 +156,6 @@ function buildStages() {
 // checks to run), not a correctness threshold — separate from the PASS/FAIL
 // assertions themselves, which stay threshold-free (see freshnessProbe()).
 const PROBE_ENABLED = (__ENV.FRESHNESS_PROBE || 'true') !== 'false';
-const DASHBOARD_SESSION_COOKIE = __ENV.DASHBOARD_SESSION_COOKIE || '';
 
 export const options = {
   scenarios: Object.assign({
@@ -177,9 +176,9 @@ export const options = {
       // scenarios must run for the SAME wall-clock length or one silently
       // stops probing/loading before the other finishes.
       duration: (TOTAL_DURATION_S > 0 ? TOTAL_DURATION_S : buildStages().reduce((sum, s) => sum + parseInt(s.duration), 0)) + 's',
-      // Worst case per iteration: db_only_detections never resolves (60s) +
-      // conforming_dashboard never resolves (15s) = 75s held. At rate 1/s
-      // that needs ~75-80 concurrent VUs in the all-timeout worst case.
+      // Worst case per iteration: the one probed surface never resolves (60s
+      // ceiling) = 60s held. At rate 1/s that needs ~60 concurrent VUs in the
+      // all-timeout worst case; the headroom below covers startup and drift.
       preAllocatedVUs: 20,
       maxVUs: 90,
       exec: 'freshnessProbe',
@@ -281,13 +280,9 @@ export default function () {
 const GIVE_UP_MS = 60000; // generous ceiling so a slow-but-working store still
                             // resolves; a probe that times out is the failure
                             // signal, not the number itself.
-// Shorter ceiling for the best-effort dashboard check ONLY — it is not
-// authoritative (see freshnessProbe below), so it must not hold a VU for as
-// long as the regression-gate surface; a probe that never resolves here is
-// inconclusive, not proof of a gap, so there is no correctness reason to wait
-// the full 60s. Keeps VU consumption bounded for the constant-arrival-rate
-// executor even if this surface never resolves.
-const DASHBOARD_GIVE_UP_MS = 15000;
+// (The shorter ceiling that used to exist for a best-effort dashboard check is
+// gone with that check — see the REMOVED note in freshnessProbe. There is now
+// exactly one probed surface, so one ceiling applies to it.)
 const POLL_INTERVAL_MS = 500;
 
 export function freshnessProbe() {
@@ -302,39 +297,50 @@ export function freshnessProbe() {
   const sendTime = Date.now();
   http.get(`${TARGET}/`, { headers, tags: { traffic_type: 'probe', population } });
 
-  // DB-only surface (the surface the mission names as broken — GetDetectionsAsync).
-  // since= bypasses the top-N aggregate-cache snapshot (ReadEndpoints.cs:147),
-  // so this exercises the real store read path, not the fast cache path.
+  // Read-through surface (LFU ∪ DB). This leg is no longer a "db-only foil" —
+  // the reads it contrasts against now compose live state too, so there is no
+  // single-tier surface left that carries per-request identity to compare
+  // against. The assertion that still means something is this one: an absorbed
+  // detection must be READABLE end-to-end.
+  //
+  // The control/oneshot split is the built-in positive control, and its meaning
+  // is now eviction-induced loss rather than tier blindness. `control` is a
+  // small stable identity set that stays resident; `oneshot` is a throwaway
+  // identity that, under cardinality pressure, can be evicted before it is ever
+  // read back. Divergence therefore measures "a throwaway identity stopped
+  // being readable while a stable one did not" — the operator's exact concern
+  // that unpersisted content becomes permanently invisible.
+  //
+  // Matching is on the raw (PII-stripped) User-Agent the read surface returns,
+  // so the client never needs the HMAC. The marker survives UaPiiStripper at
+  // this probe's scale: its phone pattern needs a >=10-char run of
+  // digits/space/dash/parens/dots, and the `__VU-__ITER` pair stays below that
+  // at 1/s. If the probe rate or duration is ever raised far enough to widen
+  // those numbers, re-check that before trusting a miss.
+  //
+  // since= bypasses the top-N aggregate-cache snapshot, so this exercises the
+  // real store read path rather than the fast cache path.
   const sinceIso = new Date(sendTime - 5000).toISOString();
   pollUntilVisible(
     () => http.get(`${TARGET}/api/v1/detections?since=${sinceIso}&limit=200`, {
       headers: API_KEY ? { 'X-SB-Api-Key': API_KEY } : {},
-      tags: { traffic_type: 'probe_read', surface: 'db_only_detections', population },
+      tags: { traffic_type: 'probe_read', surface: 'api_detections', population },
     }),
     (res) => res.status === 200 && res.body && res.body.includes(marker),
-    sendTime, population, 'db_only_detections'
+    sendTime, population, 'api_detections'
   );
 
-  // Conforming surface (LFU∪DB read-through). Auth resolved 2026-08-20
-  // (deploy-): STYLOBOT_DASHBOARD_PUBLIC=true on the rig only — plain GET,
-  // no session needed; DASHBOARD_SESSION_COOKIE stays as an override for a
-  // non-public-mode rig. BEST-EFFORT ONLY, not authoritative: the page's Top
-  // Bots/Threats widget renders PrimarySignature/BotName, not raw UserAgent
-  // text, and the client can't compute the HMAC signature to match against —
-  // so a marker-in-body match can false-negative even when the entry is
-  // genuinely present (it just didn't make the widget's top-N or doesn't
-  // surface UA text at all). Treat a positive match as strong signal; treat a
-  // miss as inconclusive, not a proven gap. The demo app's Playwright-driven,
-  // rendered-content assertion is the authoritative check for this surface.
-  const dashHeaders = DASHBOARD_SESSION_COOKIE ? { Cookie: DASHBOARD_SESSION_COOKIE } : {};
-  pollUntilVisible(
-    () => http.get(`${TARGET}/dashboard/traffic`, {
-      headers: dashHeaders,
-      tags: { traffic_type: 'probe_read', surface: 'conforming_dashboard', population },
-    }),
-    (res) => res.status === 200 && res.body && res.body.includes(marker),
-    sendTime, population, 'conforming_dashboard', DASHBOARD_GIVE_UP_MS
-  );
+  // REMOVED 2026-09-10: a second leg polled GET /dashboard/traffic as a
+  // "conforming dashboard" surface. On this rig no such page is served — the
+  // gateway builds without the dashboard, and the loadtest stack runs only
+  // gateway, postgres and the upstream stub. The path therefore falls through
+  // the gateway's catch-all to the upstream stub, and that stub ECHOES REQUEST
+  // HEADERS. The probe's marker lives in the User-Agent header, so it matched
+  // itself instantly, for both populations, on every iteration. A leg that
+  // cannot fail and never reads the store is worse than no leg: it reports
+  // success for a question it never asked. Replaced by the read-through leg
+  // above. A genuine rendered-dashboard assertion needs a real dashboard host
+  // in the stack (the browser-driven demo app), not a k6 body match.
 
   sleep(0.1);
 }
