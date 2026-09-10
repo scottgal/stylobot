@@ -372,6 +372,14 @@ public interface IFingerprintStore : IFingerprintReader
         => UpsertArchetypeAsync(archetype, ct);
 
     /// <summary>
+    ///     Remove one row from <c>identity_archetypes</c>. Used by the novelty-seeded basin cooling
+    ///     rule: a basin whose seed stopped being novel and which nobody joined is retired rather
+    ///     than left to accumulate. Default no-op so older store impls keep compiling.
+    /// </summary>
+    Task DeleteArchetypeAsync(string archetypeId, CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    /// <summary>
     ///     Snapshot of every row in <c>identity_archetypes</c> matching the
     ///     given <paramref name="catalogueKind"/> discriminator. Used by mode
     ///     classification (kind: <c>browser_mode</c>) and identity archetype

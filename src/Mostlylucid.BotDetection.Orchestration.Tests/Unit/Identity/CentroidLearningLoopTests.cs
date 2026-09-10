@@ -227,6 +227,84 @@ public sealed class CentroidLearningLoopTests : IDisposable
         Assert.NotEqual(matchA!.Archetype.ArchetypeId, matchB!.Archetype.ArchetypeId);
     }
 
+    // ----- D1: novelty-driven basin seeding ------------------------------------
+
+    private static async Task<IReadOnlyList<IdentityArchetypeRow>> ArchetypeRowsAsync(SqliteFingerprintStore store)
+        => await store.GetByCatalogueKindAsync("identity");
+
+    /// <summary>
+    ///     The CONSUMER, not the field: a fingerprint whose NoveltyCount has crossed the gate gets a
+    ///     basin of its own at the next consolidation pass, and a below-gate control does not. Fails
+    ///     without the wiring, because nothing reads NoveltyCount.
+    /// </summary>
+    [Fact]
+    public async Task Novelty_past_the_gate_seeds_a_basin_and_the_control_does_not()
+    {
+        var (store, _, calibration) = await BuildAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+
+        // Settle the pass's own cold-seed writes first, so the assertion is about the SEED and not
+        // about the catalogue being written to the store for the first time.
+        await calibration.RunOnceAsync(CancellationToken.None);
+
+        await SeedFingerprintAtOriginAsync(store, "fp-novel-over-gate", dim, noveltyCount: 5);
+        await SeedFingerprintAtOriginAsync(store, "fp-novel-under-gate", dim, noveltyCount: 0);
+
+        await calibration.RunOnceAsync(CancellationToken.None);
+
+        var rows = await ArchetypeRowsAsync(store);
+        Assert.Contains(rows, r => r.ArchetypeId == "emergent-fp-novel-over-gate");
+        Assert.DoesNotContain(rows, r => r.ArchetypeId == "emergent-fp-novel-under-gate");
+    }
+
+    /// <summary>
+    ///     The flap guard, pinned: a seeded basin whose seed is STILL novel is kept even with no
+    ///     descendants -- retiring it would re-seed it on the very next pass.
+    /// </summary>
+    [Fact]
+    public async Task A_still_novel_seed_keeps_its_basin()
+    {
+        var (store, _, calibration) = await BuildAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        await calibration.RunOnceAsync(CancellationToken.None);
+
+        await SeedFingerprintAtOriginAsync(store, "fp-still-novel", dim, noveltyCount: 5);
+        for (var pass = 0; pass < 4; pass++)
+            await calibration.RunOnceAsync(CancellationToken.None);
+
+        Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-still-novel");
+    }
+
+    /// <summary>
+    ///     Cooling: a seeded basin whose seed stops being novel and which nobody joined is retired
+    ///     after the cooling window, so seeding cannot become unbounded proliferation.
+    /// </summary>
+    [Fact]
+    public async Task A_seeded_basin_is_retired_only_after_the_cooling_window()
+    {
+        var (store, _, calibration) = await BuildAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        await calibration.RunOnceAsync(CancellationToken.None);
+
+        await SeedFingerprintAtOriginAsync(store, "fp-novel-cooling", dim, noveltyCount: 5);
+        await calibration.RunOnceAsync(CancellationToken.None);
+        Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
+
+        // The shape stabilises: the same identity with novelty back under the gate.
+        // InsertFingerprintAsync is insert-only (UNIQUE on fingerprint_id), so free the id first.
+        await store.DeleteFingerprintsAsync(new[] { "fp-novel-cooling" });
+        await SeedFingerprintAtOriginAsync(store, "fp-novel-cooling", dim, noveltyCount: 0);
+
+        // Default CoolingCycles = 3: it survives inside the window...
+        await calibration.RunOnceAsync(CancellationToken.None);
+        await calibration.RunOnceAsync(CancellationToken.None);
+        Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
+
+        // ...and is retired once the window closes.
+        await calibration.RunOnceAsync(CancellationToken.None);
+        Assert.DoesNotContain(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
+    }
+
     // ----- helpers ------------------------------------------------------------
 
     private async Task<(SqliteFingerprintStore Store, FingerprintAbsorptionService Absorption, IdentityWeightCalibrationService Calibration)>
@@ -287,7 +365,8 @@ public sealed class CentroidLearningLoopTests : IDisposable
         SqliteFingerprintStore store,
         string fpId,
         int dim,
-        string inferredClientType = "test")
+        string inferredClientType = "test",
+        int noveltyCount = 0)
     {
         var weights = new float[dim];
         Array.Fill(weights, 1.0f);
@@ -297,6 +376,7 @@ public sealed class CentroidLearningLoopTests : IDisposable
             FingerprintId = fpId,
             Centroid = new float[dim],
             CentroidMaturity = 0,           // a true cold start: any observation MUST move us
+            NoveltyCount = noveltyCount,
             Weights = weights,
             MemberCount = 1,
             ObservationCount = 0,

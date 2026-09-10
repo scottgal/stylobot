@@ -2753,6 +2753,22 @@ public class SqliteFingerprintStore : IFingerprintStore
     // cap; the round-trip cost on a hot store is negligible.
     private const int ReseatBatchSize = 500;
 
+    /// <summary>
+    ///     Retire a novelty-seeded basin (cooling). A basin nothing joined and whose seed stopped
+    ///     being novel is a hypothesis that did not hold -- dropping the row lets the shape fall back
+    ///     to its nearest existing archetype instead of accumulating forever.
+    /// </summary>
+    public async Task DeleteArchetypeAsync(string archetypeId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(archetypeId)) return;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM identity_archetypes WHERE archetype_id = @id";
+        cmd.Parameters.AddWithValue("@id", archetypeId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     public async Task ReseatRootCentroidsAsync(
         IReadOnlyCollection<ClusterRootUpdate> updates,
         int minMemberFingerprints = 2,

@@ -561,6 +561,15 @@ public sealed class IdentityCalibrationOptions
     /// </summary>
     public int CalibrationIntervalMinutes { get; set; } = 30;
 
+    /// <summary>
+    ///     Novelty-driven basin seeding (D1). A fingerprint whose shape has left every known
+    ///     archetype's catchment -- its <see cref="Fingerprint.NoveltyCount"/> crossing the gate --
+    ///     seeds a basin of its own at the next consolidation pass, so the cycle can do the thing it
+    ///     exists for instead of only re-averaging shapes it already knows. Never per-request: the
+    ///     decision belongs to the scheduled pass.
+    /// </summary>
+    public BasinSeedingOptions BasinSeeding { get; set; } = new();
+
     /// <summary>Maximum α (descendant blend ratio) in archetype self-refinement.</summary>
     public double ArchetypeRefinementCap { get; set; } = 0.7;
 
@@ -746,6 +755,39 @@ public sealed class UmbrellaShrinkageOptions
 ///     (additional axes, custom signal-key aliases) without forcing every
 ///     consumer to construct the immutable policy by hand.
 /// </summary>
+/// <summary>
+///     Novelty-driven basin seeding and its cooling rule. A seeded basin is a HYPOTHESIS that a
+///     shape is genuinely new; the cooling window is what stops that hypothesis becoming permanent
+///     proliferation.
+/// </summary>
+public sealed class BasinSeedingOptions
+{
+    /// <summary>Seeding on/off. Default true -- the identity layer itself is already opt-in.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     Beyond-threshold observations since the last consolidation before a fingerprint seeds a
+    ///     basin of its own. Default 5: one straggler is noise, a repeated failure to fit any
+    ///     archetype is a shape. Config key
+    ///     <c>BotDetection:Identity:Calibration:BasinSeeding:NoveltyThreshold</c>.
+    /// </summary>
+    public int NoveltyThreshold { get; set; } = 5;
+
+    /// <summary>
+    ///     Descendants a seeded basin must attract to be kept once its seed stops being novel.
+    ///     Default 1: a basin nobody joins is not a basin.
+    /// </summary>
+    public int MinDescendants { get; set; } = 1;
+
+    /// <summary>
+    ///     Consecutive consolidation passes a seeded basin may sit below <see cref="MinDescendants"/>
+    ///     -- with its seed no longer novel -- before it is retired. Default 3. Retirement DELETES
+    ///     the row and drops it from the registry, so the shape is re-absorbed into its nearest
+    ///     existing archetype; that is the merge half of seed-and-merge.
+    /// </summary>
+    public int CoolingCycles { get; set; } = 3;
+}
+
 public sealed class CalibrationTriggerOptions
 {
     /// <summary>

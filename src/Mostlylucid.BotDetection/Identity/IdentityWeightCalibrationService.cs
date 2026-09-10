@@ -217,6 +217,152 @@ public sealed class IdentityWeightCalibrationService : IDisposable
     ///     inferred-client-type clusters, persist; then refine each archetype centroid against
     ///     its descendants and push the refreshed registry. Returns counts for diagnostics.
     /// </summary>
+    private const string SeedPrefix = "emergent-";
+
+    /// <summary>
+    ///     Consecutive below-min passes per seeded basin. In-memory on purpose: a restart restarts the
+    ///     grace window, which can only ever DELAY a retirement, never prevent one.
+    /// </summary>
+    private readonly Dictionary<string, int> _seedGrace = new(StringComparer.OrdinalIgnoreCase);
+
+    private static string SeedId(string fingerprintId) => SeedPrefix + fingerprintId;
+
+    private static bool IsSeededBasin(string archetypeId) =>
+        archetypeId.StartsWith(SeedPrefix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     D1: give a genuinely novel shape a basin of its own, and retire a basin whose hypothesis
+    ///     did not hold.
+    ///     <para>
+    ///     SEED -- a fingerprint with <see cref="Fingerprint.NoveltyCount"/> at or above the gate has
+    ///     repeatedly failed to fit ANY archetype, so its own centroid becomes a new basin. The id is
+    ///     deterministic (<c>emergent-{fingerprintId}</c>) so the decision is idempotent across
+    ///     cycles.
+    ///     </para>
+    ///     <para>
+    ///     COOL -- a seeded basin is retired once its seed is no longer novel (the shape stopped
+    ///     leaving every archetype: it stabilised or was absorbed) AND it attracted fewer than
+    ///     <c>MinDescendants</c> descendants for <c>CoolingCycles</c> consecutive passes. Retiring a
+    ///     basin whose seed is STILL novel would re-seed it on the next pass -- a flap, which is why
+    ///     the seed's novelty is part of the condition rather than a separate concern.
+    ///     </para>
+    /// </summary>
+    private async Task<IReadOnlyList<IdentityArchetype>> ApplyNoveltySeedingAsync(
+        IReadOnlyList<IdentityArchetype> archetypes,
+        IReadOnlyList<Fingerprint> fingerprints,
+        CancellationToken ct)
+    {
+        var opts = _options.Calibration.BasinSeeding;
+        if (!opts.Enabled) return archetypes;
+
+        var byId = new HashSet<string>(archetypes.Select(a => a.ArchetypeId), StringComparer.OrdinalIgnoreCase);
+        var novel = fingerprints.Where(fp => fp.NoveltyCount >= opts.NoveltyThreshold).ToList();
+        var survivors = new List<IdentityArchetype>(archetypes.Count + 4);
+        survivors.AddRange(archetypes);
+
+        foreach (var fp in novel)
+        {
+            var seedId = SeedId(fp.FingerprintId);
+            if (!byId.Add(seedId)) continue;
+
+            var seeded = BuildSeededBasin(fp, seedId);
+            survivors.Add(seeded);
+            try
+            {
+                await _store.UpsertArchetypeAsync(seeded, ct);
+                _logger.LogInformation(
+                    "Novelty seeding: {Fingerprint} crossed the gate ({Novelty} >= {Threshold}) and seeded basin {SeedId}",
+                    fp.FingerprintId, fp.NoveltyCount, opts.NoveltyThreshold, seedId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Basin seeding persist failed for {SeedId}; in-memory still updated", seedId);
+            }
+        }
+
+        if (!survivors.Any(a => IsSeededBasin(a.ArchetypeId))) return survivors;
+
+        var stillNovel = novel.Select(fp => fp.FingerprintId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var kept = new List<IdentityArchetype>(survivors.Count);
+
+        foreach (var archetype in survivors)
+        {
+            if (!IsSeededBasin(archetype.ArchetypeId))
+            {
+                kept.Add(archetype);
+                continue;
+            }
+
+            var descendants = fingerprints.Count(fp =>
+                string.Equals(fp.InferredClientType, archetype.ArchetypeId, StringComparison.OrdinalIgnoreCase));
+
+            // Its seed is still novel: the shape is still unexplained, so the basin stands.
+            if (stillNovel.Contains(archetype.ArchetypeId[SeedPrefix.Length..]) || descendants >= opts.MinDescendants)
+            {
+                _seedGrace.Remove(archetype.ArchetypeId);
+                kept.Add(archetype);
+                continue;
+            }
+
+            var cycles = _seedGrace.TryGetValue(archetype.ArchetypeId, out var prior) ? prior + 1 : 1;
+            if (cycles < opts.CoolingCycles)
+            {
+                _seedGrace[archetype.ArchetypeId] = cycles;
+                kept.Add(archetype);
+                continue;
+            }
+
+            _seedGrace.Remove(archetype.ArchetypeId);
+            try
+            {
+                await _store.DeleteArchetypeAsync(archetype.ArchetypeId, ct);
+                _logger.LogInformation(
+                    "Basin cooling: retired {SeedId} after {Cycles} calm cycles (seed no longer novel, {Descendants} descendants < {Min})",
+                    archetype.ArchetypeId, cycles, descendants, opts.MinDescendants);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Basin cooling retire failed for {SeedId}; in-memory still dropped", archetype.ArchetypeId);
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    ///     Build a basin from a fingerprint's own shape. Unit-length centroid for cosine matching,
+    ///     raw preserved for variance-aware scoring, full dimension mask (no YAML mask exists for a
+    ///     shape that was not in the catalogue).
+    /// </summary>
+    private static IdentityArchetype BuildSeededBasin(Fingerprint fp, string seedId)
+    {
+        var raw = fp.Centroid;
+        var unit = new float[raw.Length];
+        var sumOfSquares = 0.0;
+        foreach (var v in raw) sumOfSquares += (double)v * v;
+        var norm = Math.Sqrt(sumOfSquares);
+        if (norm > 0)
+            for (var i = 0; i < raw.Length; i++) unit[i] = (float)(raw[i] / norm);
+
+        var mask = new float[raw.Length];
+        Array.Fill(mask, 1f);
+
+        return new IdentityArchetype
+        {
+            ArchetypeId = seedId,
+            Name = "Emergent " + (fp.FingerprintId.Length > 8 ? fp.FingerprintId[..8] : fp.FingerprintId),
+            Description =
+                $"Seeded by the consolidation pass: this fingerprint's shape left every known archetype " +
+                $"({fp.NoveltyCount} beyond-threshold observations). Not catalogue-derived.",
+            ArchetypeKind = "emergent",
+            ArchetypeRole = "client",
+            Centroid = unit,
+            CentroidRaw = raw,
+            DimensionMask = mask,
+            DescendantCount = 0
+        };
+    }
+
     public async Task<CalibrationResult> RunOnceAsync(CancellationToken ct)
     {
         // Cold-seed pass: on the very first calibration run, INSERT every
@@ -469,11 +615,17 @@ public sealed class IdentityWeightCalibrationService : IDisposable
         var (shrunken, shrinkActions) = ApplyUmbrellaShrinkage(refined, metrics,
             _options.Calibration.UmbrellaShrinkage);
 
+        // D1: novelty-driven basin seeding + cooling, on this cadence and only here -- never
+        // per-request. A fingerprint whose NoveltyCount crossed the gate is one whose shape fits no
+        // known archetype; that is the signal the model was designed around and, until now, the
+        // consolidator recorded and never read.
+        var withSeeds = await ApplyNoveltySeedingAsync(shrunken, fingerprints, ct);
+
         // ALWAYS replace the in-memory registry: even a quiet cycle bumps the
         // per-archetype HealthyCycles counter, which feeds the regrowth gate.
         // Without this propagation the counter would reset to its in-memory
         // value every cycle and regrowth would never fire.
-        _archetypes.Replace(shrunken);
+        _archetypes.Replace(withSeeds);
         _lastShrinkActions = shrinkActions;
 
         if (shrinkActions.Count > 0)
