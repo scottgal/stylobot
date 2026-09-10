@@ -219,9 +219,25 @@ public sealed record Fingerprint
 
     /// <summary>
     ///     Number of beyond-threshold (genuinely novel) observations seen since the last
-    ///     consolidation. A rising count is the "this fingerprint's shape is leaving every known
-    ///     archetype" signal the periodic Leiden consolidator consumes when deciding whether to
-    ///     seed a new centroid — never auto-seeded per request.
+    ///     consolidation -- observations whose shape fell outside every known archetype's Mahalanobis
+    ///     catchment and are therefore NOT folded into <see cref="DeltaFromArchetype"/> (see
+    ///     <see cref="IdentityDeltaMath.FoldObservation"/>).
+    ///     <para>
+    ///     RECORDED, PERSISTED, AND NOT YET CONSUMED. It is written to <c>fingerprints.novelty_count</c>
+    ///     and read by nothing in the detection path -- not by the periodic consolidator, and not by
+    ///     any gate. What actually drives a root reseat today is the CLUSTER SNAPSHOT alone:
+    ///     <c>BotClusterService</c> builds <c>ClusterRootUpdate</c>s from a cluster's member
+    ///     signatures, and <c>ReseatRootCentroidsAsync</c> sets each member fingerprint's root
+    ///     centroid to its community mean. There is no seeding decision anywhere in that pass, and
+    ///     archetype basins are seeded only from the well-known-bot catalog
+    ///     (<c>IIdentityArchetypeRegistry.IngestWellKnownBots</c>), never from observed novelty.
+    ///     </para>
+    ///     <para>
+    ///     So a rising count currently has no operational effect. Consuming it needs a DECISION that
+    ///     is missing today (seed a basin of its own, or suppress a reseat that would average an
+    ///     unexplained shape away) -- an input alone changes nothing. Until such a decision exists,
+    ///     treat this as an observability value, not a model input.
+    ///     </para>
     /// </summary>
     public int NoveltyCount { get; init; }
 }
