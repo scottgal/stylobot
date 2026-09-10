@@ -88,7 +88,7 @@ RPS="${2:-150}"
 TARGET="${TARGET:-http://192.168.0.15:8290}"
 SOAK_HOST="${SOAK_HOST:-192.168.0.15}"
 SSH_USER="${SSH_USER:-claude}"
-SSH_PASS="${SSH_PASS:-Cl4ude2026!}"
+: "${SSH_PASS:?SSH_PASS must be set in the environment -- no fallback is committed: this repository is PUBLIC. If a value was ever inlined here it is in the git history and must be ROTATED, not merely removed.}"
 SAMPLE_MINUTES="${SAMPLE_MINUTES:-15}"
 OUTDIR="${OUTDIR:-soak-results}"
 # false by default. SCOPE CORRECTED 2026-08-20 12:12 (overview-, from stream-'s

@@ -18,7 +18,8 @@ PROFILE=${1:-balanced}
 MODE=${2:-demo}
 HOST=${HOST:-192.168.0.15}
 SSH_USER=${SSH_USER:-claude}
-SSH_PASS=${SSH_PASS:-Cl4ude2026!}
+: "${SSH_PASS:?SSH_PASS must be set in the environment -- no fallback is committed: this repository is PUBLIC. If a value was ever inlined here it is in the git history and must be ROTATED, not merely removed.}"
+export SSHPASS="$SSH_PASS"  # sshpass -e reads SSHPASS; never argv
 PORT=${PORT:-5080}
 UPSTREAM_PORT=${UPSTREAM_PORT:-9999}
 WORKSTATION_GC=${WORKSTATION_GC:-0}
@@ -29,7 +30,7 @@ GW_PIDFILE="$PID_DIR/gateway-ssh.pid"
 UPSTREAM_PIDFILE="$PID_DIR/upstream-ssh.pid"
 
 SSH_OPTS="-o StrictHostKeyChecking=no -o NumberOfPasswordPrompts=1 -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=600"
-SSH="sshpass -p $SSH_PASS ssh $SSH_OPTS"
+SSH="sshpass -e ssh $SSH_OPTS"
 
 stop_pidfile() {
     local pidfile=$1
