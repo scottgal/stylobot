@@ -258,11 +258,15 @@ public sealed class CentroidLearningLoopTests : IDisposable
     }
 
     /// <summary>
-    ///     The flap guard, pinned: a seeded basin whose seed is STILL novel is kept even with no
-    ///     descendants -- retiring it would re-seed it on the very next pass.
+    ///     Re-expressed (foss-, 2026-09-10). This previously asserted that a STILL-NOVEL seed keeps its
+    ///     basin with no descendants — which encoded the defect: `NoveltyCount` is a lifetime counter,
+    ///     so "still novel" is permanently true for anything already seeded, and that condition made
+    ///     retirement unreachable. Novelty is NOT a retention condition. What the original test was
+    ///     really protecting — that retirement must not cause a re-seed flap — is covered by
+    ///     <see cref="A_retired_seed_is_not_rebuilt_without_new_evidence"/>.
     /// </summary>
     [Fact]
-    public async Task A_still_novel_seed_keeps_its_basin()
+    public async Task A_still_novel_seed_does_NOT_keep_an_unmatched_basin()
     {
         var (store, _, calibration) = await BuildAsync();
         var dim = IdentityVectorLayout.DefaultV1().Dimension;
@@ -272,12 +276,21 @@ public sealed class CentroidLearningLoopTests : IDisposable
         for (var pass = 0; pass < 4; pass++)
             await calibration.RunOnceAsync(CancellationToken.None);
 
-        Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-still-novel");
+        // Still over the novelty gate, but nothing ever matched into it: the basin goes.
+        Assert.DoesNotContain(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-still-novel");
     }
 
     /// <summary>
-    ///     Cooling: a seeded basin whose seed stops being novel and which nobody joined is retired
-    ///     after the cooling window, so seeding cannot become unbounded proliferation.
+    ///     Cooling, driven by the REAL production path: a seeded basin nobody joins is retired after
+    ///     the cooling window, so seeding cannot become unbounded proliferation.
+    ///     <para>
+    ///     This test previously reached its "the shape stabilised" state by calling
+    ///     <c>DeleteFingerprintsAsync</c> and re-inserting the row at <c>noveltyCount: 0</c> — a
+    ///     transition production has no path to, since <c>NoveltyCount</c> only ever increments
+    ///     (IdentityDeltaMath.FoldObservation: `+0` or `+1`, no reset anywhere). It therefore passed
+    ///     while the rule it describes was unreachable. It now drives the state production actually
+    ///     produces: the fingerprint simply stays in the store, over the gate, and nothing matches it.
+    ///     </para>
     /// </summary>
     [Fact]
     public async Task A_seeded_basin_is_retired_only_after_the_cooling_window()
@@ -290,19 +303,63 @@ public sealed class CentroidLearningLoopTests : IDisposable
         await calibration.RunOnceAsync(CancellationToken.None);
         Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
 
-        // The shape stabilises: the same identity with novelty back under the gate.
-        // InsertFingerprintAsync is insert-only (UNIQUE on fingerprint_id), so free the id first.
-        await store.DeleteFingerprintsAsync(new[] { "fp-novel-cooling" });
-        await SeedFingerprintAtOriginAsync(store, "fp-novel-cooling", dim, noveltyCount: 0);
-
-        // Default CoolingCycles = 3: it survives inside the window...
-        await calibration.RunOnceAsync(CancellationToken.None);
+        // Default CoolingCycles = 3. The fingerprint stays at its crossed-the-gate novelty, exactly as
+        // production leaves it, and nothing is ever matched into the basin. The pass that CREATED the
+        // basin is itself the first below-minimum pass, so retirement lands on the third.
+        // It survives inside the window...
         await calibration.RunOnceAsync(CancellationToken.None);
         Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
 
         // ...and is retired once the window closes.
         await calibration.RunOnceAsync(CancellationToken.None);
         Assert.DoesNotContain(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-novel-cooling");
+    }
+
+    /// <summary>
+    ///     Usage-driven retention, the positive half: a basin that IS being matched stays, however long
+    ///     it lives. Retention is not time-bounded — it is bounded by whether anything joins.
+    /// </summary>
+    [Fact]
+    public async Task A_seeded_basin_that_is_being_matched_is_NOT_retired()
+    {
+        var (store, _, calibration) = await BuildAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        await calibration.RunOnceAsync(CancellationToken.None);
+
+        await SeedFingerprintAtOriginAsync(store, "fp-joined", dim, noveltyCount: 5);
+        await calibration.RunOnceAsync(CancellationToken.None);
+        Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-joined");
+
+        // A fingerprint whose shape resolved INTO the basin: this is the usage signal, and it is the
+        // only thing that keeps a seeded basin alive.
+        await SeedFingerprintAtOriginAsync(store, "fp-descendant", dim,
+            inferredClientType: "emergent-fp-joined");
+
+        for (var pass = 0; pass < 6; pass++)
+            await calibration.RunOnceAsync(CancellationToken.None);
+
+        Assert.Contains(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-joined");
+    }
+
+    /// <summary>
+    ///     The flap guard: a retired seed is NOT rebuilt just because its lifetime novelty is still over
+    ///     the gate — that would churn seed → retire → re-seed on a timer with nothing changed. Only new
+    ///     evidence (novelty advancing past the value held at retirement) rebuilds it.
+    /// </summary>
+    [Fact]
+    public async Task A_retired_seed_is_not_rebuilt_without_new_evidence()
+    {
+        var (store, _, calibration) = await BuildAsync();
+        var dim = IdentityVectorLayout.DefaultV1().Dimension;
+        await calibration.RunOnceAsync(CancellationToken.None);
+
+        await SeedFingerprintAtOriginAsync(store, "fp-no-churn", dim, noveltyCount: 5);
+
+        // Long past seed + cool + retire: with no new evidence the basin must stay retired.
+        for (var pass = 0; pass < 10; pass++)
+            await calibration.RunOnceAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(await ArchetypeRowsAsync(store), r => r.ArchetypeId == "emergent-fp-no-churn");
     }
 
     // ----- helpers ------------------------------------------------------------

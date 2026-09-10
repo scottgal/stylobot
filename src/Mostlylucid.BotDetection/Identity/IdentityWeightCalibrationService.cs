@@ -225,6 +225,20 @@ public sealed class IdentityWeightCalibrationService : IDisposable
     /// </summary>
     private readonly Dictionary<string, int> _seedGrace = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    ///     The flap guard's durable half: a retired seed and the <see cref="Fingerprint.NoveltyCount"/> it
+    ///     held when we gave up on it. A seed is only rebuilt when its novelty has ADVANCED past that
+    ///     mark — i.e. when there is new evidence — so a shape we already found unattractive cannot
+    ///     churn seed → retire → re-seed on a timer with nothing actually changed.
+    ///     <para>
+    ///     Keyed on evidence rather than on elapsed passes deliberately: a pass-counted suppression just
+    ///     moves the churn to a slower period, and this fleet's rule is that fixed windows are drift.
+    ///     In-memory on purpose, like <see cref="_seedGrace"/> — a restart can only lose the memory of
+    ///     having retired something, which at worst costs one extra seed/retire cycle.
+    ///     </para>
+    /// </summary>
+    private readonly Dictionary<string, int> _retiredSeeds = new(StringComparer.OrdinalIgnoreCase);
+
     private static string SeedId(string fingerprintId) => SeedPrefix + fingerprintId;
 
     private static bool IsSeededBasin(string archetypeId) =>
@@ -240,11 +254,17 @@ public sealed class IdentityWeightCalibrationService : IDisposable
     ///     cycles.
     ///     </para>
     ///     <para>
-    ///     COOL -- a seeded basin is retired once its seed is no longer novel (the shape stopped
-    ///     leaving every archetype: it stabilised or was absorbed) AND it attracted fewer than
-    ///     <c>MinDescendants</c> descendants for <c>CoolingCycles</c> consecutive passes. Retiring a
-    ///     basin whose seed is STILL novel would re-seed it on the next pass -- a flap, which is why
-    ///     the seed's novelty is part of the condition rather than a separate concern.
+    ///     COOL -- USAGE-DRIVEN, with no second condition. A seeded basin is retained only while it is
+    ///     being MATCHED: fingerprints whose shape resolved into it, counted as descendants. A basin
+    ///     that attracted fewer than <c>MinDescendants</c> for <c>CoolingCycles</c> consecutive passes
+    ///     is retired, because it is not earning its place.
+    ///     <para>
+    ///     The flap guard is the grace window plus <see cref="_retiredSeeds"/>: a retired seed is only
+    ///     rebuilt when its novelty has ADVANCED past the value it held at retirement. The seed's
+    ///     novelty is deliberately NOT a retention condition -- <see cref="Fingerprint.NoveltyCount"/>
+    ///     is a lifetime counter that only ever rises, so "the seed is still novel" was permanently
+    ///     true for anything already seeded, which made retirement unreachable and seeding unbounded.
+    ///     </para>
     ///     </para>
     /// </summary>
     private async Task<IReadOnlyList<IdentityArchetype>> ApplyNoveltySeedingAsync(
@@ -263,8 +283,17 @@ public sealed class IdentityWeightCalibrationService : IDisposable
         foreach (var fp in novel)
         {
             var seedId = SeedId(fp.FingerprintId);
-            if (!byId.Add(seedId)) continue;
+            if (byId.Contains(seedId)) continue;
 
+            // Flap guard: we already retired this seed and nothing has changed since. Novelty is a
+            // lifetime counter, so "still over the gate" is NOT new evidence -- re-seeding on it
+            // would rebuild the same basin that just failed to attract anyone.
+            if (_retiredSeeds.TryGetValue(seedId, out var noveltyWhenRetired)
+                && fp.NoveltyCount <= noveltyWhenRetired)
+                continue;
+
+            _retiredSeeds.Remove(seedId);
+            byId.Add(seedId);
             var seeded = BuildSeededBasin(fp, seedId);
             survivors.Add(seeded);
             try
@@ -282,7 +311,6 @@ public sealed class IdentityWeightCalibrationService : IDisposable
 
         if (!survivors.Any(a => IsSeededBasin(a.ArchetypeId))) return survivors;
 
-        var stillNovel = novel.Select(fp => fp.FingerprintId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var kept = new List<IdentityArchetype>(survivors.Count);
 
         foreach (var archetype in survivors)
@@ -296,8 +324,13 @@ public sealed class IdentityWeightCalibrationService : IDisposable
             var descendants = fingerprints.Count(fp =>
                 string.Equals(fp.InferredClientType, archetype.ArchetypeId, StringComparison.OrdinalIgnoreCase));
 
-            // Its seed is still novel: the shape is still unexplained, so the basin stands.
-            if (stillNovel.Contains(archetype.ArchetypeId[SeedPrefix.Length..]) || descendants >= opts.MinDescendants)
+            // USAGE-DRIVEN, and this is the whole retain rule. A seeded basin earns its place by being
+            // MATCHED -- fingerprints whose shape resolved into it. There is deliberately no second
+            // disjunct here: the previous guard OR'd in "the seed is still novel", and because
+            // NoveltyCount is a lifetime counter that only ever rises, that disjunct was permanently
+            // true for anything that had been seeded at all, which made the retirement below dead code.
+            // An unreachable guard is not a guard. A basin nobody joins is not earning its place.
+            if (descendants >= opts.MinDescendants)
             {
                 _seedGrace.Remove(archetype.ArchetypeId);
                 kept.Add(archetype);
@@ -313,11 +346,17 @@ public sealed class IdentityWeightCalibrationService : IDisposable
             }
 
             _seedGrace.Remove(archetype.ArchetypeId);
+            // Remember the retirement, and the seed's novelty at that moment, so the flap guard can
+            // tell "nothing has changed" from "new evidence arrived".
+            var seedFingerprintId = archetype.ArchetypeId[SeedPrefix.Length..];
+            _retiredSeeds[archetype.ArchetypeId] = fingerprints
+                .FirstOrDefault(f => string.Equals(f.FingerprintId, seedFingerprintId, StringComparison.OrdinalIgnoreCase))
+                ?.NoveltyCount ?? 0;
             try
             {
                 await _store.DeleteArchetypeAsync(archetype.ArchetypeId, ct);
                 _logger.LogInformation(
-                    "Basin cooling: retired {SeedId} after {Cycles} calm cycles (seed no longer novel, {Descendants} descendants < {Min})",
+                    "Basin cooling: retired {SeedId} after {Cycles} calm cycles ({Descendants} descendants < {Min} -- nothing matched it)",
                     archetype.ArchetypeId, cycles, descendants, opts.MinDescendants);
             }
             catch (Exception ex)
