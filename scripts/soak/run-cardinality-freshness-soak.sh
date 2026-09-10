@@ -86,6 +86,23 @@ set -euo pipefail
 DURATION_HOURS="${1:-6}"
 RPS="${2:-150}"
 TARGET="${TARGET:-http://192.168.0.15:8290}"
+
+# SAFETY GUARD, FIRST — deliberately ahead of every other check (moved 2026-09-10).
+# This refusal used to sit below the SSH_PASS requirement and the minimum-duration
+# check, so pointing the rig at staging with (say) a short duration reported
+# "duration below minimum" and never reached the staging message at all. The load
+# was still prevented, because both exits happen before k6 — but a safety refusal
+# that only fires when nothing else fires first is a guard whose SIGNAL depends on
+# configuration, and the one rule here is that staging is never loaded. Moving it
+# to the top makes it unconditional: whatever else is wrong, a run aimed at
+# staging says so, in its own words.
+case "$TARGET" in
+  *:8190*|*staging.stylobot.net*)
+    echo "REFUSING: TARGET=$TARGET is staging, not the isolated :8290 rig." >&2
+    exit 1
+    ;;
+esac
+
 SOAK_HOST="${SOAK_HOST:-192.168.0.15}"
 SSH_USER="${SSH_USER:-claude}"
 : "${SSH_PASS:?SSH_PASS must be set in the environment -- no fallback is committed: this repository is PUBLIC. If a value was ever inlined here it is in the git history and must be ROTATED, not merely removed.}"
@@ -152,12 +169,8 @@ if [ -z "${API_KEY:-}" ]; then
   exit 1
 fi
 
-case "$TARGET" in
-  *:8190*|*staging.stylobot.net*)
-    echo "REFUSING: TARGET=$TARGET is staging, not the isolated :8290 rig." >&2
-    exit 1
-    ;;
-esac
+# (The staging TARGET refusal now lives at the top of this script, ahead of every
+# other check — see the SAFETY GUARD note there.)
 
 if ! command -v k6 >/dev/null; then
   echo "k6 not found." >&2
