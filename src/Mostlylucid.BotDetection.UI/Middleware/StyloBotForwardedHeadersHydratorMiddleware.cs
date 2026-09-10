@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 
@@ -80,7 +81,9 @@ public sealed class StyloBotForwardedHeadersHydratorMiddleware
                 // The home/self surfaces read ConfidenceScore AS the bot probability (existing
                 // upstream-trust contract in Home/Index.cshtml), so map the probability header here.
                 ConfidenceScore = prob,
-                IsBot = prob >= 0.5,
+                // ONE cut, read from the same accessor the gateway used. Re-deriving it here
+                // with a literal made this a second opinion about the same visitor.
+                IsBot = prob >= context.GetBotFloor(),
                 BotType = botType,
                 BotName = TryGet(headers, StyloBotEdgeHeaderNames.BotName),
             };

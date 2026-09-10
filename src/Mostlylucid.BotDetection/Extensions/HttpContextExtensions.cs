@@ -16,6 +16,18 @@ public static partial class HttpContextExtensions
     private const string MappedResultKey = "BotDetection.MappedResult";
 
     /// <summary>
+    ///     The ONE configured bot/human cut: <see cref="ClassificationOptions.BotFloor"/>
+    ///     (config <c>BotDetection:Classification:BotFloor</c>). Every surface that turns a bot
+    ///     probability into an is_bot answer reads it THROUGH here rather than carrying a literal
+    ///     of its own, so no two surfaces can disagree about the same visitor. Falls back to the
+    ///     <see cref="ClassificationOptions"/> default when no options are registered (minimal
+    ///     hosts, unit tests) -- never to a bare literal.
+    /// </summary>
+    public static double GetBotFloor(this HttpContext context)
+        => context.RequestServices?.GetService<IOptions<BotDetectionOptions>>()?.Value.Classification.BotFloor
+           ?? new ClassificationOptions().BotFloor;
+
+    /// <summary>
     ///     Gets the bot detection result from the current request.
     ///     Returns null if bot detection middleware hasn't run.
     /// </summary>
@@ -37,8 +49,7 @@ public static partial class HttpContextExtensions
             if (context.Items.TryGetValue(MappedResultKey, out var cached) && cached is BotDetectionResult cr)
                 return cr;
 
-            var botFloor = context.RequestServices?
-                .GetService<IOptions<BotDetectionOptions>>()?.Value.Classification.BotFloor ?? 0.7;
+            var botFloor = context.GetBotFloor();
 
             var mapped = new BotDetectionResult
             {
