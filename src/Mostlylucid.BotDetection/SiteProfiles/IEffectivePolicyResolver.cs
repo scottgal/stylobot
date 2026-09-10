@@ -73,9 +73,9 @@ internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
             // A site may override the VALUE, never introduce a second KEY: the obsolete overlay
             // field resolves into the same floor accumulator, and an explicit BotFloor at the same
             // level wins over it (applied second).
-            if (domainOverrides.BotThreshold is { } db) botFloor = db;
-            if (domainOverrides.HumanCeiling is { } dh) humanCeiling = dh;
-            if (domainOverrides.BotFloor is { } df) botFloor = df;
+            if (Probability(domainOverrides.BotThreshold) is { } db) botFloor = db;
+            if (Probability(domainOverrides.HumanCeiling) is { } dh) humanCeiling = dh;
+            if (Probability(domainOverrides.BotFloor) is { } df) botFloor = df;
         }
 
         // Level 2 — host profile. Peer lookup against the full host. Domain
@@ -90,9 +90,9 @@ internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
             && !ReferenceEquals(hostProfile, domainProfile)
             && hostProfile.Thresholds is { } hostOverrides)
         {
-            if (hostOverrides.BotThreshold is { } hb) botFloor = hb;
-            if (hostOverrides.HumanCeiling is { } hh) humanCeiling = hh;
-            if (hostOverrides.BotFloor is { } hf) botFloor = hf;
+            if (Probability(hostOverrides.BotThreshold) is { } hb) botFloor = hb;
+            if (Probability(hostOverrides.HumanCeiling) is { } hh) humanCeiling = hh;
+            if (Probability(hostOverrides.BotFloor) is { } hf) botFloor = hf;
         }
 
         // ONE number per site: the record's BotThreshold mirrors the floor, so a consumer that reads
@@ -101,4 +101,20 @@ internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
         context.Items[HttpContextItemKeys.EffectiveThresholds] = effective;
         return effective;
     }
+
+    /// <summary>
+    ///     A probability is a real number in [0,1]; anything else (negative, above 1, or NaN) is
+    ///     malformed and is IGNORED here, so a nonsense value can never reach the effective
+    ///     thresholds — the inherited value simply stands. <c>BotThresholdDivergenceWarningService</c>
+    ///     names every rejected value at boot, so the operator is never left wondering why their
+    ///     number did nothing.
+    ///     <para>
+    ///     A LEGAL divergence from the global floor is deliberately NOT clamped. A site setting 0.40
+    ///     against a global 0.70 widens its own classification cut, and that is a legitimate operator
+    ///     choice — the rule is scoped + loud, not forbidden. Clamping here would silently override a
+    ///     deliberate decision, which is the same class of defect this guard exists to close.
+    ///     </para>
+    /// </summary>
+    private static double? Probability(double? value) =>
+        value is { } v && v >= 0 && v <= 1 ? v : null;
 }

@@ -84,21 +84,70 @@ public sealed class BotThresholdDivergenceWarningService : IHostedService
 
         if (catalog is null) return;
 
+        var globalFloor = _options.Classification?.BotFloor;
+
         foreach (var (id, profile) in catalog.Profiles)
         {
-            if (profile.Thresholds?.BotThreshold is not { } obsolete) continue;
+            var thresholds = profile.Thresholds;
+            if (thresholds is null) continue;
 
-            if (profile.Thresholds.BotFloor is { } declared && Math.Abs(declared - obsolete) > Tolerance)
-                _logger.LogWarning(
-                    "Site profile '{ProfileId}' declares BOTH BotThreshold ({Obsolete}) and BotFloor ({Floor}). " +
-                    "The bot/human cut has ONE key: BotFloor wins and the obsolete value is ignored.",
-                    id, Format(obsolete), Format(declared));
-            else
-                _logger.LogWarning(
-                    "Site profile '{ProfileId}' sets BotThreshold ({Obsolete}), which is obsolete: for this site it " +
-                    "is normalised into Classification.BotFloor so the site keeps ONE cut. Rename it to BotFloor.",
-                    id, Format(obsolete));
+            if (thresholds.BotThreshold is { } obsolete)
+            {
+                if (thresholds.BotFloor is { } declared && Math.Abs(declared - obsolete) > Tolerance)
+                    _logger.LogWarning(
+                        "Site profile '{ProfileId}' declares BOTH BotThreshold ({Obsolete}) and BotFloor ({Floor}). " +
+                        "The bot/human cut has ONE key: BotFloor wins and the obsolete value is ignored.",
+                        id, Format(obsolete), Format(declared));
+                else
+                    _logger.LogWarning(
+                        "Site profile '{ProfileId}' sets BotThreshold ({Obsolete}), which is obsolete: for this site it " +
+                        "is normalised into Classification.BotFloor so the site keeps ONE cut. Rename it to BotFloor.",
+                        id, Format(obsolete));
+            }
+
+            ReportFloorOverride(id, thresholds, globalFloor);
         }
+    }
+
+    /// <summary>
+    ///     The same rule one level further in: a site may override the cut, but neither a malformed
+    ///     value nor a divergence from the global one may pass unannounced.
+    ///     <para>
+    ///     Both halves matter and for different reasons. A value outside 0..1 is not a probability at
+    ///     all — the resolver ignores it, and without this line the operator would see their number
+    ///     vanish with no explanation. A well-formed divergence is a legitimate scoped decision, but
+    ///     it moves CLASSIFICATION, not just refusal, so it is the one that most needs to be visible.
+    ///     </para>
+    ///     <para>
+    ///     The DIRECTION is stated because it is the actionable half: "3 profiles diverge" tells an
+    ///     operator nothing, while "widens this site's cut (0.40 &lt; global 0.70)" tells them exactly
+    ///     what they did and lets them own it. Widening is deliberate and allowed — this reports, it
+    ///     does not clamp.
+    ///     </para>
+    /// </summary>
+    private void ReportFloorOverride(string profileId, SiteThresholdOverrides thresholds, double? globalFloor)
+    {
+        if (thresholds.BotFloor is not { } floor) return;
+
+        if (floor < 0 || floor > 1 || double.IsNaN(floor))
+        {
+            _logger.LogWarning(
+                "Site profile '{ProfileId}' sets BotFloor = {Floor}, which is not a probability. A bot/human cut " +
+                "must be within 0..1, so this value is IGNORED and the inherited floor stands for that site.",
+                profileId, Format(floor));
+            return;
+        }
+
+        if (globalFloor is not { } global || Math.Abs(floor - global) <= Tolerance) return;
+
+        var direction = floor < global
+            ? $"WIDENS this site's cut ({Format(floor)} < global {Format(global)}) -- more traffic counts as a bot here"
+            : $"NARROWS this site's cut ({Format(floor)} > global {Format(global)}) -- less traffic counts as a bot here";
+
+        _logger.LogWarning(
+            "Site profile '{ProfileId}' overrides the bot/human cut at {Floor}, which {Direction}. A scoped site " +
+            "override is a legitimate decision and is NOT clamped; it is reported so that it is never silent.",
+            profileId, Format(floor), direction);
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
