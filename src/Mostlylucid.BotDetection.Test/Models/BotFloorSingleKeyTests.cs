@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
@@ -63,7 +64,8 @@ public sealed class BotFloorSingleKeyTests
 #pragma warning restore CS0618
 
         var logger = new CapturingLogger<BotThresholdDivergenceWarningService>();
-        await new BotThresholdDivergenceWarningService(Options.Create(options), logger)
+        await new BotThresholdDivergenceWarningService(
+                Options.Create(options), logger, new ServiceCollection().BuildServiceProvider())
             .StartAsync(CancellationToken.None);
 
         var warning = logger.Entries.Should().ContainSingle(e => e.Level == LogLevel.Warning).Subject;
@@ -84,7 +86,8 @@ public sealed class BotFloorSingleKeyTests
 #pragma warning restore CS0618
 
         var logger = new CapturingLogger<BotThresholdDivergenceWarningService>();
-        await new BotThresholdDivergenceWarningService(Options.Create(options), logger)
+        await new BotThresholdDivergenceWarningService(
+                Options.Create(options), logger, new ServiceCollection().BuildServiceProvider())
             .StartAsync(CancellationToken.None);
 
         logger.Entries.Should().NotContain(e => e.Level == LogLevel.Warning);

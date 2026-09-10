@@ -59,9 +59,9 @@ internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
         // Level 0 — global. Read from IOptionsMonitor so live reloads take
         // effect on subsequent requests without a restart.
         var opts = _options.Value;
-#pragma warning disable CS0618 // BotThreshold is obsolete on BotDetectionOptions but still the canonical field for this overlay level.
-        double botThreshold = opts.BotThreshold;
-#pragma warning restore CS0618
+        // ONE key: Classification.BotFloor. BotDetectionOptions.BotThreshold is a read-through to it,
+        // so there is nothing to read from it here -- reading it would only re-open the second key
+        // this overlay used to carry.
         double humanCeiling = opts.Classification.HumanCeiling;
         double botFloor = opts.Classification.BotFloor;
 
@@ -70,7 +70,10 @@ internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
         var domainProfile = _profiles.ResolveByHost(scope.Domain);
         if (domainProfile?.Thresholds is { } domainOverrides)
         {
-            if (domainOverrides.BotThreshold is { } db) botThreshold = db;
+            // A site may override the VALUE, never introduce a second KEY: the obsolete overlay
+            // field resolves into the same floor accumulator, and an explicit BotFloor at the same
+            // level wins over it (applied second).
+            if (domainOverrides.BotThreshold is { } db) botFloor = db;
             if (domainOverrides.HumanCeiling is { } dh) humanCeiling = dh;
             if (domainOverrides.BotFloor is { } df) botFloor = df;
         }
@@ -87,12 +90,14 @@ internal sealed class EffectivePolicyResolver : IEffectivePolicyResolver
             && !ReferenceEquals(hostProfile, domainProfile)
             && hostProfile.Thresholds is { } hostOverrides)
         {
-            if (hostOverrides.BotThreshold is { } hb) botThreshold = hb;
+            if (hostOverrides.BotThreshold is { } hb) botFloor = hb;
             if (hostOverrides.HumanCeiling is { } hh) humanCeiling = hh;
             if (hostOverrides.BotFloor is { } hf) botFloor = hf;
         }
 
-        var effective = new EffectiveThresholds(botThreshold, humanCeiling, botFloor);
+        // ONE number per site: the record's BotThreshold mirrors the floor, so a consumer that reads
+        // either field gets the same cut and cannot pick a different one.
+        var effective = new EffectiveThresholds(botFloor, humanCeiling, botFloor);
         context.Items[HttpContextItemKeys.EffectiveThresholds] = effective;
         return effective;
     }

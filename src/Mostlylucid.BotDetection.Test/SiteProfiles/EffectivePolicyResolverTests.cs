@@ -58,9 +58,11 @@ public class EffectivePolicyResolverTests
 
         var effective = resolver.ResolveThresholds(ctx);
 
+        // ONE key: the profile's obsolete BotThreshold resolves into this site's floor, so both
+        // fields carry the same number rather than the site having two cuts.
         Assert.Equal(0.7, effective.BotThreshold);
         Assert.Equal(GlobalHumanCeiling, effective.HumanCeiling);
-        Assert.Equal(GlobalBotFloor, effective.BotFloor);
+        Assert.Equal(0.7, effective.BotFloor);
     }
 
     [Fact]
@@ -92,9 +94,9 @@ public class EffectivePolicyResolverTests
 
         var effective = resolver.ResolveThresholds(ctx);
 
-        Assert.Equal(0.55, effective.BotThreshold); // host wins
+        Assert.Equal(0.55, effective.BotThreshold); // host's obsolete field -> the site floor
         Assert.Equal(0.10, effective.HumanCeiling); // host wins over domain
-        Assert.Equal(0.80, effective.BotFloor);     // domain fills, host silent
+        Assert.Equal(0.55, effective.BotFloor);     // ONE key: the same number as BotThreshold
     }
 
     [Fact]
@@ -126,6 +128,60 @@ public class EffectivePolicyResolverTests
         var stamped = Assert.IsType<EffectiveThresholds>(ctx.Items[HttpContextItemKeys.EffectiveThresholds]);
         Assert.Equal(0.42, stamped.BotThreshold);
         await Task.CompletedTask;
+    }
+
+    [Fact]
+    public void Explicit_BotFloor_wins_over_the_obsolete_field_at_the_same_level()
+    {
+        var profile = new SiteProfile
+        {
+            Id = "both-declared",
+            Thresholds = new SiteThresholdOverrides { BotThreshold = 0.60, BotFloor = 0.85 }
+        };
+        var resolver = BuildResolver(("stylo.bot", profile));
+
+        var effective = resolver.ResolveThresholds(ContextFor("www.stylo.bot"));
+
+        Assert.Equal(0.85, effective.BotFloor);
+        Assert.Equal(0.85, effective.BotThreshold); // one number, and BotFloor is the one
+    }
+
+    [Fact]
+    public async Task Boot_report_names_a_site_profile_that_uses_the_obsolete_field()
+    {
+        var profile = new SiteProfile
+        {
+            Id = "legacy-site",
+            Thresholds = new SiteThresholdOverrides { BotThreshold = 0.42 }
+        };
+        var services = new ServiceCollection();
+        services.AddSingleton<ISiteProfileCatalog>(new FakeCatalog(new[] { profile }));
+        var logger = new RecordingLogger();
+
+        await new Mostlylucid.BotDetection.Services.BotThresholdDivergenceWarningService(
+                Options.Create(new BotDetectionOptions()), logger, services.BuildServiceProvider())
+            .StartAsync(CancellationToken.None);
+
+        var warning = Assert.Single(logger.Warnings);
+        Assert.Contains("legacy-site", warning);
+        Assert.Contains("BotThreshold", warning);
+    }
+
+    private sealed class RecordingLogger : Microsoft.Extensions.Logging.ILogger<Mostlylucid.BotDetection.Services.BotThresholdDivergenceWarningService>
+    {
+        public List<string> Warnings { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Warning)
+                Warnings.Add(formatter(state, exception));
+        }
     }
 
     // ------------------------------------------------------------------
