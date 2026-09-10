@@ -259,6 +259,13 @@ fi
 log "cardinality+freshness soak: ${DURATION_HOURS}h @ ${RPS} rps -> $TARGET"
 log "load driver: scripts/soak/k6-plateau.js (extended: X-Forwarded-For cardinality growth + freshness_probe)"
 log "REGRESSION_GATE=$REGRESSION_GATE (db-only known-defect divergence is a hard gate only when true)"
+if [ "${FRESHNESS_PROBE:-true}" = "false" ]; then
+  log "★ COVERAGE DECLARED: FRESHNESS_PROBE=false — the read-path freshness assertion is"
+  log "  NOT part of this run. The memory-trend/shape, crash, OOM and write-amplification"
+  log "  gates still apply. Do NOT cite this run as evidence about read-through correctness."
+else
+  log "freshness probe ENABLED — read-path freshness is asserted by this run"
+fi
 
 read -r base_rows base_bytes <<< "$(sample_db)"
 read -r base_rss base_restarts base_oom base_running <<< "$(sample_container)"
@@ -289,6 +296,7 @@ K6_RAW="$OUTDIR/$LABEL-raw.json"
 k6 run scripts/soak/k6-plateau.js \
   --env TARGET="$TARGET" --env API_KEY="$API_KEY" --env MAX_RPS="$RPS" \
   --env DURATION_HOURS="$DURATION_HOURS" \
+  --env FRESHNESS_PROBE="${FRESHNESS_PROBE:-true}" \
   --out "json=$K6_RAW" \
   > "$OUTDIR/$LABEL-k6.log" 2>&1 &
 K6_PID=$!
@@ -347,10 +355,15 @@ done
 wait "$K6_PID" || log "k6 exited nonzero — see $OUTDIR/$LABEL-k6.log"
 
 log "verdict:"
-python3 - "$OUTDIR/$LABEL-samples.tsv" "$K6_RAW" "$REGRESSION_GATE" <<'PYEOF' | tee -a "$OUTDIR/$LABEL.log"
+python3 - "$OUTDIR/$LABEL-samples.tsv" "$K6_RAW" "$REGRESSION_GATE" "${FRESHNESS_PROBE:-true}" <<'PYEOF' | tee -a "$OUTDIR/$LABEL.log"
 import json, sys, csv
 
 samples_path, raw_path, regression_gate = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
+# Whether the freshness probe was MEANT to run. Needed to tell "the probe broke
+# silently" (a fault, must fail) apart from "the probe was deliberately switched
+# off" (a named coverage gap, must NOT fail but must be loud). Conflating those
+# two is how a run gets read as covering something it never measured.
+freshness_probe_expected = sys.argv[4] != "false"
 overall_fail = False
 
 # ── Memory trend: slope after the warm-up inflection, not a fixed window ──
@@ -662,16 +675,29 @@ except FileNotFoundError:
 
 if by_key is not None and not by_key:
     # The raw file exists but contains ZERO freshness_ms/freshness_timeout
-    # points — the freshness_probe scenario produced no data at all. This is
-    # NOT a clean/quiet result and must never be silently skipped: it means
-    # either the scenario didn't run, every request errored before tagging,
-    # or the --out json wiring is broken. Loud and failed, not absent.
-    print("FRESHNESS: ZERO DATA POINTS — freshness_probe scenario produced no "
-          "freshness_ms/freshness_timeout points. This is an INSTRUMENT FAULT, "
-          "not a clean run: verify the scenario actually executed (check k6.log "
-          "for freshness_probe iteration counts) before trusting any other verdict "
-          "in this run.")
-    overall_fail = True
+    # points. Two very different situations look identical here, and telling
+    # them apart is the whole point of freshness_probe_expected:
+    #
+    #  (a) the probe was MEANT to run and produced nothing — the scenario
+    #      didn't run, every request errored before tagging, or the --out json
+    #      wiring is broken. That is an INSTRUMENT FAULT and must fail.
+    #  (b) the probe was DELIBERATELY disabled for this run. Then freshness is
+    #      simply not part of what this run measured. That must NOT fail (a
+    #      run is allowed to cover less) but it must never be quiet either —
+    #      a verdict that omits freshness silently reads as though it passed.
+    if not freshness_probe_expected:
+        print("FRESHNESS: DECLARED COVERAGE GAP — the freshness_probe scenario was "
+              "deliberately disabled for this run (FRESHNESS_PROBE=false). The "
+              "read-path freshness assertion was NOT MEASURED: nothing in this "
+              "verdict is evidence about read-through correctness, and it must not "
+              "be reported as one. This is a named gap, not a pass and not a fault.")
+    else:
+        print("FRESHNESS: ZERO DATA POINTS — freshness_probe scenario produced no "
+              "freshness_ms/freshness_timeout points. This is an INSTRUMENT FAULT, "
+              "not a clean run: verify the scenario actually executed (check k6.log "
+              "for freshness_probe iteration counts) before trusting any other verdict "
+              "in this run.")
+        overall_fail = True
 
 surfaces = sorted({k[0] for k in (by_key or {}) if k[0] != "?"})
 for surface in surfaces:
