@@ -39,7 +39,7 @@ X86_HOST=localhost
 
 resolve_tier() {
   case "$1" in
-    pi-sqlite)    echo "$PI5_HOST $PI5_USER ${PI5_PASS:-Cl4ude2026!} sqlite" ;;
+    pi-sqlite)    echo "$PI5_HOST $PI5_USER ${PI5_PASS:?PI5_PASS must be set in the environment -- no fallback is committed: this repository is PUBLIC. If a value was ever inlined here it is in the git history and must be ROTATED, not merely removed.} sqlite" ;;
     opi-sqlite)   echo "$OPI_HOST $OPI_USER ${OPI_PASS:-melkweg26} sqlite" ;;
     opi-postgres) echo "$OPI_HOST $OPI_USER ${OPI_PASS:-melkweg26} postgres" ;;
     x86-postgres) echo "$X86_HOST root x86-local postgres" ;;

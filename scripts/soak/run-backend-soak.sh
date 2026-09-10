@@ -25,7 +25,8 @@ TARGET="${TARGET:-http://192.168.0.15:8190}"
 API_KEY="${API_KEY:-staging-test-website-key-do-not-use-elsewhere}"
 SOAK_HOST="${SOAK_HOST:-192.168.0.15}"
 SSH_USER="${SSH_USER:-claude}"
-SSH_PASS="${SSH_PASS:-Cl4ude2026!}"
+: "${SSH_PASS:?SSH_PASS must be set in the environment -- no fallback is committed: this repository is PUBLIC. If a value was ever inlined here it is in the git history and must be ROTATED, not merely removed.}"
+export SSHPASS="$SSH_PASS"  # sshpass -e reads SSHPASS; never argv
 OUTDIR="${OUTDIR:-soak-results}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 LABEL="${BACKEND}-${STAMP}"
@@ -44,7 +45,7 @@ esac
 
 SSH_OPTS=(-o StrictHostKeyChecking=no -o PreferredAuthentications=password
           -o PubkeyAuthentication=no -o ConnectTimeout=8)
-ssh15() { sshpass -p "$SSH_PASS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SOAK_HOST" "$@"; }
+ssh15() { sshpass -e ssh "${SSH_OPTS[@]}" "$SSH_USER@$SOAK_HOST" "$@"; }
 
 swap_backend() {
   case "$BACKEND" in
