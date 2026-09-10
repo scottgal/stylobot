@@ -226,7 +226,10 @@ public static class YarpExtensions
         if (httpContext.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
             evidenceObj is AggregatedEvidence evidence)
         {
-            addHeader("X-Bot-Detection-Result", evidence.BotProbability > 0.5 ? "true" : "false");
+            // Same ONE cut as the edge writer -- two writers of one header must not hold two
+            // opinions about the boundary.
+            addHeader("X-Bot-Detection-Result",
+                evidence.BotProbability >= httpContext.GetBotFloor() ? "true" : "false");
             addHeader("X-Bot-Detection-RequestId", httpContext.TraceIdentifier);
 
             if (!string.IsNullOrEmpty(evidence.PolicyName))
