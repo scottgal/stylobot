@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
@@ -271,8 +272,12 @@ public sealed class StyloBotForwardedHeadersMiddleware
             // and the parallel-axis bug returns (e.g. Internal · Allow ·
             // Threat=Critical). Header wins over signal; emit unconditionally.
             context.Request.Headers[StyloBotEdgeHeaderNames.ThreatBand] = aggregated.ThreatBand.ToString();
+            // ONE cut: the configured Classification.BotFloor, read through the same accessor
+            // every other surface uses. A literal here invented a SECOND answer (0.5), so a
+            // visitor between 0.5 and BotFloor read as a bot on the forwarded-result header and
+            // the downstream display model while every aggregate called them human.
             context.Request.Headers[StyloBotEdgeHeaderNames.Result] =
-                (aggregated.BotProbability > 0.5).ToString().ToLowerInvariant();
+                (aggregated.BotProbability >= context.GetBotFloor()).ToString().ToLowerInvariant();
             // ProcessingMs: the wall-clock time the gateway spent producing this
             // verdict. Cache-hit short-circuits write 0.0 to TotalProcessingTimeMs
             // because the orchestrator never ran; emit at least 0.01 ms so the
