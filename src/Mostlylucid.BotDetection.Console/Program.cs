@@ -171,7 +171,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    --cert-password <pass>      PFX certificate password");
     Console.WriteLine("    --tunnel [[token]]            Cloudflare Tunnel (requires cloudflared).");
     Console.WriteLine("                                Networking only: does NOT enable blocking.");
-    Console.WriteLine("    --threshold <0.0-1.0>       Bot probability threshold (default: 0.7)");
+    Console.WriteLine("    --threshold <0.0-1.0>       Bot probability threshold = Classification.BotFloor (default: 0.70)");
     Console.WriteLine("    --llm <provider>            LLM provider (openai, anthropic, gemini, groq,");
     Console.WriteLine("                                mistral, deepseek, ollama, or custom URL)");
     Console.WriteLine("    --llm-key <key>             API key (or env: STYLOBOT_LLM_KEY)");
@@ -756,10 +756,16 @@ try
         // non-null = explicit policy override (e.g. logonly in demo mode, or --policy flag).
         if (actionPolicy != null)
             opts.DefaultActionPolicyName = actionPolicy;
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
-        if (botThreshold.HasValue) opts.BotThreshold = botThreshold.Value;
+        // ONE key for the bot/human cut: --threshold writes Classification.BotFloor. Writing the
+        // obsolete BotDetection:BotThreshold here would be silently ignored by its read-through --
+        // a CLI flag that appears to work and does not.
+        if (botThreshold.HasValue)
+        {
+            opts.Classification ??= new Mostlylucid.BotDetection.Models.ClassificationOptions();
+            opts.Classification.BotFloor = botThreshold.Value;
+        }
+
         if (llmProvider != null) opts.EnableLlmDetection = true;
-#pragma warning restore CS0618
         // Ensure a writable data directory even when installed to a root-owned path (e.g. apt install)
         opts.DatabasePath ??= Path.Combine(
             Mostlylucid.BotDetection.Models.BotDetectionOptions.ResolveDataDirectory(), "botdetection.db");
@@ -1712,7 +1718,7 @@ static void ShowManPage()
                                                AiBot -> extract-markdown-ai, SearchEngine -> content-cache-search,
                                                etc. Override the fallback (used when no per-type entry
                                                matches): logonly | block | throttle-stealth | challenge.
-        [bold]--threshold[/] <0.0-1.0>          Bot probability threshold (default: 0.7)
+        [bold]--threshold[/] <0.0-1.0>          Bot probability threshold = Classification.BotFloor (default: 0.70)
         [bold]--cert[/] <path>                  TLS certificate (.pfx or .pem)
         [bold]--key[/] <path>                   TLS private key (with .pem cert)
         [bold]--cert-password[/] <pass>         PFX certificate password

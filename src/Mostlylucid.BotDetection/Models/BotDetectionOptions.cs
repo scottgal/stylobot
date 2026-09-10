@@ -30,9 +30,47 @@ public class BotDetectionOptions
     ///     Lower values = more aggressive detection (more false positives)
     ///     Higher values = more conservative (fewer false positives, may miss some bots)
     /// </summary>
-    [Obsolete("Use DetectionPolicy.ImmediateBlockThreshold / EarlyExitThreshold per policy. " +
+    /// <summary>Default for the obsolete key; retained only so the read-through has a floor.</summary>
+    private const double DefaultBotThreshold = 0.7;
+
+    private double _configuredBotThreshold = DefaultBotThreshold;
+    private bool _botThresholdConfigured;
+
+    /// <summary>
+    ///     DERIVED -- not an independent setting. ONE key owns the bot/human cut:
+    ///     <see cref="ClassificationOptions.BotFloor"/> (<c>BotDetection:Classification:BotFloor</c>).
+    ///     This obsolete property reads through to it, so every enforcement gate that still names
+    ///     <c>BotThreshold</c> -- <c>BlockResponseGate</c>, the SiteProfiles overlay resolver, a
+    ///     host's own refusal gate -- reads the SAME number by construction rather than by
+    ///     convention. "Counted as a bot" and "acted on as a bot" cannot disagree.
+    ///     <para>
+    ///     An operator who sets <c>BotDetection:BotThreshold</c> explicitly does NOT get a second
+    ///     answer: the value is recorded (see <see cref="ConfiguredBotThreshold"/>) and
+    ///     <c>BotThresholdDivergenceWarningService</c> logs it loudly at boot, naming BotFloor as
+    ///     the winner. Divergence is made impossible, not documented.
+    ///     </para>
+    /// </summary>
+    [Obsolete("One key: read Classification.BotFloor. BotDetection:BotThreshold is a derived " +
+              "read-through; an explicitly-set value is ignored and logged at boot. " +
               "Will be removed in a future major release.", error: false)]
-    public double BotThreshold { get; set; } = 0.7;
+    public double BotThreshold
+    {
+        get => Classification?.BotFloor ?? _configuredBotThreshold;
+        set
+        {
+            _configuredBotThreshold = value;
+            _botThresholdConfigured = true;
+        }
+    }
+
+    /// <summary>
+    ///     The raw value bound from <c>BotDetection:BotThreshold</c>, or null when the operator
+    ///     never set it. Retained ONLY so the boot check can report an explicit divergence and so
+    ///     an out-of-range explicit value is still a validation error. It never influences a
+    ///     classification or an enforcement decision -- <see cref="BotThreshold"/> does that, by
+    ///     reading <see cref="ClassificationOptions.BotFloor"/>.
+    /// </summary>
+    public double? ConfiguredBotThreshold => _botThresholdConfigured ? _configuredBotThreshold : null;
 
     /// <summary>
     ///     The ONE set of priors for turning <c>bot_probability</c> into a bot/human/uncertain
@@ -3735,10 +3773,18 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
         var warnings = new List<string>();
 
         // Critical validations (would cause runtime errors)
-#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
-        if (options.BotThreshold < 0.0 || options.BotThreshold > 1.0)
-            errors.Add($"BotThreshold must be between 0.0 and 1.0, got {options.BotThreshold}");
-#pragma warning restore CS0618
+        // The obsolete key is a DERIVED read-through (see BotThreshold above), so range-check the
+        // RAW value the operator actually configured: an explicit garbage value must stay an error
+        // rather than being silently neutralised by the derivation.
+        if (options.ConfiguredBotThreshold is { } configuredBotThreshold
+            && (configuredBotThreshold < 0.0 || configuredBotThreshold > 1.0))
+            errors.Add($"BotThreshold must be between 0.0 and 1.0, got {configuredBotThreshold}");
+
+        // One key for the bot/human cut: BotFloor is the survivor, so the range contract every
+        // surface now depends on is checked here.
+        if (options.Classification is { } classification
+            && (classification.BotFloor < 0.0 || classification.BotFloor > 1.0))
+            errors.Add($"Classification.BotFloor must be between 0.0 and 1.0, got {classification.BotFloor}");
 
         if (options.AiDetection.TimeoutMs < 100 || options.AiDetection.TimeoutMs > 30000)
             errors.Add($"AiDetection.TimeoutMs must be between 100 and 30000, got {options.AiDetection.TimeoutMs}");

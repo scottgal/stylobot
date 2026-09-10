@@ -192,7 +192,9 @@ public class ServiceCollectionExtensionsTests
         // Act
         services.AddBotDetection(options =>
         {
-            options.BotThreshold = 0.8;
+            // ONE key: the surviving key is Classification.BotFloor; the obsolete BotThreshold
+            // reads through to it (setting the obsolete key alone is ignored by design).
+            options.Classification.BotFloor = 0.8;
             options.EnableLlmDetection = true;
         });
 
@@ -200,7 +202,10 @@ public class ServiceCollectionExtensionsTests
         var provider = services.BuildServiceProvider();
         var options = provider.GetService<IOptions<BotDetectionOptions>>();
         Assert.NotNull(options);
+        Assert.Equal(0.8, options.Value.Classification.BotFloor);
+#pragma warning disable CS0618
         Assert.Equal(0.8, options.Value.BotThreshold);
+#pragma warning restore CS0618
         Assert.True(options.Value.EnableLlmDetection);
     }
 
