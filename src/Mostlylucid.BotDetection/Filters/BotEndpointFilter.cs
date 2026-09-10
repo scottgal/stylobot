@@ -120,12 +120,7 @@ public class BlockBotsEndpointFilter : IEndpointFilter
         // be refused on this route, which overrides path-based laxness. If the
         // static policy was used (or detection didn't run at all), re-run
         // with the default policy so the UA-based classification is honoured.
-        var usedPolicy = httpContext.Items.TryGetValue("BotDetection.PolicyName", out var pn)
-            ? pn?.ToString()
-            : null;
-
-        if (result is null ||
-            string.Equals(usedPolicy, "static", StringComparison.OrdinalIgnoreCase))
+        if (result is null)
         {
             result = await EnsureDetectionAsync(httpContext);
             if (result is null)

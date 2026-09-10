@@ -117,8 +117,7 @@ public class DetectionDataExtractor
                 RiskBand = evidence.RiskBand.ToString(),
                 BotType = evidence.PrimaryBotType?.ToString(),
                 BotName = evidence.PrimaryBotName,
-                PolicyName = evidence.PolicyName,
-                Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName,
+                Action = evidence.TriggeredActionPolicyName,
                 ProcessingTimeMs = evidence.TotalProcessingTimeMs,
                 TopReasons = evidence.Contributions
                     .Where(c => !string.IsNullOrEmpty(c.Reason))
@@ -179,7 +178,6 @@ public class DetectionDataExtractor
                 RiskBand = riskBand,
                 BotType = result.BotType?.ToString(),
                 BotName = result.BotName,
-                PolicyName = context.Items.TryGetValue("BotDetection.PolicyName", out var pn) ? pn?.ToString() : "upstream",
                 ProcessingTimeMs = 0,
                 TopReasons = [],
                 DetectorContributions = [],
@@ -239,7 +237,6 @@ public class DetectionDataExtractor
                 RiskBand = GetHeaderValue(headers, "X-Bot-Detection-RiskBand") ?? "Unknown",
                 BotType = GetHeaderValue(headers, "X-Bot-Detection-BotType"),
                 BotName = GetHeaderValue(headers, "X-Bot-Detection-BotName"),
-                PolicyName = GetHeaderValue(headers, "X-Bot-Detection-Policy"),
                 Action = GetHeaderValue(headers, "X-Bot-Detection-Action"),
                 ProcessingTimeMs = ParseDoubleHeader(headers, "X-Bot-Detection-ProcessingMs"),
                 FingerprintHash = GetHeaderValue(headers, "X-Bot-Detection-FingerprintHash"),

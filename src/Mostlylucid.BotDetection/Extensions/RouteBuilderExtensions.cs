@@ -213,11 +213,6 @@ public static class RouteBuilderExtensions
                         botName = (string?)null
                     });
 
-                // Get policy info
-                var policyName = context.Items.TryGetValue(BotDetectionMiddleware.PolicyNameKey, out var pn)
-                    ? pn?.ToString()
-                    : "default";
-
                 // Try to get full aggregated evidence for detailed results
                 if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj)
                     && evidenceObj is AggregatedEvidence evidence)
@@ -226,7 +221,6 @@ public static class RouteBuilderExtensions
                     var isHuman = evidence.BotProbability < 0.5;
                     return Results.Ok(new
                     {
-                        policy = policyName,
                         isBot = !isHuman,
                         isHuman,
                         isVerifiedBot = context.IsVerifiedBot(),
@@ -424,19 +418,10 @@ public static class RouteBuilderExtensions
     }
 
     /// <summary>
-    ///     Derive recommended action from evidence.
-    ///     Uses explicit PolicyAction if set, otherwise derives from RiskBand.
+    ///     Derive recommended action from evidence, from the RiskBand.
     /// </summary>
     private static object GetRecommendedAction(AggregatedEvidence evidence)
     {
-        // If there's an explicit policy action, use it with reason
-        if (evidence.PolicyAction.HasValue)
-            return new
-            {
-                action = evidence.PolicyAction.Value.ToString(),
-                reason = GetPolicyActionReason(evidence.PolicyAction.Value, evidence)
-            };
-
         // Derive from RiskBand (use fully qualified to avoid namespace conflicts)
         var probStr = FormatProbability(evidence.BotProbability);
         var (action, reason) = evidence.RiskBand switch

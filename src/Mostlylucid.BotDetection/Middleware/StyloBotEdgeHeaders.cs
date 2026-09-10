@@ -35,7 +35,6 @@ public static class StyloBotEdgeHeaderNames
     public const string BotName = "X-Bot-Detection-BotName";
     public const string BotType = "X-Bot-Detection-BotType";
     public const string Action = "X-Bot-Detection-Action";
-    public const string Policy = "X-Bot-Detection-Policy";
     public const string ProcessingMs = "X-Bot-Detection-ProcessingMs";
     public const string RequestId = "X-Bot-Detection-RequestId";
     public const string Result = "X-Bot-Detection-Result";
@@ -43,7 +42,7 @@ public static class StyloBotEdgeHeaderNames
     public static readonly string[] All =
     [
         IdentityFingerprint, PrimarySignature, IpSignature, UaSignature, EntityId,
-        Probability, Confidence, RiskBand, ThreatBand, BotName, BotType, Action, Policy, ProcessingMs,
+        Probability, Confidence, RiskBand, ThreatBand, BotName, BotType, Action, ProcessingMs,
         RequestId, Result
     ];
 }
@@ -292,9 +291,7 @@ public sealed class StyloBotForwardedHeadersMiddleware
                 context.Request.Headers[StyloBotEdgeHeaderNames.BotName] = aggregated.PrimaryBotName;
             if (aggregated.PrimaryBotType is { } botType)
                 context.Request.Headers[StyloBotEdgeHeaderNames.BotType] = botType.ToString();
-            if (!string.IsNullOrEmpty(aggregated.PolicyName))
-                context.Request.Headers[StyloBotEdgeHeaderNames.Policy] = aggregated.PolicyName;
-            var action = aggregated.PolicyAction?.ToString() ?? aggregated.TriggeredActionPolicyName;
+            var action = aggregated.TriggeredActionPolicyName;
             if (!string.IsNullOrEmpty(action))
                 context.Request.Headers[StyloBotEdgeHeaderNames.Action] = action;
         }

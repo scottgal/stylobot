@@ -24,8 +24,6 @@ namespace Mostlylucid.BotDetection.Observability.Enrichment;
 ///             <item><c>BotDetectionMiddleware.BotProbabilityKey</c> (BotDetectionMiddleware.cs:1131)</item>
 ///             <item><c>BotDetectionMiddleware.BotTypeKey</c> (BotDetectionMiddleware.cs:1137)</item>
 ///             <item><c>BotDetectionMiddleware.BotNameKey</c> (BotDetectionMiddleware.cs:1140)</item>
-///             <item><c>BotDetectionMiddleware.PolicyNameKey</c> (BotDetectionMiddleware.cs:1149)</item>
-///             <item><c>BotDetectionMiddleware.PolicyActionKey</c> (BotDetectionMiddleware.cs:1152)</item>
 ///             <item><c>SignalKeys.PrimarySignature</c> (DetectionContext.cs:478)</item>
 ///         </list>
 ///     </para>
@@ -50,8 +48,6 @@ public sealed class StyloBotLogEnricher : ILogEventEnricher
         Add(logEvent, propertyFactory, "StyloBot_BotProbability", items[BotDetectionMiddleware.BotProbabilityKey]);
         Add(logEvent, propertyFactory, "StyloBot_BotType",        items[BotDetectionMiddleware.BotTypeKey]);
         Add(logEvent, propertyFactory, "StyloBot_BotName",        items[BotDetectionMiddleware.BotNameKey]);
-        Add(logEvent, propertyFactory, "StyloBot_PolicyName",     items[BotDetectionMiddleware.PolicyNameKey]);
-        Add(logEvent, propertyFactory, "StyloBot_Action",         items[BotDetectionMiddleware.PolicyActionKey]);
     }
 
     private static void Add(LogEvent logEvent, ILogEventPropertyFactory factory, string name, object? value)

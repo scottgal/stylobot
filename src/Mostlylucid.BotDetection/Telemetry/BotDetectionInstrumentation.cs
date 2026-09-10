@@ -62,8 +62,6 @@ public sealed class BotDetectionInstrumentation
                 activity.SetTag("stylobot.bot_type", evidence.PrimaryBotType.Value.ToString());
             if (!string.IsNullOrEmpty(evidence.PrimaryBotName))
                 activity.SetTag("stylobot.bot_name", evidence.PrimaryBotName);
-            if (!string.IsNullOrEmpty(evidence.PolicyName))
-                activity.SetTag("stylobot.policy", evidence.PolicyName);
             if (!string.IsNullOrEmpty(evidence.TriggeredActionPolicyName))
                 activity.SetTag("stylobot.action_policy", evidence.TriggeredActionPolicyName);
             if (!string.IsNullOrEmpty(country))

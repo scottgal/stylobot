@@ -24,9 +24,6 @@ public sealed record DetectionDisplayModel
     /// <summary>Bot name if identified</summary>
     public string? BotName { get; init; }
 
-    /// <summary>Policy that was applied</summary>
-    public string? PolicyName { get; init; }
-
     /// <summary>Action taken (Allow, Block, Throttle, Challenge)</summary>
     public string? Action { get; init; }
 

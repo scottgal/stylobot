@@ -42,8 +42,7 @@ public class ResponseHeaderTests
     private static AggregatedEvidence Evidence(
         double botProbability = 0.92,
         RiskBand riskBand = RiskBand.High,
-        string? triggeredActionPolicyName = null,
-        DetectionPolicyAction? policyAction = null) => new()
+        string? triggeredActionPolicyName = null) => new()
     {
         BotProbability = botProbability,
         Confidence = 0.87,
@@ -52,9 +51,7 @@ public class ResponseHeaderTests
         PrimaryBotName = "GPTBot",
         ThreatScore = 0.15,
         ThreatBand = ThreatBand.Low,
-        PolicyName = "default",
         TriggeredActionPolicyName = triggeredActionPolicyName,
-        PolicyAction = policyAction,
         TotalProcessingTimeMs = 4,
         ContributingDetectors = new HashSet<string>(),
         Signals = new Dictionary<string, object>()
@@ -99,7 +96,6 @@ public class ResponseHeaderTests
         Assert.Equal("Block", context.Response.Headers["X-StyloBot-Action"].ToString());
         Assert.Equal("0.15", context.Response.Headers["X-StyloBot-ThreatScore"].ToString());
         Assert.Equal("Low", context.Response.Headers["X-StyloBot-ThreatBand"].ToString());
-        Assert.Equal("default", context.Response.Headers["X-StyloBot-Policy"].ToString());
     }
 
     [Fact]
@@ -196,21 +192,6 @@ public class ResponseHeaderTests
         ResponseHeaderInjection.InjectHeaders(context);
 
         Assert.Equal("Allow", context.Response.Headers["X-StyloBot-Action"].ToString());
-    }
-
-    /// <summary>
-    ///     A detection-policy decision (<see cref="AggregatedEvidence.PolicyAction"/>)
-    ///     is a resolved action too; it is the fallback when no named action policy
-    ///     was resolved.
-    /// </summary>
-    [Fact]
-    public void InjectHeaders_PolicyActionIsUsedWhenNoNamedPolicyResolved()
-    {
-        var context = NewContext(Evidence(policyAction: DetectionPolicyAction.Challenge));
-
-        ResponseHeaderInjection.InjectHeaders(context);
-
-        Assert.Equal("Challenge", context.Response.Headers["X-StyloBot-Action"].ToString());
     }
 
     /// <summary>

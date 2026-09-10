@@ -113,16 +113,6 @@ public static class HttpContextBotDetectionExtensions
     }
 
     /// <summary>
-    ///     Gets the bot detection policy that was applied
-    /// </summary>
-    public static string? BotDetectionPolicy(this HttpContext context)
-    {
-        return context.Items.TryGetValue(BotDetectionMiddleware.PolicyNameKey, out var policyObj)
-            ? policyObj?.ToString()
-            : null;
-    }
-
-    /// <summary>
     ///     Gets the primary category of bot detection that triggered
     /// </summary>
     public static string? BotDetectionCategory(this HttpContext context)

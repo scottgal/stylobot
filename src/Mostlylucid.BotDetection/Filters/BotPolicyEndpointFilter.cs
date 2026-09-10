@@ -45,10 +45,6 @@ public class BotPolicyEndpointFilter : IEndpointFilter
 
             if (policy != null)
             {
-                // Store policy metadata for downstream middleware/logging
-                httpContext.Items["BotDetection_ActionPolicy"] = _actionPolicy;
-                httpContext.Items["BotDetection_PolicyName"] = _policyName;
-
                 // Get the aggregated evidence for the policy to use
                 var evidence = httpContext.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var ev)
                     ? ev as AggregatedEvidence

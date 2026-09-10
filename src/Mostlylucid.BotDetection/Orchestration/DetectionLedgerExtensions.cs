@@ -34,8 +34,6 @@ public static class DetectionLedgerExtensions
     /// </summary>
     public static AggregatedEvidence ToAggregatedEvidence(
         this DetectionLedger ledger,
-        string? policyName = null,
-        DetectionPolicyAction? policyAction = null,
         string? actionPolicyName = null,
         bool aiRan = false,
         IReadOnlyDictionary<string, object>? premergedSignals = null,
@@ -373,7 +371,7 @@ public static class DetectionLedgerExtensions
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
         {
-            return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals, sink, options);
+            return CreateEarlyExitResult(ledger, aiRan, premergedSignals, sink, options);
         }
 
         // The orchestrator pools its signal ConcurrentDictionary and clears it
@@ -470,8 +468,6 @@ public static class DetectionLedgerExtensions
             CategoryBreakdown = ledger.CategoryBreakdown,
             ContributingDetectors = ledger.ContributingDetectors,
             FailedDetectors = ledger.FailedDetectors,
-            PolicyName = policyName,
-            PolicyAction = policyAction,
             TriggeredActionPolicyName = actionPolicyName,
             AiRan = aiRan,
             ThreatScore = threatScore,
@@ -482,7 +478,6 @@ public static class DetectionLedgerExtensions
     private static AggregatedEvidence CreateEarlyExitResult(
         DetectionLedger ledger,
         bool aiRan,
-        string? policyName,
         IReadOnlyDictionary<string, object>? premergedSignals = null,
         SignalSink? sink = null,
         BotDetectionOptions? options = null)
@@ -704,7 +699,6 @@ public static class DetectionLedgerExtensions
             CategoryBreakdown = ledger.CategoryBreakdown,
             ContributingDetectors = ledger.ContributingDetectors,
             FailedDetectors = ledger.FailedDetectors,
-            PolicyName = policyName,
             AiRan = aiRan,
             ThreatScore = earlyThreatScore,
             ThreatBand = earlyThreatBand

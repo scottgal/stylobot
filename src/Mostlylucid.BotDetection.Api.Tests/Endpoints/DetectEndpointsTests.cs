@@ -19,7 +19,6 @@ public class DetectEndpointsTests
             ThreatBand = ThreatBand.Low,
             TotalProcessingTimeMs = 4.2,
             ContributingDetectors = new HashSet<string> { "UserAgent", "Header", "Ip" },
-            PolicyName = "default",
             AiRan = false,
             Signals = new Dictionary<string, object> { ["ua.isBot"] = true, ["ip.isDatacenter"] = true }
         };
@@ -36,7 +35,6 @@ public class DetectEndpointsTests
         Assert.Equal(0.15, response.Verdict.ThreatScore);
         Assert.Equal("Low", response.Verdict.ThreatBand);
         Assert.Equal(3, response.Meta.DetectorsRun);
-        Assert.Equal("default", response.Meta.PolicyName);
         Assert.False(response.Meta.AiRan);
     }
 

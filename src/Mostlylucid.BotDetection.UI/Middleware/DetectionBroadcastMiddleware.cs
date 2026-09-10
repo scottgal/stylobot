@@ -609,8 +609,7 @@ public partial class DetectionBroadcastMiddleware
             // ("googlebot" / "GOOGLEBOT" / regex-capture "Googlebot/2.1" all
             // become "Googlebot"). Unknown names pass through unchanged.
             BotName = Mostlylucid.BotDetection.Definitions.BotPatterns.BotPatternLoader.Default.FindCanonicalCasing(evidence.PrimaryBotName) ?? evidence.PrimaryBotName,
-            Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
-            PolicyName = evidence.PolicyName ?? "Default",
+            Action = evidence.TriggeredActionPolicyName ?? "Allow",
             Method = context.Request.Method,
             Path = context.Request.Path.Value ?? "/",
             StatusCode = context.Response.StatusCode,

@@ -232,10 +232,7 @@ public static class YarpExtensions
                 evidence.BotProbability >= httpContext.GetBotFloor() ? "true" : "false");
             addHeader("X-Bot-Detection-RequestId", httpContext.TraceIdentifier);
 
-            if (!string.IsNullOrEmpty(evidence.PolicyName))
-                addHeader("X-Bot-Detection-Policy", evidence.PolicyName);
-
-            var action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName;
+            var action = evidence.TriggeredActionPolicyName;
             if (!string.IsNullOrEmpty(action))
                 addHeader("X-Bot-Detection-Action", action);
 

@@ -330,12 +330,6 @@ public class StyloBotDashboardMiddleware
                                  && keyCtxObj is ApiKeyContext;
             if (!hasValidApiKey)
                 hasValidApiKey = !string.IsNullOrEmpty(context.Request.Headers["X-SB-Api-Key"].FirstOrDefault());
-            if (!hasValidApiKey)
-            {
-                var policyName = context.Items.TryGetValue("BotDetection.PolicyName", out var pn) ? pn?.ToString() : null;
-                if (policyName != null && policyName.Contains("+apikey:", StringComparison.OrdinalIgnoreCase))
-                    hasValidApiKey = true;
-            }
 
             if (!hasValidApiKey)
             {

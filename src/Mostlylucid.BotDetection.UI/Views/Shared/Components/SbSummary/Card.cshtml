@@ -38,12 +38,5 @@
             <span class="sb-summary-card__stat-label">Processing</span>
             <span class="sb-summary-card__stat-value">@(timeMs)ms</span>
         </div>
-        @if (Model.HasData && !string.IsNullOrEmpty(Model.PolicyName))
-        {
-            <div class="sb-summary-card__stat">
-                <span class="sb-summary-card__stat-label">Policy</span>
-                <span class="sb-summary-card__stat-value">@Model.PolicyName</span>
-            </div>
-        }
     </div>
 </div>

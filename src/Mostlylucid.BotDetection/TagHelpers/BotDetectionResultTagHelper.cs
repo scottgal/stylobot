@@ -91,15 +91,13 @@ public class BotDetectionResultTagHelper : TagHelper
         // Try to get aggregated evidence first (new architecture)
         var aggregated = httpContext.Items[BotDetectionMiddleware.AggregatedEvidenceKey] as AggregatedEvidence;
         var legacy = httpContext.Items[BotDetectionMiddleware.BotDetectionResultKey] as BotDetectionResult;
-        var policyName = httpContext.Items[BotDetectionMiddleware.PolicyNameKey] as string ?? "unknown";
-        var policyAction = httpContext.Items[BotDetectionMiddleware.PolicyActionKey] as DetectionPolicyAction?;
 
         object resultObject;
 
         if (aggregated != null)
-            resultObject = CreateResultFromAggregated(aggregated, policyName, policyAction);
+            resultObject = CreateResultFromAggregated(aggregated);
         else if (legacy != null)
-            resultObject = CreateResultFromLegacy(legacy, policyName);
+            resultObject = CreateResultFromLegacy(legacy);
         else
             // No detection result available
             resultObject = new { error = "No bot detection result available", detected = false };
@@ -127,10 +125,7 @@ public class BotDetectionResultTagHelper : TagHelper
         }
     }
 
-    private object CreateResultFromAggregated(
-        AggregatedEvidence evidence,
-        string policyName,
-        DetectionPolicyAction? policyAction)
+    private object CreateResultFromAggregated(AggregatedEvidence evidence)
     {
         if (FullResult)
             return new
@@ -138,8 +133,6 @@ public class BotDetectionResultTagHelper : TagHelper
                 risk = evidence.BotProbability,
                 confidence = evidence.Confidence,
                 riskBand = evidence.RiskBand.ToString(),
-                policy = policyName,
-                action = policyAction?.ToString(),
                 isBot = evidence.BotProbability >= 0.5,
                 earlyExit = evidence.EarlyExit,
                 verdict = evidence.EarlyExitVerdict?.ToString(),
@@ -172,8 +165,6 @@ public class BotDetectionResultTagHelper : TagHelper
             risk = evidence.BotProbability,
             confidence = evidence.Confidence,
             riskBand = evidence.RiskBand.ToString(),
-            policy = policyName,
-            action = policyAction?.ToString(),
             isBot = evidence.BotProbability >= 0.5,
             detectors = evidence.ContributingDetectors,
             categories = evidence.CategoryBreakdown.ToDictionary(
@@ -182,14 +173,13 @@ public class BotDetectionResultTagHelper : TagHelper
         };
     }
 
-    private object CreateResultFromLegacy(BotDetectionResult result, string policyName)
+    private object CreateResultFromLegacy(BotDetectionResult result)
     {
         if (FullResult)
             return new
             {
                 risk = result.ConfidenceScore,
                 confidence = result.ConfidenceScore,
-                policy = policyName,
                 isBot = result.IsBot,
                 botType = result.BotType?.ToString(),
                 botName = result.BotName,
@@ -204,7 +194,6 @@ public class BotDetectionResultTagHelper : TagHelper
         return new
         {
             risk = result.ConfidenceScore,
-            policy = policyName,
             isBot = result.IsBot,
             botType = result.BotType?.ToString(),
             botName = result.BotName

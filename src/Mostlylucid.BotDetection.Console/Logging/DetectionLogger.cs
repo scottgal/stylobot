@@ -82,9 +82,6 @@ public static class DetectionLogger
         var category = context.BotDetectionCategory();
         if (category != null) Log.Information("  Primary Category: {Category}", category);
 
-        var policy = context.BotDetectionPolicy();
-        if (policy != null) Log.Information("  Policy Used:      {Policy}", policy);
-
         if (wasBlocked)
             Log.Error("╚════════════════════════════════════════════════════════════╝");
         else

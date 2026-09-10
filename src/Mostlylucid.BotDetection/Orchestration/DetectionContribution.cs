@@ -177,16 +177,6 @@ public sealed record AggregatedEvidence
     public IReadOnlySet<string> FailedDetectors { get; init; } = new HashSet<string>();
 
     /// <summary>
-    /// Policy that was used for this detection.
-    /// </summary>
-    public string? PolicyName { get; init; }
-
-    /// <summary>
-    /// Action determined by policy (if any).
-    /// </summary>
-    public DetectionPolicyAction? PolicyAction { get; init; }
-
-    /// <summary>
     /// Name of the action policy to execute (if specified by a transition).
     /// </summary>
     public string? TriggeredActionPolicyName { get; init; }

@@ -68,7 +68,6 @@ public static class ResponseHeaderInjection
         headers["X-StyloBot-Action"] = action;
         headers["X-StyloBot-ThreatScore"] = evidence.ThreatScore.ToString("F2");
         headers["X-StyloBot-ThreatBand"] = evidence.ThreatBand.ToString();
-        headers["X-StyloBot-Policy"] = evidence.PolicyName ?? "";
         headers["X-StyloBot-RequestId"] = context.TraceIdentifier;
     }
 
@@ -103,9 +102,7 @@ public static class ResponseHeaderInjection
                 is { } resolvedPolicy)
             return ToRecommendedAction(resolvedPolicy.Intent);
 
-        return evidence.PolicyAction is { } policyAction
-            ? ToRecommendedAction(policyAction)
-            : nameof(RecommendedAction.Allow);
+        return nameof(RecommendedAction.Allow);
     }
 
     private static string ToRecommendedAction(PolicyIntent intent) => intent switch

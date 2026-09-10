@@ -319,7 +319,6 @@ public sealed class DetectionBroadcastPersistOnDownstreamThrowTests
             RiskBand = RiskBand.High,
             PrimaryBotName = "curl",
             PrimaryBotType = BotType.Tool,
-            PolicyName = "default",
             TriggeredActionPolicyName = "throttle-tools",
             TotalProcessingTimeMs = 12.4,
         };

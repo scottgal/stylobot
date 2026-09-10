@@ -55,7 +55,6 @@ public sealed partial record DetectResponse
             {
                 ProcessingTimeMs = Math.Round(evidence.TotalProcessingTimeMs, 2),
                 DetectorsRun = evidence.ContributingDetectors.Count,
-                PolicyName = evidence.PolicyName,
                 AiRan = evidence.AiRan
             }
         };
@@ -86,7 +85,6 @@ public sealed record MetaDto
 {
     public required double ProcessingTimeMs { get; init; }
     public required int DetectorsRun { get; init; }
-    public string? PolicyName { get; init; }
     public required bool AiRan { get; init; }
     public string? RequestId { get; init; }
 }

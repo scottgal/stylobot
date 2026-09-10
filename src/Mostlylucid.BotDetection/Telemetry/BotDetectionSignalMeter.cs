@@ -135,8 +135,7 @@ public sealed class BotDetectionSignalMeter : IDisposable
             new("is_bot", isBot.ToString().ToLowerInvariant()));
 
         _detectionDuration.Record(evidence.TotalProcessingTimeMs / 1000.0,
-            new("policy", evidence.PolicyName ?? "default"),
-            new("early_exit", evidence.EarlyExit.ToString().ToLowerInvariant()));
+            new TagList { new("early_exit", evidence.EarlyExit.ToString().ToLowerInvariant()) });
 
         _detectionConfidence.Record(evidence.Confidence,
             new TagList { new("risk_band", riskBand) });

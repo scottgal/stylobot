@@ -31,8 +31,6 @@ public sealed class BotDetectionMiddleware
     public const string BotNameKey = "BotDetection.BotName";
     public const string BotCategoryKey = "BotDetection.BotCategory";
     public const string DetectionReasonsKey = "BotDetection.DetectionReasons";
-    public const string PolicyNameKey = "BotDetection.PolicyName";
-    public const string PolicyActionKey = "BotDetection.PolicyAction";
     public const string BotDetectionShedKey = "BotDetection.Shed";
     public const string ResponseFromUpstreamKey = "BotDetection.ResponseFromUpstream";
     public const string TestModeEphemeralKey = "BotDetection.TestModeEphemeral";

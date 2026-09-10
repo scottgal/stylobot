@@ -188,7 +188,6 @@ public sealed class DetectionBroadcastUpstreamStatusCaptureTests
             BotProbability = 0.1,
             Confidence = 0.5,
             RiskBand = RiskBand.Low,
-            PolicyName = "default",
             TotalProcessingTimeMs = 3.1,
         };
         ctx.Items[BotDetectionMiddleware.AggregatedEvidenceKey] = evidence;

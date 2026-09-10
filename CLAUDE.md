@@ -453,7 +453,7 @@ Legacy `/stylobot/countries`, `/stylobot/clusters` (Leiden community detection),
 
 **Key endpoints:** `POST /api/v1/detect`, `POST /api/v1/detect/batch`, `GET /api/v1/detections`, `/summary`, `/timeseries`, `/signatures`, `/countries`, `/endpoints`, `/topbots`, `/threats`, `/me`. OpenAPI spec at `/api/v1/openapi.json`.
 
-**Gateway header injection:** `X-StyloBot-IsBot`, `X-StyloBot-Probability`, `X-StyloBot-Confidence`, `X-StyloBot-BotType`, `X-StyloBot-BotName`, `X-StyloBot-RiskBand`, `X-StyloBot-Action`, `X-StyloBot-ThreatScore`, `X-StyloBot-ThreatBand`, `X-StyloBot-Policy`.
+**Gateway header injection:** `X-StyloBot-IsBot`, `X-StyloBot-Probability`, `X-StyloBot-Confidence`, `X-StyloBot-BotType`, `X-StyloBot-BotName`, `X-StyloBot-RiskBand`, `X-StyloBot-Action`, `X-StyloBot-ThreatScore`, `X-StyloBot-ThreatBand`.
 
 ### Node SDK
 

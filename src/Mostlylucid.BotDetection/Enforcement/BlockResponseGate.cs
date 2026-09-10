@@ -82,14 +82,6 @@ public sealed class BlockResponseGate
         double? endpointBlockThreshold = null,
         double? endpointMinConfidence = null)
     {
-        // DetectionPolicyAction from the evidence wins over threshold-based checks.
-        if (evidence.PolicyAction == DetectionPolicyAction.Block)
-            return (true, BotBlockAction.StatusCode);
-        if (evidence.PolicyAction == DetectionPolicyAction.Throttle)
-            return (true, BotBlockAction.Throttle);
-        if (evidence.PolicyAction == DetectionPolicyAction.Challenge)
-            return (true, BotBlockAction.Challenge);
-
         // Verified bad bot early exit -- always block.
         if (evidence.EarlyExit && evidence.EarlyExitVerdict == EarlyExitVerdict.VerifiedBadBot)
             return (true, BotBlockAction.StatusCode);
