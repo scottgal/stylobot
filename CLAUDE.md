@@ -16,6 +16,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Dashboard logins are unlimited.** The "users" limit in commercial tiers refers to protected identity policy overrides (`ConfigResolutionContext.UserId`), not dashboard seats.
 - **Foundation atoms are not policy-gated.** In the v8 atom orchestrator, "foundation" is not an interface: `IFoundationContributor` was removed. Foundation atoms are the lowest-`Priority` detector atoms (the **Wave 0 band**) that declare **empty `RequiredSignals`**; the orchestrator sorts every `IDetectorAtom` (`DetectorAtomBase`) by `Priority` (Wave 0 to Wave N) and runs the Wave 0 atoms unconditionally, first, before any classifier (policy filters classifiers only). There are ~27 Wave 0 atoms of 67 total, covering Compute (derive identity: `Signature`, `TransportProtocol`, `PiiQueryString`, `IdentityVector`, `Time`, `BrowserModeClassifier`) and Match (prior knowledge keyed on identity: `FastPathReputation`, `ContentSequence`, `FingerprintMatch`, `FingerprintPrior`, `IdentityChange`). Waves are a priority band, not fixed phases; `Sensor`/`Extractor`/`Guard`/`Constrainer`/`Proposer`/`Ranker` are taxonomy *roles* (readability), not run order. No single test asserts the foundation set (`DetectorRegistrationCoverageTests` is gone): `AtomEmitContractTests` (registration floor + no undeclared emits) and `DefaultPolicyAndCoverageTests` (coverage detectors in `DetectionPolicy.Default`) are the closest. Before adding an atom, changing the signal merge in the orchestrator, or introducing a parallel store for an existing fact, read [`docs/architecture/signal-contracts.md`](docs/architecture/signal-contracts.md) and [`docs/architecture/fingerprint-match.md`](docs/architecture/fingerprint-match.md). Approval / Challenge / ClientSide are NOT foundation because they depend on prior round-trips. The BDF rig at `src/Mostlylucid.BotDetection.Orchestration.Tests/Integration/BdfReplayTests.Integration.cs` runs under `DetectionPolicy.Default` and asserts on the read surface; if you add a foundation signal, add a probe.
 
+- **ONE key for the bot/human cut: `Classification.BotFloor`** (`BotDetection:Classification:BotFloor`). `BotDetection:BotThreshold` is **OBSOLETE and a derived read-through** — `BotDetectionOptions.BotThreshold` returns `Classification.BotFloor`, so every enforcement gate that still names it (`BlockResponseGate`, the `SiteProfiles` overlay resolver, a host's own refusal gate) reads the SAME number by construction and "counted as a bot" cannot disagree with "acted on as a bot". An explicitly-set `BotDetection:BotThreshold` is IGNORED and reported loudly at boot by `BotThresholdDivergenceWarningService` (the raw value is kept only for that warning and for range validation). Never read the obsolete key in new code, and never add a second threshold key for the same decision: divergence is made impossible, not documented.
+
 ## Build Commands
 
 ```bash
@@ -244,7 +246,7 @@ Detectors are configured via YAML manifests with appsettings.json overrides:
 ```json
 {
   "BotDetection": {
-    "BotThreshold": 0.7,
+    "Classification": { "BotFloor": 0.70 },
     "NonAiMaxProbability": 0.90,
     "DefaultActionPolicyName": "throttle-stealth",
     "EnableLlmDetection": true,

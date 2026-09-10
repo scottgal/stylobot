@@ -32,7 +32,11 @@ public class EffectivePolicyResolverTests
 
         var effective = resolver.ResolveThresholds(ctx);
 
-        Assert.Equal(GlobalBotThreshold, effective.BotThreshold);
+        // ONE key: the overlay's global level reads BotDetectionOptions.BotThreshold, which is now a
+        // read-through to Classification.BotFloor. BuildResolver deliberately sets an explicit
+        // DIVERGENT global BotThreshold (0.66) to pin that it is ignored by design — BotFloor wins
+        // and is reported at boot by BotThresholdDivergenceWarningService.
+        Assert.Equal(GlobalBotFloor, effective.BotThreshold);
         Assert.Equal(GlobalHumanCeiling, effective.HumanCeiling);
         Assert.Equal(GlobalBotFloor, effective.BotFloor);
     }

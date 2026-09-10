@@ -272,16 +272,20 @@ public class BotDetectionOptionsTests
     [InlineData(0.5)]
     [InlineData(0.8)]
     [InlineData(0.9)]
-    public void BotThreshold_CanBeSet(double threshold)
+    public void BotThreshold_SetIsRecorded_ButOneKeyWins(double threshold)
     {
-        // Arrange
+        // ONE key for the bot/human cut: Classification.BotFloor is the value of record and the
+        // obsolete BotDetection:BotThreshold reads through to it, so an explicitly-set value is
+        // RECORDED (for the boot divergence warning) and never becomes a second answer.
+        // Full contract: BotFloorSingleKeyTests.
         var options = new BotDetectionOptions();
 
-        // Act
+#pragma warning disable CS0618
         options.BotThreshold = threshold;
 
-        // Assert
-        Assert.Equal(threshold, options.BotThreshold);
+        Assert.Equal(threshold, options.ConfiguredBotThreshold);
+        Assert.Equal(options.Classification.BotFloor, options.BotThreshold);
+#pragma warning restore CS0618
     }
 
     [Fact]

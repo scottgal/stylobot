@@ -99,6 +99,11 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.AddHostedService<Scheduling.ScheduleCoordinatorWatchdog>();
         // Boot the migrated singletons (each subscribes to ticks at ctor time).
         services.AddHostedService<Scheduling.BotDetectionHostedSingletonsBootstrap>();
+        // ONE key for the bot/human cut (Classification.BotFloor). The obsolete
+        // BotDetection:BotThreshold reads through to it, so this fires only when an operator has
+        // explicitly set the obsolete key to a different number -- a value that is now ignored, and
+        // must not be ignored SILENTLY. One log line in the normal case.
+        services.AddHostedService<Services.BotThresholdDivergenceWarningService>();
 
         // Web Bot Auth foundation: public-key registry (Coordinator) + Tick1h
         // refresh + durability Escalator, and the RFC 9421 / license-capability
