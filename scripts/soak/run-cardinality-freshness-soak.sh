@@ -77,6 +77,15 @@
 # Env overrides mirror run-compression-soak.sh: TARGET, API_KEY, SOAK_HOST,
 # SSH_USER, DB_STATS_CMD, DB_WRITE_STATS_CMD, MANAGED_HEAP_STATS_CMD,
 # SAMPLE_MINUTES, OUTDIR.
+#   SWEEP_COVERAGE_CMD    (optional) a command whose stdout is TSV, one row per
+#                         sweep tick, for the dashboard store's OWN collection
+#                         gauges (resident signature count, cache bytes). It
+#                         answers "WHICH collection grew" — the question RSS
+#                         cannot. Scraped ONCE post-run over the whole window
+#                         (a per-window scrape loses ticks on the boundary).
+#                         Wired on the rig to a scraper that prints those ticks. Not
+#                         wired = a named attribution gap in the verdict, never
+#                         a silent omission and never "the collection was flat".
 #   CONTAINER_STATS_CMD  (required for the memory-trend + OOM assertions;
 #                         script degrades to DB-only reporting without it)
 #   REGRESSION_GATE       (default false — see below)
@@ -219,8 +228,8 @@ sample_container() {
 # (operator, 2026-08-21 — intolerable ambiguity for the v9 comparison).
 # ALREADY WIRED gateway-side (stream-, 2026-08-21): OpenTelemetry
 # .AddRuntimeInstrumentation() feeds the same /metrics Prometheus endpoint
-# RSS-adjacent process instrumentation already uses (GatewayHost/Program.cs
-# ~390). No new gateway code — this is a scrape, not a feature. Metric name
+# RSS-adjacent process instrumentation already uses (gateway host startup).
+# No new gateway code — this is a scrape, not a feature. Metric name
 # is grep-matched, not hardcoded exact, since the OTel Prometheus exporter's
 # naming convention wasn't independently confirmed (grep covers both the
 # process_runtime_dotnet_gc_* and older dotnet_gc_* conventions).
@@ -365,6 +374,35 @@ for ((s = 1; s <= SAMPLES; s++)); do
 done
 
 wait "$K6_PID" || log "k6 exited nonzero — see $OUTDIR/$LABEL-k6.log"
+
+# ── Collection attribution: WHICH collection grew, not just that RSS did ──
+# RSS says THAT something grew; it cannot say WHAT. A managed collection holding
+# on and native memory (Npgsql buffers, LOH, the host) produce the same RSS
+# shape and have completely different owners, so an unattributed RSS number is a
+# symptom with no address. The store already emits its resident count and cache
+# byte estimate on every sweep tick, so this is a SCRAPE of an existing signal —
+# SWEEP_COVERAGE_CMD is expected to print those ticks as TSV (one row per tick,
+# with its own timestamp), which is what the rig's scraper prints.
+#
+# ONE POST-RUN SCRAPE over the whole window, deliberately NOT per-sample: a
+# per-window scrape loses whatever ticks land on a boundary, and sweep ticks and
+# sample windows are different cadences that do not align. One scrape of the
+# full window cannot miss a tick.
+if [ -n "${SWEEP_COVERAGE_CMD:-}" ]; then
+  eval "$SWEEP_COVERAGE_CMD" > "$OUTDIR/$LABEL-sweep.tsv" 2>/dev/null || true
+  sweep_ticks="$(wc -l < "$OUTDIR/$LABEL-sweep.tsv" 2>/dev/null | tr -d ' ' || echo 0)"
+  if [ "${sweep_ticks:-0}" -gt 0 ]; then
+    log "collection attribution: $sweep_ticks sweep ticks captured -> $OUTDIR/$LABEL-sweep.tsv"
+  else
+    log "★ COLLECTION ATTRIBUTION: NO DATA — SWEEP_COVERAGE_CMD is wired but produced zero rows."
+    log "  RSS attribution to a named collection is therefore NOT available for this run. This is a"
+    log "  named coverage gap, not evidence that the collection was flat — those are opposite"
+    log "  conclusions from the same empty output. Check the window (--since) covers the run."
+  fi
+else
+  log "★ COLLECTION ATTRIBUTION: not wired (SWEEP_COVERAGE_CMD unset) — an RSS climb in this run"
+  log "  cannot be attributed to a named collection; the verdict will say so rather than guess."
+fi
 
 log "verdict:"
 python3 - "$OUTDIR/$LABEL-samples.tsv" "$K6_RAW" "$REGRESSION_GATE" "${FRESHNESS_PROBE:-true}" <<'PYEOF' | tee -a "$OUTDIR/$LABEL.log"
