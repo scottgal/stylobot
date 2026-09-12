@@ -33,6 +33,29 @@ public sealed class NuGetDependencyIntegrityTests
 {
     private const string TestVersion = "9.9.9-test";
 
+    /// <summary>
+    ///     Pack the SAME configuration this test assembly was built in (2026-09-12).
+    ///     <para>
+    ///     This was hard-coded to <c>Release</c>, which made the test pass only where a Release
+    ///     build had already happened — CI builds Release before testing, so CI was green, but a
+    ///     plain <c>dotnet test</c> is Debug, <c>bin/Release/&lt;assembly&gt;.dll</c> does not exist,
+    ///     and pack died with NU5026 ("the file to be packed was not found on disk") for a reason
+    ///     that has nothing to do with the nuspec dependency graph this test asserts.
+    ///     </para>
+    ///     <para>
+    ///     That is an instrument defect of the familiar shape: a test that fails for a reason it
+    ///     does not claim to test, so its red misleads every developer and agent who runs the
+    ///     default suite. It was carried as a "pre-existing environmental failure" for days. The
+    ///     dependency graph is configuration-independent, so packing whatever configuration the
+    ///     suite is actually running is both correct and sufficient.
+    ///     </para>
+    /// </summary>
+#if DEBUG
+    private const string PackConfiguration = "Debug";
+#else
+    private const string PackConfiguration = "Release";
+#endif
+
     // The FULL first-party publish closure: every packable project + the referenced
     // published projects (Common, Llm). A dangling dep anywhere in this set (a nuspec
     // declaring a co-packable first-party package with no matching nupkg) reproduces the
@@ -192,7 +215,7 @@ public sealed class NuGetDependencyIntegrityTests
         psi.ArgumentList.Add("pack");
         psi.ArgumentList.Add(csproj);
         psi.ArgumentList.Add("-c");
-        psi.ArgumentList.Add("Release");
+        psi.ArgumentList.Add(PackConfiguration);
         psi.ArgumentList.Add("--no-restore");
         psi.ArgumentList.Add("-v:minimal"); // keep the build output bounded
         // MinVerSkip: without it MinVer computes its own version from the git
