@@ -21,16 +21,19 @@ public sealed class CveProbeAtom : DetectorAtomBase
     private readonly ISimulationPackRegistry _registry;
     private readonly ILogger<CveProbeAtom> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly Honeypot.IHoneypotExemptStore? _exemptStore;
 
     public CveProbeAtom(
         ISimulationPackRegistry registry,
         ILogger<CveProbeAtom> logger,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        Honeypot.IHoneypotExemptStore? exemptStore = null)
         : base(name: "CveProbe", category: "CveProbe")
     {
         _registry = registry;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
+        _exemptStore = exemptStore;
     }
 
     public override int Priority => 11;
@@ -94,7 +97,27 @@ public sealed class CveProbeAtom : DetectorAtomBase
                     botType: botType)));
             }
 
-            // Honeypot path match without a specific CVE.
+            // PATH-EXISTENCE honeypot match, no specific CVE. On a site that genuinely runs this
+            // stack (the operator set the matching site profile), the path existing is not evidence
+            // of anything -- it is the normal front door. Honour the SAME framework_paths exemption
+            // HaxxorAtom's path_probes honours (operator P0 2026-08-17, and the wordpress profile
+            // documents the two mechanisms sharing it on purpose). Without this, CveProbe was the
+            // third reader of the honeypot catalog and the only one not exempted, so a real browser
+            // hitting /wp-login.php on a WordPress-profiled host scored Scraper and crossed BotFloor
+            // (bot_probability 0.52) -- caught by the BDF rig, which is why CI was red.
+            //
+            // BOUNDARY, deliberately drawn the same way as HaxxorAtom's: only the "this URL existing
+            // is suspicious" signal is exempted. A matched CVE already returned above and still fires,
+            // because that names a specific vulnerability rather than the mere presence of a path.
+            if (_exemptStore is not null
+                && _exemptStore.IsExempt(Honeypot.HoneypotPathDefinitions.NormalizePath(path), context))
+            {
+                _logger.LogDebug(
+                    "Simulation pack honeypot hit on {Path} suppressed: the active site profile " +
+                    "declares this path as its own framework path", path);
+                return Task.FromResult(None());
+            }
+
             var matchingHp = matchedPack.HoneypotPaths
                 .FirstOrDefault(hp => System.IO.Enumeration.FileSystemName
                     .MatchesSimpleExpression(hp.Path, path, ignoreCase: true));
