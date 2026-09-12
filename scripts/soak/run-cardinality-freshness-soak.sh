@@ -267,12 +267,26 @@ if [ "$POSITIVE_CONTROL" = "true" ]; then
     echo "POSITIVE_CONTROL requested but CONTAINER_STATS_CMD gave no baseline RSS — cannot derive a cap." >&2
     exit 1
   fi
-  # Derived, not chosen: a cap tight enough that the growing-cardinality
-  # driver should exhaust it well inside the run (half the observed
-  # steady-state baseline — the baseline itself came from THIS rig, not a
-  # constant anyone picked).
-  recommended_cap=$((base_rss / 2))
-  log "POSITIVE CONTROL: baseline RSS=$base_rss bytes. Recommended memory cap ~$recommended_cap bytes."
+  # Derived, not chosen: the cap sits ABOVE the container's own start RSS, because the property
+  # this control exists to exercise is GROWTH. `base_rss` is sampled HERE, before the load driver
+  # starts (see the k6 launch far below), so it is a PRE-LOAD reading.
+  #
+  # ★ WHY NOT HALF THE BASELINE: half a pre-load RSS is necessarily BELOW the container's current
+  # usage, so the container is already over the cap the instant it is applied and the kernel kills
+  # it on the next allocation -- load or no load. That trip is LOAD-INDEPENDENT by construction:
+  # it proves the OOM leg and CANNOT exercise the memory-trend leg, which needs the driver to run
+  # and growth to actually appear. A quarter headroom means the driver must grow RSS ~25% before
+  # the breach, so the TREND shows first and the trip that ends the run is still a real cap breach
+  # -- so the OOM leg stays genuinely proven at the same time.
+  recommended_cap=$((base_rss + base_rss / 4))
+  log "POSITIVE CONTROL: baseline (PRE-LOAD) RSS=$base_rss bytes. Recommended memory cap ~$recommended_cap bytes."
+  log "  Headroom, deliberately: the cap sits ~25% ABOVE the container's own start RSS so the driver"
+  log "  must GROW into it, which is what exercises the memory-trend leg before the OOM trip."
+  log "  ★ A cap at HALF the baseline (an earlier recommendation here) sits BELOW current usage: the"
+  log "  container is over the limit the moment it is applied and the kernel kills it on the next"
+  log "  allocation, load or no load. That trip is LOAD-INDEPENDENT -- it proves the OOM leg and"
+  log "  CANNOT exercise the memory-trend leg, and nothing in the output said it was a partial"
+  log "  control. If you see a trip with NO preceding RSS growth, that is what you are looking at."
   log "Apply this cap on the rig container (deploy-'s lane) BEFORE the run below, then confirm the"
   log "memory-trend and OOM assertions actually go red. Revert the cap before any real soak run."
 fi
