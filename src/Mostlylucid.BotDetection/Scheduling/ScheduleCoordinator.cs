@@ -432,7 +432,12 @@ public sealed class ScheduleCoordinator : IScheduleCoordinator, IHostedService, 
         using var linked = LinkWithShutdown(ct);
         try
         {
-            await sub.Handler(now, linked.Token).ConfigureAwait(false);
+            // Async methods execute inline until their first incomplete await.
+            // A subscriber doing synchronous I/O before that point must not
+            // block this cadence's dispatch loop or its heartbeat siblings.
+            // BusyFlag is acquired BEFORE dispatch, preserving single-flight
+            // even while a work item is waiting for a thread-pool worker.
+            await Task.Run(() => sub.Handler(now, linked.Token), linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException oce)
         {

@@ -63,7 +63,27 @@ dotnet test --filter "FullyQualifiedName~UserAgentDetectorTests"
 
 # BDF replay campaign (against a running demo at localhost:5080)
 bash test-suites/run-tests.sh
+
+# Startup wiring, SQLite schemas, and real watchdog process exit statuses
+python3 scripts/test-lifecycle.py
+# CI / already-built Release tests
+python3 scripts/test-lifecycle.py --configuration Release --no-build
 ```
+
+The lifecycle harness runs scheduling, storage, registration, and waveform persistence tests,
+then boots isolated child hosts using the production DI registrations. It checks
+all five startup-managed SQLite schemas, exit status 1 for silent cadences and
+subscriber fault storms, and exit status 0 for normal shutdown and disabled cadences. It uses temporary
+databases to verify waveform persistence across child-process restarts. It excludes
+unrelated downloads and background services. Registered
+`IStoreInitializer` implementations must have a matching `StoreInitService<T>`;
+the coverage test discovers them without maintaining a list of store names.
+Hosts with an integer entry point must return `Environment.ExitCode` after their
+run loop so hosted-service failures survive graceful shutdown. CI runs the harness
+before the full unit suite.
+The scheduling regressions cover synchronous subscriber blocking under both
+bounded and unbounded fan-out, single-flight dispatch, disabled cadence monitoring,
+and normal shutdown; the storage regressions verify startup cancellation propagation.
 
 ## Reporting Issues
 

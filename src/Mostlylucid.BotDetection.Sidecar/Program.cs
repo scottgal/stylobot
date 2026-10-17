@@ -143,7 +143,8 @@ finally
     Log.CloseAndFlush();
 }
 
-return 0;
+// Preserve failure requested by hosted services (for example the schedule watchdog).
+return Environment.ExitCode;
 
 /// <summary>
 ///     Sidecar /health response. Concrete so the source generator emits

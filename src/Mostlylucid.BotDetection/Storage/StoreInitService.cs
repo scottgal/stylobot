@@ -60,6 +60,10 @@ public sealed class StoreInitService<TStore> : IHostedService
             await _store.InitializeAsync(cancellationToken);
             _logger.LogDebug("{Store} initialised", typeof(TStore).Name);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,

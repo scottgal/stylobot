@@ -8,6 +8,11 @@ using Mostlylucid.BotDetection.Test.Scheduling.Helpers;
 
 namespace Mostlylucid.BotDetection.Test.Scheduling;
 
+// Environment.ExitCode is process-wide; isolate these tests and restore it
+// after each test so the test runner itself can still exit successfully.
+[CollectionDefinition(nameof(WatchdogExitCodeCollection), DisableParallelization = true)]
+public sealed class WatchdogExitCodeCollection { }
+
 /// <summary>
 ///     Coverage for <see cref="ScheduleCoordinatorWatchdog"/>. The watchdog
 ///     observes per-cadence freshness via subscriptions on the shared
@@ -16,8 +21,15 @@ namespace Mostlylucid.BotDetection.Test.Scheduling;
 ///     <c>EvaluateOnce</c> hook directly under a frozen clock instead of
 ///     spinning the watchdog's PeriodicTimer.
 /// </summary>
-public sealed class ScheduleCoordinatorWatchdogTests
+[Collection(nameof(WatchdogExitCodeCollection))]
+public sealed class ScheduleCoordinatorWatchdogTests : IDisposable
 {
+    private readonly int _originalExitCode = Environment.ExitCode;
+
+    public ScheduleCoordinatorWatchdogTests() => Environment.ExitCode = 0;
+
+    public void Dispose() => Environment.ExitCode = _originalExitCode;
+
     [Fact]
     public void Stalled_cadence_calls_StopApplication()
     {
@@ -53,6 +65,8 @@ public sealed class ScheduleCoordinatorWatchdogTests
 
         lifetime.StopRequested.Should().BeTrue(
             "Tick10s has been silent for 30s, well past the 20s staleness threshold");
+        lifetime.ExitCodeAtStop.Should().Be(1,
+            "on-failure supervisors need a failure exit code before shutdown starts");
     }
 
     [Fact]
@@ -98,6 +112,7 @@ public sealed class ScheduleCoordinatorWatchdogTests
 
         lifetime.StopRequested.Should().BeFalse(
             "every cadence has been observed within its staleness threshold");
+        Environment.ExitCode.Should().Be(0);
     }
 
     [Fact]
@@ -127,6 +142,7 @@ public sealed class ScheduleCoordinatorWatchdogTests
 
         lifetime.StopRequested.Should().BeFalse(
             "we are still inside the 2-minute startup grace window; no firing allowed");
+        Environment.ExitCode.Should().Be(0);
     }
 
     [Fact]
@@ -166,6 +182,8 @@ public sealed class ScheduleCoordinatorWatchdogTests
         coordinator.SetFaults("SweepSubscriber", 8);
         watchdog.EvaluateOnce(time.GetUtcNow());
         lifetime.StopRequested.Should().BeTrue("a subscriber faulting 8x between checks is a storm (threshold 6)");
+        lifetime.ExitCodeAtStop.Should().Be(1,
+            "subscriber fault storms must also cause supervisor restarts");
     }
 
     [Fact]
@@ -199,6 +217,7 @@ public sealed class ScheduleCoordinatorWatchdogTests
 
         watchdog.EvaluateOnce(time.GetUtcNow());
         lifetime.StopRequested.Should().BeFalse("no fault growth between checks must not trigger");
+        Environment.ExitCode.Should().Be(0);
     }
 
     [Fact]
@@ -227,6 +246,7 @@ public sealed class ScheduleCoordinatorWatchdogTests
         coordinator.SetFaults("SweepSubscriber", 100);
         watchdog.EvaluateOnce(time.GetUtcNow());
         lifetime.StopRequested.Should().BeFalse("a threshold <= 0 disables the fault-storm check");
+        Environment.ExitCode.Should().Be(0);
     }
 
     [Fact]
@@ -250,8 +270,61 @@ public sealed class ScheduleCoordinatorWatchdogTests
         await watchdog.StopAsync(CancellationToken.None);
 
         lifetime.StopRequested.Should().BeFalse();
+        Environment.ExitCode.Should().Be(0);
         coordinator.Subscriptions.Should().BeEmpty(
             "disabled watchdog must not subscribe to the coordinator");
+    }
+
+    [Theory]
+    [InlineData(TickCadence.Tick10s)]
+    [InlineData(TickCadence.Tick1m)]
+    [InlineData(TickCadence.Tick5m)]
+    [InlineData(TickCadence.Tick1h)]
+    public async Task Disabled_cadence_is_not_monitored_for_silence_or_fault_storms(TickCadence disabled)
+    {
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero));
+        var coordinator = new RecordingScheduleCoordinator();
+        var lifetime = new CapturingHostApplicationLifetime();
+        var options = new ScheduleCoordinatorOptions
+        {
+            WatchdogStartupGrace = TimeSpan.Zero,
+            WatchdogFaultStormThreshold = 1,
+            EnableTick10s = disabled != TickCadence.Tick10s,
+            EnableTick1m = disabled != TickCadence.Tick1m,
+            EnableTick5m = disabled != TickCadence.Tick5m,
+            EnableTick1h = disabled != TickCadence.Tick1h
+        };
+        using var watchdog = new ScheduleCoordinatorWatchdog(coordinator, lifetime, Options.Create(options),
+            NullLogger<ScheduleCoordinatorWatchdog>.Instance, time);
+        coordinator.Subscriptions.Should().NotContain(subscription => subscription.Cadence == disabled);
+        coordinator.Subscribe(disabled, "disabled-subscriber", CostHint.Low, (_, _) => Task.CompletedTask);
+        watchdog.EvaluateOnce(time.GetUtcNow());
+
+        // Exceed every cadence's silence threshold, keeping only enabled ones fresh.
+        time.Advance(TimeSpan.FromHours(3));
+        foreach (var subscription in coordinator.Subscriptions.Where(subscription => subscription.Cadence != disabled))
+            await subscription.Handler(time.GetUtcNow(), CancellationToken.None);
+        coordinator.SetFaults("disabled-subscriber", 10);
+        watchdog.EvaluateOnce(time.GetUtcNow());
+
+        lifetime.StopRequested.Should().BeFalse();
+        Environment.ExitCode.Should().Be(0);
+    }
+
+    [Fact]
+    public void Shutdown_already_requested_does_not_turn_a_normal_stop_into_failure()
+    {
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero));
+        var lifetime = new CapturingHostApplicationLifetime();
+        using var watchdog = new ScheduleCoordinatorWatchdog(new RecordingScheduleCoordinator(), lifetime,
+            Options.Create(new ScheduleCoordinatorOptions { WatchdogStartupGrace = TimeSpan.Zero }),
+            NullLogger<ScheduleCoordinatorWatchdog>.Instance, time);
+        watchdog.EvaluateOnce(time.GetUtcNow());
+        lifetime.StopApplication();
+        time.Advance(TimeSpan.FromMinutes(5));
+        watchdog.EvaluateOnce(time.GetUtcNow());
+
+        Environment.ExitCode.Should().Be(0);
     }
 
     // ---- Helpers ------------------------------------------------------------
@@ -259,8 +332,8 @@ public sealed class ScheduleCoordinatorWatchdogTests
     /// <summary>
     ///     <see cref="IHostApplicationLifetime"/> stand-in that records whether
     ///     <see cref="StopApplication"/> was called. The watchdog only ever
-    ///     calls StopApplication; the other lifetime members are returned as
-    ///     cancellation tokens that never fire.
+    ///     calls StopApplication, which cancels ApplicationStopping just as
+    ///     the real host does.
     /// </summary>
     private sealed class CapturingHostApplicationLifetime : IHostApplicationLifetime
     {
@@ -269,11 +342,17 @@ public sealed class ScheduleCoordinatorWatchdogTests
         private readonly CancellationTokenSource _stopped = new();
 
         public bool StopRequested { get; private set; }
+        public int? ExitCodeAtStop { get; private set; }
 
         public CancellationToken ApplicationStarted => _started.Token;
         public CancellationToken ApplicationStopping => _stopping.Token;
         public CancellationToken ApplicationStopped => _stopped.Token;
 
-        public void StopApplication() => StopRequested = true;
+        public void StopApplication()
+        {
+            ExitCodeAtStop = Environment.ExitCode;
+            StopRequested = true;
+            _stopping.Cancel();
+        }
     }
 }

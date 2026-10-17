@@ -87,6 +87,9 @@ jobs:
         dotnet build src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj --configuration Release --no-restore
         dotnet build src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
 
+    - name: Verify startup schemas and watchdog process exits
+      run: python3 scripts/test-lifecycle.py --configuration Release --no-build
+
     - name: Run BotDetection unit tests
       run: |
         dotnet test src/Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj \

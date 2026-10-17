@@ -248,6 +248,7 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Identity.SqlitePoolCollisionStore>();
         services.TryAddSingleton<Identity.IFingerprintPoolCollisionTracker>(
             sp => sp.GetRequiredService<Identity.SqlitePoolCollisionStore>());
+        services.AddHostedService<Storage.StoreInitService<Identity.SqlitePoolCollisionStore>>();
         // Browser-mode resolver: centroid classifier is the FOSS default.
         // CachingBrowserModeResolver wraps a BrowserModeRegistry (not this
         // resolver); it's registered separately by hosts that want the
@@ -319,6 +320,7 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         services.TryAddSingleton<Orchestration.Atoms.WaveformHistoryStore>();
         services.TryAddSingleton<Orchestration.Atoms.IWaveformHistoryStore>(
             sp => sp.GetRequiredService<Orchestration.Atoms.WaveformHistoryStore>());
+        services.AddHostedService<Storage.StoreInitService<Orchestration.Atoms.WaveformHistoryStore>>();
         // Detectors (internal helpers — injected by atoms that wrap them).
         // Three atoms need real DI-backed dependencies that can't be null'd:
         // BehavioralAtom needs IMemoryCache, VersionAgeAtom needs IBrowserVersionService,

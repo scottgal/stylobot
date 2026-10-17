@@ -1490,7 +1490,8 @@ finally
     await Log.CloseAndFlushAsync();
 }
 
-return 0;
+// Preserve failure requested by hosted services (for example the schedule watchdog).
+return Environment.ExitCode;
 
 // Hashes a password for StyloBot:Dashboard:Auth:PasswordHash. The hash goes to
 // stdout (pipeable); prompts/guidance go to stderr so `... hash-password > out` is clean.

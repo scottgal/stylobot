@@ -1,8 +1,12 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Orchestration.Atoms;
+using Mostlylucid.BotDetection.Storage;
 
 namespace Mostlylucid.BotDetection.Test.Orchestration;
 
@@ -140,6 +144,47 @@ public class WaveformHistoryStoreColdLoadTests : IAsyncLifetime
         SqliteConnection.ClearAllPools();
         try { Directory.Delete(_dbDir, recursive: true); } catch { /* best effort */ }
         return Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task HostStartup_CreatesWaveformTable_ThroughRegisteredInitializer()
+    {
+        using var host = new HostBuilder()
+            .ConfigureServices(services =>
+            {
+                services.AddBotDetection(options => options.DatabasePath = _opts.DatabasePath);
+
+                // Exercise the production registration and host startup without
+                // starting unrelated detectors, downloads, and cadence loops.
+                var initializer = Assert.Single(services, descriptor =>
+                    descriptor.ServiceType == typeof(IHostedService) &&
+                    descriptor.ImplementationType == typeof(StoreInitService<WaveformHistoryStore>));
+                foreach (var service in services.Where(descriptor =>
+                             descriptor.ServiceType == typeof(IHostedService) && descriptor != initializer).ToArray())
+                    services.Remove(service);
+            })
+            .Build();
+
+        await host.StartAsync();
+        try
+        {
+            Assert.Same(host.Services.GetRequiredService<WaveformHistoryStore>(),
+                host.Services.GetRequiredService<IWaveformHistoryStore>());
+
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(_dbDir, "waveform_history.db"),
+                Mode = SqliteOpenMode.ReadOnly
+            }.ToString());
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM waveform_history";
+            Assert.Equal(0L, await command.ExecuteScalarAsync());
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
     }
 
     [Fact]

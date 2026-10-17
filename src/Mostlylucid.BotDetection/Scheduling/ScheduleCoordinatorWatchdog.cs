@@ -25,7 +25,8 @@ namespace Mostlylucid.BotDetection.Scheduling;
 ///         <see cref="ScheduleCoordinatorOptions.WatchdogCheckInterval"/> it
 ///         walks each observed cadence and checks "is last tick older than
 ///         <c>period * StalenessMultiplier</c>?" If so, it logs a critical
-///         event and calls <see cref="IHostApplicationLifetime.StopApplication"/>.
+///         event, sets a failure exit code, and calls
+///         <see cref="IHostApplicationLifetime.StopApplication"/>.
 ///     </para>
 ///     <para>
 ///         <b>Tick1s is intentionally excluded</b> from the watch list. Its
@@ -34,6 +35,7 @@ namespace Mostlylucid.BotDetection.Scheduling;
 ///         healthy host. The four observed cadences (Tick10s, Tick1m, Tick5m,
 ///         Tick1h) provide enough coverage to detect a stuck coordinator: if
 ///         any one of them silently stops, the per-cadence loop has crashed.
+///         Cadences explicitly disabled in the scheduling options are excluded.
 ///     </para>
 ///     <para>
 ///         All thresholds are on <see cref="ScheduleCoordinatorOptions"/>
@@ -58,6 +60,7 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
     private readonly TimeProvider _timeProvider;
     private readonly ScheduleCoordinatorOptions _options;
     private readonly ILogger<ScheduleCoordinatorWatchdog> _logger;
+    private readonly (TickCadence Cadence, TimeSpan Period)[] _watchedCadences;
 
     private readonly Dictionary<TickCadence, long> _lastTickUtcTicks = new();
     private readonly List<IDisposable> _subscriptions = new();
@@ -83,6 +86,14 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
         _options = options.Value ?? new ScheduleCoordinatorOptions();
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _watchedCadences = WatchedCadences.Where(entry => entry.Cadence switch
+        {
+            TickCadence.Tick10s => _options.EnableTick10s,
+            TickCadence.Tick1m => _options.EnableTick1m,
+            TickCadence.Tick5m => _options.EnableTick5m,
+            TickCadence.Tick1h => _options.EnableTick1h,
+            _ => false
+        }).ToArray();
 
         // Subscribe at construction (canonical Wave 1 shape) so tests that
         // call EvaluateOnce directly see the captured handlers without having
@@ -105,7 +116,7 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
 
         _logger.LogInformation(
             "ScheduleCoordinatorWatchdog: monitoring cadences {Cadences} at interval={Interval}, staleness={Multiplier}x, startupGrace={Grace}",
-            string.Join(",", WatchedCadences.Select(c => c.Cadence)),
+            string.Join(",", _watchedCadences.Select(c => c.Cadence)),
             _options.WatchdogCheckInterval,
             _options.WatchdogStalenessMultiplier,
             _options.WatchdogStartupGrace);
@@ -136,6 +147,8 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
     /// </summary>
     internal void EvaluateOnce(DateTimeOffset now)
     {
+        if (!_options.EnableWatchdog || _lifetime.ApplicationStopping.IsCancellationRequested) return;
+
         var startedAt = Volatile.Read(ref _startedAtUtcTicks);
         if (startedAt == 0)
         {
@@ -149,7 +162,7 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
         var startupGraceUntil = new DateTimeOffset(startedAt, TimeSpan.Zero) + _options.WatchdogStartupGrace;
         if (now < startupGraceUntil) return;
 
-        foreach (var (cadence, period) in WatchedCadences)
+        foreach (var (cadence, period) in _watchedCadences)
         {
             var threshold = TimeSpan.FromTicks((long)(period.Ticks * _options.WatchdogStalenessMultiplier));
             long lastTicks;
@@ -169,15 +182,23 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
                 _logger.LogCritical(
                     "ScheduleCoordinatorWatchdog: cadence {Cadence} silent for {Elapsed} (>{Threshold}); forcing process exit so the supervisor can restart.",
                     cadence, sinceLast, threshold);
-                _lifetime.StopApplication();
+                StopWithFailure();
                 return; // one stop is enough; don't log per-cadence ftl spam
             }
         }
 
         if (TryDetectFaultStorm())
         {
-            _lifetime.StopApplication();
+            StopWithFailure();
         }
+    }
+
+    private void StopWithFailure()
+    {
+        // StopApplication alone is a successful shutdown to on-failure supervisors.
+        // Set this first: shutdown callbacks may immediately finish the host.
+        Environment.ExitCode = 1;
+        _lifetime.StopApplication();
     }
 
     /// <summary>
@@ -197,7 +218,7 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
         var threshold = _options.WatchdogFaultStormThreshold;
         if (threshold <= 0) return false;
 
-        var watched = WatchedCadences.Select(c => c.Cadence).ToHashSet();
+        var watched = _watchedCadences.Select(c => c.Cadence).ToHashSet();
         var storm = false;
         lock (_lastFaultCounts)
         {
@@ -225,7 +246,7 @@ internal sealed class ScheduleCoordinatorWatchdog : BackgroundService
 
     private void SubscribeToWatchedCadences()
     {
-        foreach (var (cadence, _) in WatchedCadences)
+        foreach (var (cadence, _) in _watchedCadences)
         {
             var captured = cadence;
             var handle = _coordinator.Subscribe(

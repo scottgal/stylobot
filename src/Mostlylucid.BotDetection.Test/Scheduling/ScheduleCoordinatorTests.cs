@@ -309,6 +309,45 @@ public sealed class ScheduleCoordinatorTests
 
     // ---- Detached cadence: hung subscriber must NOT stall siblings ----------
 
+    [Theory]
+    [InlineData(int.MaxValue)]
+    [InlineData(2)]
+    public async Task Synchronously_blocked_subscriber_does_not_block_tick_dispatch_or_siblings(int concurrencyLimit)
+    {
+        var (coord, _) = Build(new ScheduleCoordinatorOptions { MaxConcurrentSubscribersPerTick = concurrencyLimit });
+        await using var cleanup = coord;
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sibling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        coord.Subscribe(TickCadence.Tick10s, "synchronous-blocker", CostHint.High, (_, ct) =>
+        {
+            entered.TrySetResult();
+            release.Wait(ct);
+            return Task.CompletedTask;
+        });
+        coord.Subscribe(TickCadence.Tick10s, "heartbeat", CostHint.Low, (_, _) =>
+        {
+            sibling.TrySetResult();
+            return Task.CompletedTask;
+        });
+        // A third subscriber exercises the bounded fan-out path when the limit is two.
+        coord.Subscribe(TickCadence.Tick10s, "other", CostHint.Low, (_, _) => Task.CompletedTask);
+
+        var dispatch = Task.Run(() => coord.TickOnceDetached(TickCadence.Tick10s));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await dispatch.WaitAsync(TimeSpan.FromSeconds(3));
+            await sibling.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            release.Set();
+            await dispatch.WaitAsync(TimeSpan.FromSeconds(3));
+            await sibling.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+    }
+
     [Fact]
     public async Task TickOnceDetached_returns_synchronously_even_when_a_subscriber_hangs()
     {
@@ -322,10 +361,15 @@ public sealed class ScheduleCoordinatorTests
         var (coord, _) = Build();
 
         var parked = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         coord.Subscribe(TickCadence.Tick10s, "hangs-forever", CostHint.Low, async (_, _) =>
         {
+            entered.TrySetResult();
             await parked.Task; // never released for the duration of the test
         });
+
+        coord.TickOnceDetached(TickCadence.Tick10s);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
 
         int siblingHits = 0;
         coord.Subscribe(TickCadence.Tick10s, "sibling-counter", CostHint.Low, (_, _) =>
@@ -334,21 +378,11 @@ public sealed class ScheduleCoordinatorTests
             return Task.CompletedTask;
         });
 
-        // Fire 5 ticks via the production-shape detached path. The pre-fix
-        // production code would have awaited FireTickAsync -> Task.WhenAll
-        // and hung on tick 1; the post-fix production code (and this test
-        // hook) discards the returned Task and returns immediately.
-        coord.TickOnceDetached(TickCadence.Tick10s);
-        coord.TickOnceDetached(TickCadence.Tick10s);
-        coord.TickOnceDetached(TickCadence.Tick10s);
-        coord.TickOnceDetached(TickCadence.Tick10s);
-        coord.TickOnceDetached(TickCadence.Tick10s);
-
-        // The sibling counter handler completes synchronously, so by the time
-        // each TickOnceDetached call returns, the sibling for THAT tick has
-        // already executed. Five ticks => five hits. WaitFor handles the
-        // hand-off scheduling delay.
-        await WaitFor(() => Volatile.Read(ref siblingHits) >= 5, timeoutMs: 2000);
+        // Advance ticks only after each fast sibling completes. Pumping five
+        // ticks back-to-back without awaiting worker dispatch would legitimately
+        // skip even the fast subscriber under the single-flight contract.
+        for (var tick = 0; tick < 5; tick++)
+            await coord.TickOnceAsync(TickCadence.Tick10s).WaitAsync(TimeSpan.FromSeconds(3));
         siblingHits.Should().Be(5,
             "the production cadence loop must not await FireTickAsync, so a hung " +
             "subscriber on one tick cannot starve a fast sibling on the next tick");
@@ -374,6 +408,9 @@ public sealed class ScheduleCoordinatorTests
             await parked.Task;
         });
 
+        coord.TickOnceDetached(TickCadence.Tick10s);
+        await WaitFor(() => Volatile.Read(ref slowEntries) == 1);
+
         int fastHits = 0;
         coord.Subscribe(TickCadence.Tick10s, "fast", CostHint.Low, (_, _) =>
         {
@@ -381,13 +418,11 @@ public sealed class ScheduleCoordinatorTests
             return Task.CompletedTask;
         });
 
-        for (var i = 0; i < 4; i++) coord.TickOnceDetached(TickCadence.Tick10s);
-
-        await WaitFor(() => Volatile.Read(ref fastHits) >= 4, timeoutMs: 2000);
+        for (var i = 0; i < 4; i++)
+            await coord.TickOnceAsync(TickCadence.Tick10s).WaitAsync(TimeSpan.FromSeconds(3));
 
         // slow ran once and is parked; the BusyFlag rejects the remaining
-        // three invocations. fast ran four times because it returns
-        // synchronously and never trips its own BusyFlag.
+        // four invocations. Each fast invocation completes before the next tick.
         slowEntries.Should().Be(1, "BusyFlag CAS must reject re-entry while the previous invocation is still running");
         fastHits.Should().Be(4, "the fast subscriber must not be starved by the slow one");
 
