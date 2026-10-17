@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.15.0] - 2026-10-17
+
+- **Dependency maintenance (#125, #128, #129, #132):** update MessagePack to 3.1.12, update SignalR.Client to 10.0.13 and pin patched System.Security.Cryptography.Pkcs 10.0.13 and Microsoft.OpenApi.Readers 1.6.30, upgrade Caddy to 2.11.7 with its compatible CEL 0.32.0 dependency, and refresh Node gRPC/URI/proxy dependencies and lockfiles. Supersedes the older MessagePack proposal in #131. CEL 0.29.0 alone does not compile with Caddy 2.11.4; update the parent dependency rather than shipping that incompatible pair.
+- Add Node SDK build/test and Caddy test jobs to CI so dependency PRs exercise their actual SDKs. Skip workspaces without build scripts in the Node aggregate build command.
+
 - Extract dashboard persistence and read services into `Mostlylucid.BotDetection.Dashboard.Data`, with transport DTOs in `Mostlylucid.BotDetection.Dashboard.Contracts`. API-only hosts no longer depend on the Razor UI package. Existing public UI types are forwarded for compatibility, and schema resource names remain stable.
 - Add an opt-in API-backed Traffic page (`UseApiTraffic`): one authenticated read supplies summary, timeline and recent detections; MVC renders HTML, HTMX swaps it, and Alpine controls filter visibility. Existing pages remain the default. Empty data, unavailable sources and stale refreshes have distinct states; errors log correlation references without exposing source credentials to browsers.
 - Fix SQLite domain filtering in detection and threat reads, and align the pilot's detail window with the summary's exclusive end. Add real SQLite/API/MVC integration tests, transport failure and cancellation checks, package-boundary guards and a dashboard outage harness exercised by a separate browser CI job.

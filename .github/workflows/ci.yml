@@ -229,3 +229,34 @@ jobs:
           /tmp/dashboard-harness.log
           .playwright-cli/
         retention-days: 7
+
+  node-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sdk/node
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: sdk/node/package-lock.json
+    - run: npm ci
+    - run: npm run build
+    - run: npm test
+
+  caddy-sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sdk/caddy
+    steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+    - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      with:
+        go-version-file: sdk/caddy/go.mod
+        cache-dependency-path: sdk/caddy/go.sum
+    - run: go test ./...

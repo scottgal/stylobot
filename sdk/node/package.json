@@ -7,7 +7,7 @@
     "samples/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "clean": "rm -rf packages/*/dist"
   },

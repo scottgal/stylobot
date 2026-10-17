@@ -25,7 +25,7 @@ The StyloBot sidecar exposes both gRPC and REST detection endpoints. The Caddy m
 
 ## Prerequisites
 
-- Go 1.22 or later (to build with xcaddy)
+- Go 1.26.2 or later (to build with xcaddy)
 - [xcaddy](https://github.com/caddyserver/xcaddy): `go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest`
 - StyloBot sidecar running (see "Quick start" below)
 

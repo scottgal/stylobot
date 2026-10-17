@@ -1,3 +1,12 @@
+8.15.0 - 2026-10-17
+
+- Update MessagePack to 3.1.12 and update SignalR.Client to 10.0.13 and pin patched PKCS/OpenAPI reader dependencies.
+- Refresh Node gRPC, URI/proxy dependencies and Caddy 2.11.7 / CEL 0.32.0 (#125, #128, #129, #132).
+- Extract dashboard persistence/read services and transport contracts so API-only consumers no longer ship Razor UI.
+- Add the opt-in API-backed Traffic pilot using MVC, HTMX and Alpine, with explicit empty/unavailable/stale states and useful trace logs.
+- Fix domain-filtered SQLite reads and add API/MVC, package, native archive and browser outage regression gates.
+- Preserve existing UI public types through assembly forwarding; the existing dashboard remains the default.
+
 8.14.2 - 2026-10-17
 
 - Preserve all YAML formatters under Native AOT, including fetch-source defaults, registry/webhook archetypes, browser-mode seeds, and site thresholds.
