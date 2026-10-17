@@ -37,6 +37,7 @@
 
     <ItemGroup>
         <!-- MockLLMApi for LLM-powered fake responses -->
+        <PackageReference Include="Microsoft.OpenApi.Readers" Version="1.6.30" />
         <PackageReference Include="mostlylucid.mockllmapi" Version="2.6.0" />
     </ItemGroup>
 
