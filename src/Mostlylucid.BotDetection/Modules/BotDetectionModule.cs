@@ -260,7 +260,7 @@ public sealed class BotDetectionModule : IStyloflowWebModule
         // HttpContextAccessor drives ~30 atoms that read Request.Path/Headers
         // during DetectAsync. Idempotent — safe to add here even if the host
         // already registered it.
-        services.AddHttpContextAccessor();
+        DetectionHttpContextAccessor.Register(services);
 
         // Identity subsystem primitives.
         services.TryAddSingleton<Identity.IdentityVectorLayout>(_ => Identity.IdentityVectorLayout.DefaultV1());

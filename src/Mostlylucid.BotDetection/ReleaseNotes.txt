@@ -1,3 +1,17 @@
+8.14.1 - 2026-10-17
+
+Reliability fixes for ASP.NET Core package consumers and hosted gateways:
+
+- Restore startup schema initialization for waveform history and pool collisions (#130).
+- Preserve nonzero watchdog exit statuses through console/sidecar shutdown (#127).
+- Exclude disabled cadences from watchdog checks; keep synchronous subscribers off cadence loops.
+- Register API read stores/caches, isolate synthetic single/batch requests, and honor Classification.BotFloor.
+- Await asynchronous session-finalization callbacks before closing the persistence channel.
+- Log durable-read outages at Warning with suppression/recovery; restart failed persistence workers with Error diagnostics.
+- Preserve requested startup/read cancellation and count unexpected subscriber cancellation as a fault.
+- Add published ASP.NET Core package consumer and process-lifecycle regression harnesses to CI.
+- Exclude Finder metadata from packaged static assets and update MessagePack to patched 3.1.9.
+
 6.5.0
 
 Remote-mode dashboard + new binaries:

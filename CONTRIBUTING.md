@@ -85,6 +85,12 @@ The scheduling regressions cover synchronous subscriber blocking under both
 bounded and unbounded fan-out, single-flight dispatch, disabled cadence monitoring,
 and normal shutdown; the storage regressions verify startup cancellation propagation.
 
+The default unit suite also runs `NuGetDependencyIntegrityTests`: it builds and packs
+the publish closure at a fresh test version, restores and publishes three separate
+ASP.NET Core consumers (core, API, and dashboard), then runs HTTP, startup-failure,
+static-asset, and shutdown checks against their published output. These consumers
+use package references and exercise the installed artifacts without project references.
+
 ## Reporting Issues
 
 Open an issue on [GitHub](https://github.com/scottgal/stylobot/issues). Include:

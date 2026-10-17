@@ -2,6 +2,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Bridge;
 using Mostlylucid.BotDetection.Api.Models;
@@ -26,17 +29,22 @@ public static class DetectEndpoints
 
     private static async Task<Ok<DetectResponse>> HandleDetect(
         DetectRequest request,
-        BotDetectionOrchestrator orchestrator,
+        IServiceScopeFactory scopes,
+        IOptions<BotDetectionOptions> options,
         CancellationToken cancellationToken)
     {
+        await using var scope = scopes.CreateAsyncScope();
+        var orchestrator = scope.ServiceProvider.GetRequiredService<BotDetectionOrchestrator>();
         var httpContext = SyntheticHttpContext.FromDetectRequest(request);
+        httpContext.RequestServices = scope.ServiceProvider;
         var evidence = await orchestrator.DetectAsync(httpContext, cancellationToken);
-        return TypedResults.Ok(DetectResponse.FromEvidence(evidence));
+        return TypedResults.Ok(DetectResponse.FromEvidence(evidence, options.Value.Classification.BotFloor));
     }
 
     private static async Task<Results<Ok<DetectResponse[]>, BadRequestProblemHttpResult>> HandleDetectBatch(
         DetectRequest[] requests,
-        BotDetectionOrchestrator orchestrator,
+        IServiceScopeFactory scopes,
+        IOptions<BotDetectionOptions> options,
         StyloBotApiOptions apiOptions,
         CancellationToken cancellationToken)
     {
@@ -51,9 +59,14 @@ public static class DetectEndpoints
         var responses = new DetectResponse[requests.Length];
         for (var i = 0; i < requests.Length; i++)
         {
+            // Each synthetic request owns a fresh signal sink; neither the
+            // outer API caller nor a previous batch item may seed its verdict.
+            await using var scope = scopes.CreateAsyncScope();
+            var orchestrator = scope.ServiceProvider.GetRequiredService<BotDetectionOrchestrator>();
             var httpContext = SyntheticHttpContext.FromDetectRequest(requests[i]);
+            httpContext.RequestServices = scope.ServiceProvider;
             var evidence = await orchestrator.DetectAsync(httpContext, cancellationToken);
-            responses[i] = DetectResponse.FromEvidence(evidence);
+            responses[i] = DetectResponse.FromEvidence(evidence, options.Value.Classification.BotFloor);
         }
 
         return TypedResults.Ok(responses);

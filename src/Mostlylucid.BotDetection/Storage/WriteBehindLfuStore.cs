@@ -65,6 +65,7 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
     private readonly int _batchMaxSize;
     private readonly TimeSpan _drainInterval;
     private long _writes;
+    private int _coldReadFailureReported;
 
     /// <param name="maxEntries">LFU eviction threshold for the hot tier. Once
     ///     the dict exceeds this by ~10% the coldest entries are evicted in
@@ -124,11 +125,19 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
         if (_entries.TryGetValue(key, out var hot)) return hot;
         TValue? cold;
         try { cold = await LoadFromDurableTierAsync(key, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "{Store} cold load failed for {Key}", GetType().Name, key);
+            // A database outage must be visible at the host's normal log level,
+            // without leaking keys or flooding the log on every cache miss.
+            if (Interlocked.Exchange(ref _coldReadFailureReported, 1) == 0)
+                _logger.LogWarning(ex,
+                    "{Store} durable read failed; treating the read as a cache miss. Check database availability, permissions, and schema. Further read failures are suppressed until a successful durable read.",
+                    GetType().Name);
             return null;
         }
+        if (Interlocked.Exchange(ref _coldReadFailureReported, 0) != 0)
+            _logger.LogInformation("{Store} durable reads recovered", GetType().Name);
         if (cold is null) return null;
         // Cache-aside populate: if someone else won the race they already
         // have a fresh value; keep it. Otherwise install ours.
@@ -244,8 +253,30 @@ public abstract class WriteBehindLfuStore<TKey, TValue, TWriteOp> : IDisposable
         foreach (var k in coldest) _entries.TryRemove(k, out _);
     }
 
-    private Task DrainLoopAsync() =>
-        UseBehaviouralSampleDrain ? SampleDrainLoopAsync() : OpReplayDrainLoopAsync();
+    private async Task DrainLoopAsync()
+    {
+        var ct = _shutdownCts.Token;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                if (UseBehaviouralSampleDrain) await SampleDrainLoopAsync();
+                else await OpReplayDrainLoopAsync();
+                return;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex)
+            {
+                // Failures outside the batch-persist catch (for example an
+                // adaptive-cap provider) must not silently kill persistence.
+                _logger.LogError(ex,
+                    "{Store} persistence worker failed unexpectedly; restarting after {RetryDelay}",
+                    GetType().Name, _drainInterval);
+            }
+            try { await Task.Delay(_drainInterval, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+        }
+    }
 
     /// <summary>
     ///     Behavioural-sample drainer (Gap A). Each cycle: pull the dirty keys,

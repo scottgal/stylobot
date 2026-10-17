@@ -71,7 +71,9 @@
     <ItemGroup>
         <!-- Include wwwroot files as static web assets for Razor Class Library.
              EnableDefaultContentItems=false means Update has nothing to match; must use Include. -->
-        <Content Include="wwwroot\**\*">
+        <!-- Finder metadata is excluded from nupkg payloads by NuGet. Exclude it
+             here too so static-web-asset manifests never reference missing files. -->
+        <Content Include="wwwroot\**\*" Exclude="wwwroot\**\.DS_Store;wwwroot\**\._*">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
         </Content>

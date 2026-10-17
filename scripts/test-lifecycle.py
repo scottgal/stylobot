@@ -20,7 +20,7 @@ def main():
         tests = [
             "dotnet", "test", "src/Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj",
             "--configuration", args.configuration, "--no-restore",
-            "--filter", "FullyQualifiedName~Scheduling|FullyQualifiedName~Storage|FullyQualifiedName~WaveformHistoryStore|FullyQualifiedName~SqlitePoolCollisionStore|FullyQualifiedName~CentroidWriteBehindStore",
+            "--filter", "FullyQualifiedName~Scheduling|FullyQualifiedName~Storage|FullyQualifiedName~WaveformHistoryStore|FullyQualifiedName~SqlitePoolCollisionStore|FullyQualifiedName~CentroidWriteBehindStore|FullyQualifiedName~SessionPersistenceServiceTickTests|FullyQualifiedName~DetectionHttpContextAccessorTests|FullyQualifiedName~DetectResponseClassificationTests",
             "--logger", "trx;LogFileName=lifecycle.trx", "--results-directory", str(work),
             "--verbosity", "quiet",
         ]

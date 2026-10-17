@@ -24,14 +24,16 @@ namespace Mostlylucid.BotDetection.Test.Packaging;
 ///         </list>
 ///     </para>
 ///     <para>
-///         Slow by design (~1-2 min: three <c>dotnet pack</c> calls) and deliberately kept in
+///         Slow by design (build and pack the publish closure, then publish and run three consumers) and deliberately kept in
 ///         the default CI gate so a future dependency-graph regression fails the build the
 ///         day it is introduced, not at the next release.
 ///     </para>
 /// </summary>
 public sealed class NuGetDependencyIntegrityTests
 {
-    private const string TestVersion = "9.9.9-test";
+    // A fixed version can restore an OLD first-party package from the global
+    // NuGet cache instead of the artifacts just packed by this test.
+    private static readonly string TestVersion = "9.9.9-test.g" + Guid.NewGuid().ToString("N");
 
     /// <summary>
     ///     Pack the SAME configuration this test assembly was built in (2026-09-12).
@@ -119,7 +121,7 @@ public sealed class NuGetDependencyIntegrityTests
         => FindNupkg(packDir, packageId) is not null;
 
     [Fact]
-    public async Task Ui_nuspec_declares_only_present_packs_and_never_prometheus()
+    public async Task Packed_packages_restore_publish_and_run_ASPNET_consumers()
     {
         var repoRoot = FindRepoRoot();
         var packDir = Path.Combine(Path.GetTempPath(), "sb-pack-" + Guid.NewGuid().ToString("N"));
@@ -193,6 +195,7 @@ public sealed class NuGetDependencyIntegrityTests
             // (NU1101 at restore, and the contentFiles CS0122/CS0117 at consumer build) against
             // the real packed artifact. The Api consumer specifically guards the Api ->
             // Llm.Tunnel dangling dep (8.12.0): it fails to restore if Llm.Tunnel isn't there.
+            await BuildConsumerAppAsync(packDir, "mostlylucid.botdetection");
             await BuildConsumerAppAsync(packDir, "Mostlylucid.BotDetection.UI");
             await BuildConsumerAppAsync(packDir, "Mostlylucid.BotDetection.Api");
         }
@@ -212,93 +215,196 @@ public sealed class NuGetDependencyIntegrityTests
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        psi.ArgumentList.Add("pack");
-        psi.ArgumentList.Add(csproj);
-        psi.ArgumentList.Add("-c");
-        psi.ArgumentList.Add(PackConfiguration);
-        psi.ArgumentList.Add("--no-restore");
-        psi.ArgumentList.Add("-v:minimal"); // keep the build output bounded
-        // MinVerSkip: without it MinVer computes its own version from the git
-        // tags and the nupkg lands at an unrelated version, breaking the
-        // exact-version co-existence assertions.
-        psi.ArgumentList.Add("-p:MinVerSkip=true");
-        psi.ArgumentList.Add("-p:Version=" + TestVersion);
-        // Disable MSBuild node reuse + shared compilation + Razor build server:
-        // this test shells a build from INSIDE a parallel xUnit suite, and a
-        // persistent MSBuild/compiler node deadlocks against the testhost's own
-        // build context (observed: the suite froze with idle MSBuild nodes).
-        psi.ArgumentList.Add("/nodeReuse:false");
-        psi.ArgumentList.Add("-p:UseSharedCompilation=false");
-        psi.ArgumentList.Add("-p:UseRazorBuildServer=false");
+        foreach (var argument in new[]
+                 {
+                     "build", csproj, "-c", PackConfiguration, "--no-restore", "-v:minimal",
+                     "-p:MinVerSkip=true", "-p:Version=" + TestVersion,
+                     "/nodeReuse:false", "-p:UseSharedCompilation=false", "-p:UseRazorBuildServer=false"
+                 })
+            psi.ArgumentList.Add(argument);
+
+        // GeneratePackageOnBuild=true makes dotnet pack default to NoBuild.
+        // Explicitly build EVERY package at the test version first, or core's
+        // nupkg can contain an old assembly while UI references the new version.
+        await RunDotnetAsync(psi, "package build " + Path.GetFileName(csproj));
+        psi.ArgumentList[0] = "pack";
+        psi.ArgumentList.Add("--no-build");
         psi.ArgumentList.Add("-o");
         psi.ArgumentList.Add(outputDir);
-
-        using var process = Process.Start(psi)!;
-
-        // Drain BOTH pipes CONCURRENTLY. A chatty build (the UI RCL emits hundreds
-        // of analyzer warnings) fills a pipe the moment it exceeds the buffer while
-        // the other stream is being read to EOF, deadlocking ReadToEndAsync. Reading
-        // both at once keeps the child unblocked.
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(150));
-        try
-        {
-            await process.WaitForExitAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            try { process.Kill(entireProcessTree: true); }
-            catch { /* best-effort kill */ }
-            throw new InvalidOperationException(
-                $"dotnet pack {Path.GetFileName(csproj)} timed out after 150 seconds.");
-        }
-
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        process.ExitCode.Should().Be(0,
-            $"dotnet pack {Path.GetFileName(csproj)} failed:\n{stdout}\n{stderr}");
+        await RunDotnetAsync(psi, "package pack " + Path.GetFileName(csproj));
     }
 
     /// <summary>
     ///     Create a throwaway ASP.NET Core consumer referencing ONLY the given package from the
-    ///     pack feed and BUILD it. Restore + build both must succeed -- restore catches the
+    ///     pack feed, then publish and RUN it. Restore + publish + HTTP smoke checks must succeed -- restore catches the
     ///     NU1101 class (missing first-party deps, e.g. the Api -> Llm.Tunnel dangling dep), and
     ///     the build catches the contentFiles class (consumer Razor recompile failing on internal
     ///     members). This is the customer experience, end to end, against the real packed artifacts.
     /// </summary>
     private static async Task BuildConsumerAppAsync(string feedDir, string packageId)
     {
-        // The consumer Program.cs exercises each package's real entry point so the compile is a
-        // faithful customer usage, not just a package reference.
-        var entry = packageId switch
+        var packageImports = packageId switch
+        {
+            "Mostlylucid.BotDetection.Api" => "using Mostlylucid.BotDetection.Api;",
+            "Mostlylucid.BotDetection.UI" => "using Mostlylucid.BotDetection.UI.Extensions;",
+            _ => ""
+        };
+        var registration = packageId switch
         {
             "Mostlylucid.BotDetection.Api" => """
-                using Mostlylucid.BotDetection.Api;
-                using Mostlylucid.BotDetection.Extensions;
-                using Mostlylucid.BotDetection.Middleware;
-                var builder = WebApplication.CreateBuilder(args);
                 builder.Services.AddBotDetection();
                 builder.Services.AddStyloBotApi(options => options.InjectResponseHeaders = true);
-                var app = builder.Build();
-                app.UseRouting();
-                app.UseBotDetection();
-                app.MapGet("/", () => "ok");
-                app.Run();
+                builder.Configuration["BotDetection:Classification:BotFloor"] = "0.95";
                 """,
-            _ => """
-                using Mostlylucid.BotDetection.UI.Extensions;
-                var builder = WebApplication.CreateBuilder(args);
-                builder.Services.AddStyloBot(d => { d.AllowUnauthenticatedAccess = true; d.RequireAuthentication = false; });
-                var app = builder.Build();
-                app.UseRouting();
-                app.UseStyloBot();
-                app.MapGet("/", () => "ok");
-                app.Run();
+            "Mostlylucid.BotDetection.UI" => """
+                builder.Services.AddStyloBot(d => {
+                    d.AllowUnauthenticatedAccess = true;
+                    d.RequireAuthentication = false;
+                    d.BasePath = "/_stylobot";
+                });
                 """,
+            _ => "builder.Services.AddBotDetection();"
         };
+        var middleware = packageId switch
+        {
+            "Mostlylucid.BotDetection.Api" => """
+                app.UseAuthentication();
+                app.UseAuthorization();
+                app.UseBotDetection();
+                app.MapStyloBotApi();
+                """,
+            "Mostlylucid.BotDetection.UI" => "app.UseStyloBot();",
+            _ => "app.UseBotDetection();"
+        };
+        var packageChecks = packageId switch
+        {
+            "Mostlylucid.BotDetection.Api" => """
+                using var anonymous = await client.GetAsync("/api/v1/summary");
+                if (anonymous.StatusCode != System.Net.HttpStatusCode.Unauthorized)
+                    throw new Exception($"Anonymous API request returned {anonymous.StatusCode}, expected 401");
+                client.DefaultRequestHeaders.Add("X-SB-Api-Key", "package-smoke");
+                using var authenticated = await client.GetAsync("/api/v1/summary");
+                authenticated.EnsureSuccessStatusCode();
+                foreach (var path in new[] { "/api/v1/detections", "/api/v1/signatures", "/api/v1/timeseries", "/api/v1/countries", "/api/v1/endpoints", "/api/v1/topbots" })
+                {
+                    using var read = await client.GetAsync(path);
+                    read.EnsureSuccessStatusCode();
+                }
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("PackageTransport/1.0");
+                var curl = new { method = "GET", path = "/target", remoteIp = "203.0.113.17", headers = new Dictionary<string, string> { ["User-Agent"] = "curl/8.0" } };
+                var sqlmap = new { method = "GET", path = "/target", remoteIp = "203.0.113.18", headers = new Dictionary<string, string> { ["User-Agent"] = "sqlmap/1.8" } };
+                void VerifyVerdict(JsonElement response, string target)
+                {
+                    var reasons = response.GetProperty("reasons").ToString();
+                    if (!reasons.Contains(target, StringComparison.OrdinalIgnoreCase))
+                        throw new Exception($"Synthetic {target} request was not analyzed: {response}");
+                    var verdict = response.GetProperty("verdict");
+                    if (verdict.GetProperty("isBot").GetBoolean() != (verdict.GetProperty("botProbability").GetDouble() >= 0.95))
+                        throw new Exception("API verdict ignored Classification.BotFloor");
+                }
+                using var detect = await client.PostAsJsonAsync("/api/v1/detect", curl);
+                detect.EnsureSuccessStatusCode();
+                VerifyVerdict(await detect.Content.ReadFromJsonAsync<JsonElement>(), "curl");
+                using var batch = await client.PostAsJsonAsync("/api/v1/detect/batch", new[] { curl, sqlmap });
+                batch.EnsureSuccessStatusCode();
+                var batchResult = await batch.Content.ReadFromJsonAsync<JsonElement>();
+                VerifyVerdict(batchResult[0], "curl");
+                VerifyVerdict(batchResult[1], "sqlmap");
+                """,
+            "Mostlylucid.BotDetection.UI" => """
+                using var page = await client.GetAsync("/_stylobot/dashboard/traffic");
+                page.EnsureSuccessStatusCode();
+                var html = await page.Content.ReadAsStringAsync();
+                if (!html.Contains("<html", StringComparison.OrdinalIgnoreCase))
+                    throw new Exception("Dashboard did not render HTML");
+                using var script = await client.GetAsync("/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js");
+                script.EnsureSuccessStatusCode();
+                if ((await script.Content.ReadAsStringAsync()).Length < 1000)
+                    throw new Exception("Dashboard's packaged static asset is missing or empty");
+                """,
+            _ => ""
+        };
+        var entry = $$"""
+            using Microsoft.AspNetCore.Hosting.Server;
+            using Microsoft.AspNetCore.Hosting.Server.Features;
+            using Microsoft.Data.Sqlite;
+            using System.Net.Http.Json;
+            using System.Collections.Concurrent;
+            using System.Text.Json;
+            using Mostlylucid.BotDetection.Extensions;
+            using Mostlylucid.BotDetection.Middleware;
+            {{packageImports}}
+            var builder = WebApplication.CreateBuilder(args);
+            var diagnostics = new ConsumerLogProvider();
+            builder.Logging.AddProvider(diagnostics);
+            builder.WebHost.UseUrls("http://127.0.0.1:0");
+            var data = Path.Combine(builder.Environment.ContentRootPath, "data");
+            builder.Configuration["BotDetection:DatabasePath"] = Path.Combine(data, "botdetection.db");
+            builder.Configuration["BotDetection:ApiKeys:package-smoke:Name"] = "Package consumer smoke";
+            {{registration}}
+            if (args.Contains("--invalid-database-path"))
+                builder.Services.PostConfigure<Mostlylucid.BotDetection.Models.BotDetectionOptions>(options => options.DatabasePath = null);
+            await using var app = builder.Build();
+            app.UseRouting();
+            {{middleware}}
+            app.MapGet("/consumer-smoke", (HttpContext context) =>
+                context.GetBotDetectionResult() is { } result
+                    ? (IResult)Results.Json(new { detected = true, probability = result.ConfidenceScore })
+                    : Results.Problem("Detection middleware did not supply a result"));
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            await app.StartAsync(deadline.Token);
+            try
+            {
+                var address = app.Services.GetRequiredService<IServer>()
+                    .Features.Get<IServerAddressesFeature>()!.Addresses.Single();
+                using var client = new HttpClient { BaseAddress = new Uri(address), Timeout = TimeSpan.FromSeconds(20) };
+                foreach (var agent in new[] { "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36", "curl/8.0" })
+                {
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd(agent);
+                    var result = await client.GetFromJsonAsync<JsonElement>("/consumer-smoke", deadline.Token);
+                    if (!result.GetProperty("detected").GetBoolean()) throw new Exception("No detection result");
+                    client.DefaultRequestHeaders.UserAgent.Clear();
+                }
+                foreach (var name in new[] { "waveform_history", "pool_collisions" })
+                {
+                    await using var connection = new SqliteConnection($"Data Source={Path.Combine(data, name + ".db")};Mode=ReadOnly");
+                    await connection.OpenAsync(deadline.Token);
+                    await using var command = connection.CreateCommand();
+                    command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name";
+                    command.Parameters.AddWithValue("$name", name);
+                    if (Convert.ToInt64(await command.ExecuteScalarAsync(deadline.Token)) != 1)
+                        throw new Exception($"Missing consumer startup schema: {name}");
+                }
+                {{packageChecks}}
+            }
+            finally
+            {
+                await app.StopAsync(deadline.Token);
+            }
+            if (!diagnostics.Failures.IsEmpty)
+                throw new Exception("Unexpected consumer failure logs: " + string.Join(Environment.NewLine, diagnostics.Failures));
+            Console.WriteLine("PACKAGED ASP.NET CONSUMER PASSED");
+            return Environment.ExitCode;
+
+            sealed class ConsumerLogProvider : ILoggerProvider
+            {
+                public ConcurrentQueue<string> Failures { get; } = new();
+                public ILogger CreateLogger(string category) => new ConsumerLogger(category, Failures);
+                public void Dispose() { }
+                private sealed class ConsumerLogger(string category, ConcurrentQueue<string> failures) : ILogger
+                {
+                    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+                    public bool IsEnabled(LogLevel level) => true;
+                    public void Log<TState>(LogLevel level, EventId id, TState state, Exception? error,
+                        Func<TState, Exception?, string> formatter)
+                    {
+                        var message = formatter(state, error);
+                        if (level >= LogLevel.Error || message.Contains("Session persistence channel FULL", StringComparison.Ordinal))
+                            failures.Enqueue($"{category}: {message} {error}");
+                    }
+                }
+            }
+            """;
 
         var appDir = Path.Combine(Path.GetTempPath(), "sb-consume-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(appDir);
@@ -312,7 +418,7 @@ public sealed class NuGetDependencyIntegrityTests
                     <ImplicitUsings>enable</ImplicitUsings>
                   </PropertyGroup>
                   <ItemGroup>
-                    <PackageReference Include="{{packageId}}" Version="9.9.9-test" />
+                    <PackageReference Include="{{packageId}}" Version="{{TestVersion}}" />
                   </ItemGroup>
                 </Project>
                 """);
@@ -339,11 +445,26 @@ public sealed class NuGetDependencyIntegrityTests
                 RedirectStandardError = true,
                 UseShellExecute = false,
             };
-            buildPsi.ArgumentList.Add("build");
+            buildPsi.ArgumentList.Add("publish");
             buildPsi.ArgumentList.Add("-c");
             buildPsi.ArgumentList.Add("Release");
+            buildPsi.ArgumentList.Add("--no-restore");
+            buildPsi.ArgumentList.Add("--output");
+            buildPsi.ArgumentList.Add(Path.Combine(appDir, "publish"));
             buildPsi.ArgumentList.Add("/nodeReuse:false");
-            await RunDotnetAsync(buildPsi, "consumer build");
+            await RunDotnetAsync(buildPsi, "consumer publish");
+
+            var runPsi = new ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = Path.Combine(appDir, "publish"),
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            runPsi.ArgumentList.Add(Path.Combine(appDir, "publish", "Consumer.dll"));
+            await RunDotnetAsync(runPsi, packageId + " consumer runtime");
+            runPsi.ArgumentList.Add("--invalid-database-path");
+            await RunDotnetAsync(runPsi, packageId + " invalid startup diagnostics", expectConfigurationFailure: true);
         }
         finally
         {
@@ -352,7 +473,7 @@ public sealed class NuGetDependencyIntegrityTests
         }
     }
 
-    private static async Task RunDotnetAsync(ProcessStartInfo psi, string label)
+    private static async Task RunDotnetAsync(ProcessStartInfo psi, string label, bool expectConfigurationFailure = false)
     {
         using var process = Process.Start(psi)!;
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
@@ -371,6 +492,12 @@ public sealed class NuGetDependencyIntegrityTests
 
         var stdout = await stdoutTask;
         var stderr = await stderrTask;
+        if (expectConfigurationFailure)
+        {
+            if (process.ExitCode == 0 || !(stdout + stderr).Contains("DatabasePath is not configured", StringComparison.Ordinal))
+                throw new InvalidOperationException($"{label} did not fail with useful configuration diagnostics (exit {process.ExitCode}):\n{stdout}\n{stderr}");
+            return;
+        }
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"{label} failed (exit {process.ExitCode}):\n{stdout}\n{stderr}");
     }

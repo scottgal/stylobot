@@ -8,6 +8,7 @@ using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Endpoints;
 using Mostlylucid.BotDetection.Api.Middleware;
 using Mostlylucid.BotDetection.Llm.Tunnel;
+using Mostlylucid.BotDetection.UI.Extensions;
 
 namespace Mostlylucid.BotDetection.Api;
 
@@ -20,6 +21,10 @@ public static class StyloBotApiExtensions
         var options = new StyloBotApiOptions();
         configure?.Invoke(options);
         services.AddSingleton(options);
+
+        // Read endpoints need the durable event store and aggregate caches even
+        // on an API-only host that never registers the dashboard page.
+        services.AddBotDetectionPersistence();
 
         services.AddAuthentication()
             .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(

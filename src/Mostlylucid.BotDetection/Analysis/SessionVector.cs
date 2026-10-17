@@ -767,6 +767,11 @@ public sealed class SessionStore
     //     via EvictActiveSignaturesIfNeeded, on _cache itself (see that method) — the
     //     real memory-heavy payload lives in _cache, not here.
     private readonly ConcurrentDictionary<string, FingerprintContext?> _activeSignatures = new();
+    // IMemoryCache invokes eviction callbacks asynchronously, including Remove.
+    // Count both live slots and queued callbacks so shutdown can wait for every
+    // finalize event before closing the persistence channel.
+    private long _pendingSessionSlotEvictions;
+    private TaskCompletionSource? _shutdownEvictionsDrained;
 
     // Hard cap on resident sessions, enforced on _cache itself (not just the shadow
     // index above) — see EvictActiveSignaturesIfNeeded. _cache's own sliding-expiration
@@ -898,7 +903,13 @@ public sealed class SessionStore
                 SlidingExpiration = _sessionGapThreshold + TimeSpan.FromMinutes(5)
             };
             options.RegisterPostEvictionCallback(OnSessionSlotEvicted, signature);
-            _cache.Set(sessionKey, currentSession, options);
+            Interlocked.Increment(ref _pendingSessionSlotEvictions);
+            try { _cache.Set(sessionKey, currentSession, options); }
+            catch
+            {
+                CompleteSessionSlotEviction();
+                throw;
+            }
 
             _activeSignatures[signature] = fingerprint;
             EvictActiveSignaturesIfNeeded();
@@ -928,26 +939,39 @@ public sealed class SessionStore
     /// </summary>
     private void OnSessionSlotEvicted(object key, object? value, EvictionReason reason, object? state)
     {
-        // Replaced == a fresh Set for the same signature superseded the old slot; the
-        // session is still live, so keep the shadow entry and do NOT finalize.
-        if (reason == EvictionReason.Replaced) return;
-        if (state is not string signature) return;
-        // A newer request may have re-created the session slot after this callback was
-        // queued; only drop the shadow entry if the slot is genuinely gone.
-        if (_cache.TryGetValue($"session:current:{signature}", out _)) return;
-
-        // Expired / Removed / Capacity eviction of a genuinely-gone slot: the session's
-        // natural completion under continuous load (no gap boundary will ever fire).
-        // FinalizeSession gates on >= 3 requests and fires SessionFinalized, which the
-        // persistence service drains exactly like the gap-boundary path. The fingerprint
-        // context rides the shadow index; grab it before the removal below.
-        if (value is List<SessionRequest> evicted)
+        try
         {
-            _activeSignatures.TryGetValue(signature, out var fingerprint);
-            FinalizeSession(signature, evicted, fingerprint);
-        }
+            // Replaced == a fresh Set for the same signature superseded the old slot; the
+            // session is still live, so keep the shadow entry and do NOT finalize.
+            if (reason == EvictionReason.Replaced) return;
+            if (state is not string signature) return;
+            // A newer request may have re-created the session slot after this callback was
+            // queued; only drop the shadow entry if the slot is genuinely gone.
+            if (_cache.TryGetValue($"session:current:{signature}", out _)) return;
 
-        _activeSignatures.TryRemove(signature, out _);
+            // Expired / Removed / Capacity eviction of a genuinely-gone slot: the session's
+            // natural completion under continuous load (no gap boundary will ever fire).
+            // FinalizeSession gates on >= 3 requests and fires SessionFinalized, which the
+            // persistence service drains exactly like the gap-boundary path. The fingerprint
+            // context rides the shadow index; grab it before the removal below.
+            if (value is List<SessionRequest> evicted)
+            {
+                _activeSignatures.TryGetValue(signature, out var fingerprint);
+                FinalizeSession(signature, evicted, fingerprint);
+            }
+
+            _activeSignatures.TryRemove(signature, out _);
+        }
+        finally
+        {
+            CompleteSessionSlotEviction();
+        }
+    }
+
+    private void CompleteSessionSlotEviction()
+    {
+        if (Interlocked.Decrement(ref _pendingSessionSlotEvictions) == 0)
+            Volatile.Read(ref _shutdownEvictionsDrained)?.TrySetResult();
     }
 
     /// <summary>
@@ -991,20 +1015,24 @@ public sealed class SessionStore
     ///     explicit finalize here would double-fire it.
     ///     </para>
     /// </summary>
-    public async Task FlushAllActiveSessionsAsync()
+    public Task FlushAllActiveSessionsAsync() => FlushAllActiveSessionsAsync(CancellationToken.None);
+
+    /// <summary>Flushes active sessions and awaits their eviction callbacks within the caller's deadline.</summary>
+    public async Task FlushAllActiveSessionsAsync(CancellationToken cancellationToken)
     {
+        var evictionsDrained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Volatile.Write(ref _shutdownEvictionsDrained, evictionsDrained);
         var signatures = _activeSignatures.Keys.ToList();
         _logger.LogInformation("Flushing {Count} active sessions on shutdown", signatures.Count);
 
         foreach (var signature in signatures)
         {
             var sessionLock = LockFor(signature);
-            await sessionLock.WaitAsync();
+            await sessionLock.WaitAsync(cancellationToken);
             try
             {
-                // The Remove fires OnSessionSlotEvicted (Removed reason), which
-                // finalizes the session (>= 3 gate) + drops the shadow entry — under
-                // the per-signature lock, so no concurrent append can race it.
+                // Remove queues OnSessionSlotEvicted; the wait below ensures its
+                // finalize event has actually fired before this method returns.
                 _cache.Remove($"session:current:{signature}");
             }
             catch (Exception ex)
@@ -1015,8 +1043,9 @@ public sealed class SessionStore
             {
                 sessionLock.Release();
             }
-            _activeSignatures.TryRemove(signature, out _);
         }
+        if (Volatile.Read(ref _pendingSessionSlotEvictions) != 0)
+            await evictionsDrained.Task.WaitAsync(cancellationToken);
     }
 
     /// <summary>

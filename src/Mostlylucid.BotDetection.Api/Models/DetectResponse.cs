@@ -18,6 +18,9 @@ public sealed partial record DetectResponse
     public required MetaDto Meta { get; init; }
 
     public static DetectResponse FromEvidence(AggregatedEvidence evidence)
+        => FromEvidence(evidence, new Mostlylucid.BotDetection.Models.ClassificationOptions().BotFloor);
+
+    public static DetectResponse FromEvidence(AggregatedEvidence evidence, double botFloor)
     {
         var recommendedAction = evidence.RiskBand switch
         {
@@ -31,7 +34,7 @@ public sealed partial record DetectResponse
         {
             Verdict = new VerdictDto
             {
-                IsBot = evidence.BotProbability >= 0.7,
+                IsBot = evidence.BotProbability >= botFloor,
                 BotProbability = Math.Round(evidence.BotProbability, 4),
                 Confidence = Math.Round(evidence.Confidence, 4),
                 BotType = evidence.PrimaryBotType?.ToString(),

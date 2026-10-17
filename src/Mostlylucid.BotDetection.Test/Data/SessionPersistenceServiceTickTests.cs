@@ -34,6 +34,58 @@ namespace Mostlylucid.BotDetection.Test.Data;
 /// </summary>
 public sealed class SessionPersistenceServiceTickTests
 {
+    [Fact]
+    public async Task Flush_does_not_return_while_a_finalization_callback_is_still_running()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var sessions = new SessionStore(cache, NullLogger<SessionStore>.Instance);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        sessions.SessionFinalized += (_, _) =>
+        {
+            entered.TrySetResult();
+            release.Wait();
+        };
+        var now = DateTimeOffset.UtcNow;
+        await sessions.RecordRequestAsync("flush-session", new SessionRequest(RequestState.PageView, now, "/", 200));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var flush = sessions.FlushAllActiveSessionsAsync(deadline.Token);
+        try
+        {
+            await entered.Task.WaitAsync(deadline.Token);
+            Assert.False(flush.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            await flush;
+        }
+    }
+
+    [Fact]
+    public async Task Lifecycle_shutdown_waits_for_eviction_callbacks_before_closing_the_channel()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var sessions = new SessionStore(cache, NullLogger<SessionStore>.Instance);
+        var archive = new RecordingSessionStore();
+        using var persistence = new SessionPersistenceService(archive, sessions,
+            NullLogger<SessionPersistenceService>.Instance);
+        var lifecycle = new SessionPersistenceLifecycleHostedService(archive, sessions, persistence,
+            NullLogger<SessionPersistenceLifecycleHostedService>.Instance);
+        var now = DateTimeOffset.UtcNow;
+        for (var index = 0; index < 3; index++)
+            await sessions.RecordRequestAsync("shutdown-session", new SessionRequest(
+                RequestState.PageView, now.AddSeconds(index), "/page", 200));
+
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await lifecycle.StopAsync(deadline.Token);
+
+        Assert.Single(archive.AddedSessions);
+        Assert.Equal(0, persistence.DroppedSessionCount);
+        Assert.Equal(0, persistence.QueueDepth);
+        Assert.Equal(0, sessions.ActiveSignatureCount);
+    }
+
     private static SessionStore NewSessionStore() => new(
         new MemoryCache(new MemoryCacheOptions()),
         NullLogger<SessionStore>.Instance);

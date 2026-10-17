@@ -94,6 +94,7 @@ public sealed class BotDetectionOrchestrator : IDisposable
         HttpContext context,
         CancellationToken ct = default)
     {
+        using var requestContext = Services.DetectionHttpContextAccessor.Enter(context);
         var sessionId = context.TraceIdentifier;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 

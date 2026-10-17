@@ -160,8 +160,9 @@ public sealed class SessionPersistenceService : IDisposable
         {
             try
             {
-                await PersistSessionAsync(snapshot, requests, CancellationToken.None);
+                await PersistSessionAsync(snapshot, requests, ct);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to persist session during shutdown for {Signature}", snapshot.Signature);
@@ -354,14 +355,19 @@ internal sealed class SessionPersistenceLifecycleHostedService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        // Flush all active in-memory sessions first -- they fire SessionFinalized
-        // and land on the persistence channel.
-        await _sessionStore.FlushAllActiveSessionsAsync();
+        // Drain while finalization callbacks run, and don't close their channel
+        // until Flush has awaited those asynchronous cache-eviction callbacks.
+        var drain = _persistence.DrainAndPersistAllAsync(cancellationToken);
+        try
+        {
+            await _sessionStore.FlushAllActiveSessionsAsync(cancellationToken);
+        }
+        finally
+        {
+            _persistence.CompleteWriter();
+            await drain;
+        }
 
-        // Then complete the writer + drain whatever landed.
-        _persistence.CompleteWriter();
-        await _persistence.DrainAndPersistAllAsync(CancellationToken.None);
-
-        _logger.LogInformation("Session persistence service stopped; all pending sessions written");
+        _logger.LogInformation("Session persistence service stopped; shutdown drain completed");
     }
 }

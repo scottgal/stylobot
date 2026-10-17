@@ -302,7 +302,7 @@ public sealed class ScheduleCoordinator : IScheduleCoordinator, IHostedService, 
                 }
                 return; // the inner loop only exits on shutdown/dispose
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 return; // shutdown
             }
@@ -351,7 +351,7 @@ public sealed class ScheduleCoordinator : IScheduleCoordinator, IHostedService, 
         {
             await FireTickAsync(cadence, now, ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
@@ -439,7 +439,7 @@ public sealed class ScheduleCoordinator : IScheduleCoordinator, IHostedService, 
             // even while a work item is waiting for a thread-pool worker.
             await Task.Run(() => sub.Handler(now, linked.Token), linked.Token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException oce)
+        catch (OperationCanceledException oce) when (linked.IsCancellationRequested)
         {
             _logger.LogDebug(oce, "ScheduleCoordinator: subscriber {Name} on {Cadence} cancelled.", sub.Name, sub.Cadence);
         }

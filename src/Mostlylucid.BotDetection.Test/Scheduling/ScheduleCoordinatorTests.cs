@@ -131,6 +131,21 @@ public sealed class ScheduleCoordinatorTests
     // ---- Re-entry skip: a slow subscriber doesn't re-enter on overlap -------
 
     [Fact]
+    public async Task Subscriber_cancellation_without_shutdown_is_a_visible_counted_fault()
+    {
+        var logger = new RecordingLogger();
+        var (coordinator, _) = Build(logger: logger);
+        await using var cleanup = coordinator;
+        coordinator.Subscribe(TickCadence.Tick10s, "internal-timeout", CostHint.Low,
+            (_, _) => throw new OperationCanceledException("subscriber's own timeout"));
+
+        await coordinator.TickOnceAsync(TickCadence.Tick10s);
+
+        Assert.Equal(1, coordinator.Snapshot().Single().FaultCount);
+        Assert.Equal(1, logger.WarningCount);
+    }
+
+    [Fact]
     public async Task Slow_subscriber_does_not_re_enter_on_overlap()
     {
         var (coord, _) = Build();
