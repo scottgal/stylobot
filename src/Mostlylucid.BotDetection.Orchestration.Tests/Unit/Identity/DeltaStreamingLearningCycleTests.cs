@@ -138,29 +138,31 @@ public sealed class DeltaStreamingLearningCycleTests : IDisposable
 
     /// <summary>
     ///     Poll the DURABLE row (raw SQLite — deliberately NOT the LFU) until the
-    ///     delta column reaches <paramref name="expectedCount"/>, or the timeout
-    ///     elapses. Returns the durable delta_count observed at the last read.
+    ///     delta and novelty columns reach their expected counts, or the timeout
+    ///     elapses. Returns the durable counts observed at the last read.
     ///     Reading SQLite directly proves persistence: the in-memory LFU is
     ///     authoritative on the hot path and would report the delta even if the
     ///     durable write never happened.
     /// </summary>
-    private async Task<int> PollDurableDeltaCountAsync(
-        string fpId, int expectedCount, TimeSpan timeout)
+    private async Task<(int DeltaCount, int NoveltyCount)> PollDurableCountsAsync(
+        string fpId, int expectedCount, TimeSpan timeout, int expectedNoveltyCount = 0)
     {
         var deadline = DateTime.UtcNow + timeout;
-        var lastSeen = 0;
+        var lastSeen = (DeltaCount: 0, NoveltyCount: 0);
         do
         {
             await using var conn = new SqliteConnection($"Data Source={FingerprintsDbPath};Pooling=true");
             await conn.OpenAsync();
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
-                SELECT delta_count FROM fingerprints WHERE fingerprint_id = @id
+                SELECT delta_count, novelty_count FROM fingerprints WHERE fingerprint_id = @id
                 """;
             cmd.Parameters.AddWithValue("@id", fpId);
-            var scalar = await cmd.ExecuteScalarAsync();
-            lastSeen = scalar is null ? 0 : Convert.ToInt32(scalar);
-            if (lastSeen >= expectedCount) return lastSeen;
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+                lastSeen = (reader.GetInt32(0), reader.GetInt32(1));
+            if (lastSeen.DeltaCount >= expectedCount && lastSeen.NoveltyCount >= expectedNoveltyCount)
+                return lastSeen;
             await Task.Delay(25);
         }
         while (DateTime.UtcNow < deadline);
@@ -192,10 +194,10 @@ public sealed class DeltaStreamingLearningCycleTests : IDisposable
                 RequestScope.Unknown, fpId, fixture.Centroid, "chrome-desktop", CancellationToken.None);
 
         // The REAL loop must persist it — poll the durable row, never the LFU.
-        var durableCount = await PollDurableDeltaCountAsync(fpId, expectedCount: 5,
+        var durable = await PollDurableCountsAsync(fpId, expectedCount: 5,
             TimeSpan.FromSeconds(10));
-        Assert.True(durableCount >= 5,
-            $"real fold-time loop did not persist the accumulated delta: durable delta_count={durableCount} " +
+        Assert.True(durable.DeltaCount >= 5,
+            $"real fold-time loop did not persist the accumulated delta: durable delta_count={durable.DeltaCount} " +
             $"after 5 confirmatory observations (expected ≥5). The loop's sampler invocation is broken.");
 
         // The durable row carries the current compact delta state, not just the count.
@@ -234,18 +236,22 @@ public sealed class DeltaStreamingLearningCycleTests : IDisposable
         // pushed 10 variance-units past the base on dim 0 → Mahalanobis 10 ≥ 8.
         await store.RecordObservationAsync(
             RequestScope.Unknown, fpId, fixture.Centroid, "chrome-desktop", CancellationToken.None);
+        // Force separate sampler passes: a durable confirmatory observation must
+        // not be mistaken for completion of the later novelty observation.
+        var initial = await PollDurableCountsAsync(fpId, expectedCount: 1, TimeSpan.FromSeconds(10));
+        Assert.Equal(1, initial.DeltaCount);
+        Assert.Equal(0, initial.NoveltyCount);
         var far = (float[])fixture.Centroid.Clone();
         far[0] += 10f;
         await store.RecordObservationAsync(
             RequestScope.Unknown, fpId, far, "chrome-desktop", CancellationToken.None);
 
-        var durableCount = await PollDurableDeltaCountAsync(fpId, expectedCount: 1,
-            TimeSpan.FromSeconds(10));
-        Assert.True(durableCount >= 1,
-            $"real loop did not persist delta_count for the confirmatory observation (got {durableCount})");
+        var durable = await PollDurableCountsAsync(fpId, expectedCount: 1,
+            TimeSpan.FromSeconds(10), expectedNoveltyCount: 1);
+        Assert.True(durable.DeltaCount >= 1 && durable.NoveltyCount == 1,
+            $"real loop did not persist both observations (delta={durable.DeltaCount}, novelty={durable.NoveltyCount})");
 
-        // The sampler writes delta + novelty in one pass; once the delta landed the
-        // novelty column is durable too. Assert both from the row.
+        // Both observations have reached SQLite, possibly on separate sampler passes.
         await using var conn = new SqliteConnection($"Data Source={FingerprintsDbPath};Pooling=true");
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
