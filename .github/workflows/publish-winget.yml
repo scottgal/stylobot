@@ -78,9 +78,9 @@ jobs:
       run: |
         $url = "https://aka.ms/wingetcreate/latest"
         Invoke-WebRequest -Uri $url -OutFile wingetcreate.exe
-        # wingetcreate 1.12+ dropped the --version flag (prints help + exits 1);
-        # "version" is the subcommand now. The 8.9.4 run failed here (7 prior releases too).
-        .\wingetcreate.exe version
+        # The CLI advertises `info` for tool metadata. `version` prints
+        # command help and exits 1 in 1.12.13, aborting publication.
+        .\wingetcreate.exe info
 
     - name: Submit to winget
       env:
