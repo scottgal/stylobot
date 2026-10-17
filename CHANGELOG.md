@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.14.2] - 2026-10-17
+
+- **Fix native sidecar distribution:** include SQLite/libsodium native libraries alongside the executable and explicitly initialize the SQLite bundle before host configuration. Archive startup verification caught the missing libraries after the 8.14.1 build-only gate passed.
+- **Restore detection in Native AOT:** preserve public constructors when registering detector atoms so trimmed hosts can resolve them. Statically register all ten previously omitted YAML models, including fetch-source defaults, registry clients, webhooks, browser-mode seeds, and site thresholds, plus their collection formatters. A discovery-based regression test requires an explicit formatter registration for every YAML model.
+- **Test shipped sidecar archives on every release platform:** unpack the actual archive, boot with fresh SQLite storage, check health, reject unauthenticated REST/gRPC calls, run authenticated summary reads and REST/gRPC detection, stop the process, and fail on default Error/Fatal logs. Native library omissions and trimmed formatters now block the extension release.
+- **Release/test reliability:** wait for durable novelty independently of delta counts in the learning-cycle test, forcing separate sampler passes. Use the supported `wingetcreate info` command so tool-version logging does not abort installer publication.
+
 ## [8.14.1] - 2026-10-17
 
 - **ASP.NET Core NuGet consumers now run in the package regression gate.** Build and pack a fresh, uniquely versioned feed, then restore, publish, and start real core-only, API-only, and dashboard apps. Exercise HTTP detection, API authentication and queries, synthetic single/batch detection, configured classification thresholds, dashboard HTML/static assets, graceful shutdown, and actionable invalid-startup diagnostics. Explicit package builds prevent stale assemblies in projects with `GeneratePackageOnBuild`; unique test versions prevent global-cache reuse.

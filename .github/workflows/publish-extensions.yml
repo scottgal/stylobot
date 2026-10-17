@@ -153,6 +153,11 @@ jobs:
         run: |
           mkdir -p ./dist
           cp "./publish/$RUNTIME/stylobot-sidecar$FILE_EXT" ./dist/
+          # Native AOT still loads SQLite/libsodium dynamically. Ship the
+          # publish output's native libraries alongside the executable.
+          for lib in ./publish/"$RUNTIME"/*.so ./publish/"$RUNTIME"/*.dylib ./publish/"$RUNTIME"/*.dll; do
+            if [ -f "$lib" ]; then cp "$lib" ./dist/; fi
+          done
           cp sdk/proto/detection.proto ./dist/
           cat > ./dist/README.txt << 'EOF'
           StyloBot detection sidecar
@@ -191,6 +196,17 @@ jobs:
             7z a -tzip "../stylobot-sidecar-$RUNTIME.zip" *
           else
             tar czf "../stylobot-sidecar-$RUNTIME.tar.gz" *
+          fi
+
+      - name: Smoke packaged sidecar
+        shell: bash
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python scripts/smoke-sidecar.py "stylobot-sidecar-$RUNTIME.zip"
+          else
+            python3 scripts/smoke-sidecar.py "stylobot-sidecar-$RUNTIME.tar.gz"
           fi
 
       - name: Upload artifact

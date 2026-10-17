@@ -17,6 +17,8 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
+    // Root SQLite's generated bundle initializer in Native AOT, as the gateway does.
+    SQLitePCL.Batteries.Init();
     var sidecar = SidecarOptions.FromEnvironment();
 
     var builder = WebApplication.CreateBuilder(args);

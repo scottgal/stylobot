@@ -494,7 +494,9 @@ public static class BotDetectionOrchestratorExtensions
     ///     has already claimed. Name comes from the atom instance itself --
     ///     no hand-maintained lists.
     /// </summary>
-    public static IServiceCollection AddDetectorAtom<TAtom>(
+    public static IServiceCollection AddDetectorAtom<
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembers(
+            System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicConstructors)] TAtom>(
         this IServiceCollection services)
         where TAtom : class, IDetectorAtom
     {

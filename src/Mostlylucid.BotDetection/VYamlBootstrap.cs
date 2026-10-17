@@ -1,8 +1,11 @@
 using System.Runtime.CompilerServices;
 using Mostlylucid.BotDetection.Compliance;
+using Mostlylucid.BotDetection.Data.Sources;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Definitions.RegistryClients;
 using Mostlylucid.BotDetection.Definitions.TlsReference;
 using Mostlylucid.BotDetection.Definitions.VendorHomeHosts;
+using Mostlylucid.BotDetection.Definitions.Webhooks;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Identity.BrowserModes;
@@ -61,6 +64,16 @@ internal static class VYamlBootstrap
         // Vendor-home hosts (UserAgentDiscriminator skiplist)
         VendorHomeHostsFile.__RegisterVYamlFormatter();
 
+        DataSourceManifestEntry.__RegisterVYamlFormatter();
+        RegistryClientFamily.__RegisterVYamlFormatter();
+        RegistryClientScoring.__RegisterVYamlFormatter();
+        RegistryClientArchetypeFile.__RegisterVYamlFormatter();
+        WebhookProviderSeed.__RegisterVYamlFormatter();
+        WebhookScoring.__RegisterVYamlFormatter();
+        WebhookArchetypeFile.__RegisterVYamlFormatter();
+        GeneratedResolver.Register(new ListFormatter<RegistryClientFamily>());
+        GeneratedResolver.Register(new ListFormatter<WebhookProviderSeed>());
+
         // Identity archetypes
         IdentityArchetypeYaml.__RegisterVYamlFormatter();
         IdentityArchetypeDimensionYaml.__RegisterVYamlFormatter();
@@ -82,6 +95,7 @@ internal static class VYamlBootstrap
         SiteProfiles.SiteProfile.__RegisterVYamlFormatter();
         SiteProfiles.HoneypotProfile.__RegisterVYamlFormatter();
         SiteProfiles.SuggestedPack.__RegisterVYamlFormatter();
+        SiteProfiles.SiteThresholdOverrides.__RegisterVYamlFormatter();
 
         // Policy Stack signal overlays
         SignalOverlay.__RegisterVYamlFormatter();
@@ -178,6 +192,8 @@ internal static class VYamlBootstrap
         // silently disabling all browser-mode classification (bot-raw, navigation, xhr, etc.).
         BrowserModeYaml.__RegisterVYamlFormatter();
         RequestCharacterPredicateYaml.__RegisterVYamlFormatter();
+        BrowserModeSeedYaml.__RegisterVYamlFormatter();
+        BrowserModeSeedBlock.__RegisterVYamlFormatter();
         GeneratedResolver.Register(new ListFormatter<string>());
 
         // UAP-core UA parser: UapCoreUserAgentParser deserialises uap-regexes.yaml

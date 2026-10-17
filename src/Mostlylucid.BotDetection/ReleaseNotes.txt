@@ -1,3 +1,11 @@
+8.14.2 - 2026-10-17
+
+- Preserve all YAML formatters under Native AOT, including fetch-source defaults, registry/webhook archetypes, browser-mode seeds, and site thresholds.
+- Preserve detector constructors in trimmed hosts so real detection resolves successfully.
+- Ship native sidecar libraries and initialize SQLite explicitly; exercise packaged sidecar startup and HTTP detection on every release platform.
+- Add discovery-based AOT registration coverage and stabilize asynchronous durable novelty verification.
+- Includes all 8.14.1 ASP.NET Core integration, persistence, scheduling, and failure-diagnostic fixes below.
+
 8.14.1 - 2026-10-17
 
 Reliability fixes for ASP.NET Core package consumers and hosted gateways:

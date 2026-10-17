@@ -91,6 +91,16 @@ ASP.NET Core consumers (core, API, and dashboard), then runs HTTP, startup-failu
 static-asset, and shutdown checks against their published output. These consumers
 use package references and exercise the installed artifacts without project references.
 
+The extension release also runs `python3 scripts/smoke-sidecar.py <archive>` on
+each platform, against its freshly packed native sidecar archive. It starts real
+SQLite persistence in a temporary directory, checks health, REST/gRPC authentication,
+summary reads and REST/gRPC detection, and rejects Error/Fatal logs. Its small .NET
+HTTP/2 client requires the .NET 10 SDK on the test host. Unix runs
+also require a graceful zero-status shutdown; Windows terminates the test child
+after its HTTP checks. Keep native libraries in the archive even for Native AOT.
+Every `[YamlObject]` model needs a static formatter registration in
+`VYamlBootstrap.Init`; JIT tests alone cannot detect a trimmed formatter.
+
 ## Reporting Issues
 
 Open an issue on [GitHub](https://github.com/scottgal/stylobot/issues). Include:
