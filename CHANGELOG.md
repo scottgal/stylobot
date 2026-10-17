@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.14.1] - 2026-10-17
+
 - **Fix (#130): restore waveform-history and pool-collision schema initialization.** Both stores and their atom consumers survived the contributor-to-atom migration, but their hosted startup initializers did not. Restore the missing registrations and add discovery-based coverage for every registered `IStoreInitializer`.
 - **Fix (#127): watchdog shutdowns report failure to process supervisors.** Silent cadences and subscriber fault storms set exit status 1 before requesting graceful shutdown. Console and sidecar entry points preserve that status. A CI lifecycle harness checks real child-process exits, normal shutdown, and fresh SQLite schemas.
 - **Scheduler reliability:** disabled cadences are excluded from watchdog checks, and a shutdown already in progress is not converted into a failure. Subscriber callbacks are dispatched to worker threads after acquiring their single-flight guard, so synchronous blocking cannot stall the cadence loop or sibling heartbeats. Requested store-startup cancellation propagates instead of being logged as a storage failure. Regression tests cover bounded and unbounded dispatch, every disabled cadence, and each removed store initializer.
