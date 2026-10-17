@@ -100,6 +100,13 @@ def main():
                     assert status == 401, f"Unauthenticated API returned {status}"
                     status, _ = request(rest_port, "/api/v1/summary")
                     assert status == 200, f"Authenticated summary returned {status}"
+                    status, _ = request(rest_port, "/api/v1/dashboard/traffic", authenticated=False)
+                    assert status == 401, f"Unauthenticated traffic API returned {status}"
+                    status, traffic = request(rest_port, "/api/v1/dashboard/traffic?window=1h")
+                    assert status == 200, f"Traffic snapshot returned {status}: {traffic}"
+                    assert "summary" in traffic and "timeline" in traffic and "detections" in traffic, traffic
+                    status, _ = request(rest_port, "/api/v1/dashboard/traffic?window=invalid")
+                    assert status == 400, f"Invalid traffic query returned {status}"
                     status, detection = request(rest_port, "/api/v1/detect", {
                         "method": "GET", "path": "/smoke", "remoteIp": "192.0.2.42",
                         "headers": {"User-Agent": "curl/8.10.1", "Accept": "*/*"},

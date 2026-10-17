@@ -94,6 +94,7 @@ else
 
 var app = builder.Build();
 
+app.UseStaticFiles();
 app.UseRouting();
 
 if (isRemote)
@@ -110,6 +111,7 @@ else
 }
 
 app.UseAuthorization();
+if (isRemote) app.MapStyloBotDashboardPages();
 
 PrintDashboardBanner(app, isRemote);
 

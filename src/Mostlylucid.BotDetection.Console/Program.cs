@@ -14,7 +14,7 @@ using Mostlylucid.BotDetection.Api;
 using Mostlylucid.BotDetection.Api.Endpoints;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
-using Mostlylucid.BotDetection.UI.Extensions;
+using Mostlylucid.BotDetection.Dashboard.Data;
 using Mostlylucid.BotDetection.UI.Services.Auth;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Llm.Cloud.Extensions;
@@ -812,7 +812,7 @@ try
             // configured (see StyloBotDashboardHub.IsAuthorizedAsync).
             AllowUnauthenticatedAccess = true
         });
-        builder.Services.AddBotDetectionPersistence();
+        builder.Services.AddDashboardData();
     }
 
     builder.Services.AddOpenTelemetry()
@@ -1012,7 +1012,7 @@ try
         // Persists detections to the event store + broadcasts SignalR invalidation beacons.
         // Without this the read endpoints would always return empty - the gateway has no
         // place to write detection data.
-        app.UseBotDetectionPersistence();
+        app.UseDashboardData();
         app.MapStyloBotApi();
         // Used by the soak harness to observe persistence backpressure. Keep this
         // operational surface opt-in and protected by the same API-key policy.

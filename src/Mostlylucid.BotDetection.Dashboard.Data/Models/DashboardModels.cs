@@ -302,6 +302,9 @@ public sealed record DashboardSignatureTimeSeriesPoint(
 /// </summary>
 public sealed record DashboardFilter
 {
+    /// <summary>Optional audience scope; null retains the existing unfiltered detection-list behavior.</summary>
+    public string? AudienceFilter { get; init; }
+    public bool EndTimeExclusive { get; init; }
     public DateTime? StartTime { get; init; }
     public DateTime? EndTime { get; init; }
     public List<string>? RiskBands { get; init; }

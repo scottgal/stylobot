@@ -31,6 +31,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Dashboard.Data\Mostlylucid.BotDetection.Dashboard.Data.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.OpenApi\Mostlylucid.BotDetection.OpenApi.csproj" />
         <!-- PrometheusPack is an OPTIONAL add-on, not a dependency of UI. Its
              meter-stream widget surface (health tile + freshness) is registered by

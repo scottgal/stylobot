@@ -1,0 +1,62 @@
+@model Mostlylucid.BotDetection.UI.Controllers.ApiTrafficPageModel
+@{
+    Layout = null;
+}
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Traffic · StyloBot</title>
+    <link rel="icon" type="image/svg+xml" href="@Context.Request.PathBase/_content/Mostlylucid.BotDetection.UI/stylowall.svg" />
+    <style>[data-sb-traffic-error][hidden] { display: none; }</style>
+    <link rel="stylesheet" href="@Context.Request.PathBase/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" />
+    <link rel="stylesheet" href="@Context.Request.PathBase/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css" />
+    @if (!Model.SuppressVendorScripts)
+    {
+        <script defer src="@Context.Request.PathBase/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"></script>
+        <script defer src="@Context.Request.PathBase/_content/Mostlylucid.BotDetection.UI/vendor/js/alpine.min.js"></script>
+    }
+    <script defer src="@Context.Request.PathBase/_content/Mostlylucid.BotDetection.UI/js/sb-api-traffic.js"></script>
+</head>
+<body class="bg-base-200 text-base-content">
+<main class="max-w-7xl mx-auto p-6 space-y-4" data-sb-api-traffic x-data="{ filtersOpen: true }">
+    <header class="flex flex-wrap items-center justify-between gap-4">
+        <div><p class="text-sm opacity-70">StyloBot</p><h1 class="text-3xl font-semibold">Traffic</h1></div>
+        <nav aria-label="Dashboard" class="flex flex-wrap gap-4">
+            <a href="@Model.TrafficPath" aria-current="page">Traffic</a>
+            <a href="@Model.BasePath/visitors">Visitors</a>
+            <a href="@Model.BasePath/site">Site</a>
+            <a href="@Model.BasePath/policies">Policies</a>
+            <a href="@Model.BasePath/configuration">Configuration</a>
+        </nav>
+    </header>
+    <section class="card bg-base-100 p-4 space-y-4" aria-label="Traffic filters">
+        <button type="button" class="btn btn-ghost btn-sm self-start" x-on:click="filtersOpen = !filtersOpen" x-bind:aria-expanded="filtersOpen">Filters</button>
+        <form method="get" action="@Model.TrafficPath" hx-get="@Model.TrafficPath" hx-target="#sb-api-traffic-content"
+              hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace" hx-indicator="#sb-api-traffic-pending"
+              x-show="filtersOpen" class="flex flex-wrap items-end gap-4">
+            <label>Window
+                <select name="window" class="select select-bordered">
+                    @foreach (var window in new[] { "1h", "6h", "12h", "24h", "7d", "30d", "custom" })
+                    {
+                        <option value="@window" selected="@(window == Model.Query.Window)">@window</option>
+                    }
+                </select>
+            </label>
+            @foreach (var domain in (Model.Query.Domains ?? []).Append(""))
+            {
+                <label>Domain <input class="input input-bordered" name="domain" value="@domain" placeholder="All domains" /></label>
+            }
+            <label>From (custom, ISO 8601)<input class="input input-bordered" name="from" value="@Model.Query.From?.ToString("O")" placeholder="2026-10-17T00:00:00Z" /></label>
+            <label>To (custom, ISO 8601)<input class="input input-bordered" name="to" value="@Model.Query.To?.ToString("O")" placeholder="2026-10-18T00:00:00Z" /></label>
+            <label class="flex items-center gap-2"><input class="checkbox" type="checkbox" name="includeInternal" value="true" checked="@Model.Query.IncludeInternal" /> Include internal traffic</label>
+            <button class="btn btn-primary" type="submit">Apply</button>
+            <span id="sb-api-traffic-pending" class="htmx-indicator" role="status">Updating…</span>
+        </form>
+    </section>
+    <div data-sb-traffic-error hidden class="alert alert-warning" role="alert">Update failed. The previously loaded view remains below; retry with Apply.</div>
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/ApiTraffic/_Content.cshtml", Model)
+</main>
+</body>
+</html>

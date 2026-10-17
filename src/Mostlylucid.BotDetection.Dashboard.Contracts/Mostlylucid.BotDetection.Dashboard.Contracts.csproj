@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <Description>Transport contracts for the StyloBot dashboard API, independent of rendering and storage.</Description>
+    <MinVerTagPrefix>allbot-v</MinVerTagPrefix>
+    <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+  </PropertyGroup>
+  <ItemGroup><PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="all" /></ItemGroup>
+</Project>

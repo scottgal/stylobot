@@ -28,7 +28,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
-        <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Dashboard.Data\Mostlylucid.BotDetection.Dashboard.Data.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj" />
         <!-- Direct refs for types that Api RE-EXPORTS through its public surface (via UI)
              but only reached transitively. Without these, a project that references Api

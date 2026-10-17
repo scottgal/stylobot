@@ -31,6 +31,14 @@ public sealed class StyloBotDashboardOptions
     /// </summary>
     public string BasePath { get; set; } = "/stylobot";
 
+    /// <summary>Opt into the API-backed Traffic pilot. Existing routes remain the default.</summary>
+    public bool UseApiTraffic { get; set; }
+    /// <summary>Backend base URL for the pilot; remote viewers default to Source:Pull:Url.</summary>
+    public string? TrafficApiUrl { get; set; }
+    /// <summary>Server-side backend credential; remote viewers default to Source:Pull:ApiKey.</summary>
+    public string? TrafficApiKey { get; set; }
+    public int TrafficApiTimeoutSeconds { get; set; } = 10;
+
     /// <summary>
     ///     Single-UI-gateway stopgap (operator directive 2026-08-11): when false, this
     ///     host does NOT run the L2 tick materializer or prewarm shingles, does not map

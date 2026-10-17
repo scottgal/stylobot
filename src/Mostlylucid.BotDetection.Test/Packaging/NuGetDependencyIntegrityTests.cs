@@ -67,6 +67,8 @@ public sealed class NuGetDependencyIntegrityTests
     {
         "src/Mostlylucid.Common/Mostlylucid.Common.csproj",
         "src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj",
+        "src/Mostlylucid.BotDetection.Dashboard.Contracts/Mostlylucid.BotDetection.Dashboard.Contracts.csproj",
+        "src/Mostlylucid.BotDetection.Dashboard.Data/Mostlylucid.BotDetection.Dashboard.Data.csproj",
         "src/Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj",
         "src/Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj",
         "src/Mostlylucid.BotDetection.Llm.Holodeck/Mostlylucid.BotDetection.Llm.Holodeck.csproj",
@@ -84,6 +86,8 @@ public sealed class NuGetDependencyIntegrityTests
     {
         "mostlylucid.botdetection",
         "Mostlylucid.BotDetection.Api",
+        "Mostlylucid.BotDetection.Dashboard.Contracts",
+        "Mostlylucid.BotDetection.Dashboard.Data",
         "Mostlylucid.BotDetection.Llm",
         "Mostlylucid.BotDetection.Llm.Holodeck",
         "Mostlylucid.BotDetection.Llm.Tunnel",
@@ -154,6 +158,11 @@ public sealed class NuGetDependencyIntegrityTests
             }
 
             // Optionality contracts worth asserting explicitly:
+            var apiDeps = GetDependencyIds(ReadNuspec(packDir, "Mostlylucid.BotDetection.Api"));
+            apiDeps.Should().NotContain(id => id.Equals("Mostlylucid.BotDetection.UI", StringComparison.OrdinalIgnoreCase),
+                "API-only hosts must not pull Razor views or dashboard static assets.");
+            apiDeps.Should().Contain(id => id.Equals("Mostlylucid.BotDetection.Dashboard.Data", StringComparison.OrdinalIgnoreCase),
+                "API query services and SQLite schemas belong to the backend data package.");
             var uiDeps = GetDependencyIds(ReadNuspec(packDir, "Mostlylucid.BotDetection.UI"));
             uiDeps.Should().Contain(
                 id => id.Equals("Mostlylucid.BotDetection", StringComparison.OrdinalIgnoreCase),
@@ -453,6 +462,9 @@ public sealed class NuGetDependencyIntegrityTests
             buildPsi.ArgumentList.Add(Path.Combine(appDir, "publish"));
             buildPsi.ArgumentList.Add("/nodeReuse:false");
             await RunDotnetAsync(buildPsi, "consumer publish");
+            if (packageId == "Mostlylucid.BotDetection.Api")
+                File.Exists(Path.Combine(appDir, "publish", "Mostlylucid.BotDetection.UI.dll")).Should().BeFalse(
+                    "an API-only consumer must not ship the Razor UI assembly");
 
             var runPsi = new ProcessStartInfo("dotnet")
             {

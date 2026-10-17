@@ -526,7 +526,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         }
         if (filter?.EndTime.HasValue == true)
         {
-            conditions.Add("d.timestamp <= @end");
+            conditions.Add(filter.EndTimeExclusive ? "d.timestamp < @end" : "d.timestamp <= @end");
             cmd.Parameters.AddWithValue("@end", filter.EndTime.Value.ToString("O"));
         }
         if (filter?.IsBot.HasValue == true)
@@ -539,17 +539,25 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             conditions.Add("d.signature = @sig");
             cmd.Parameters.AddWithValue("@sig", filter.SignatureId);
         }
+        if (conditions.Count > 0)
+            sql += " WHERE " + string.Join(" AND ", conditions);
+
         if (filter?.Domains is { Count: > 0 })
         {
             var (domainPred, domainParams) = BuildDomainPredicate(filter.Domains, "d");
-            conditions.Add(domainPred);
+            sql += domainPred;
             foreach (var (name, value) in domainParams)
                 cmd.Parameters.AddWithValue(name, value);
         }
 
-        if (conditions.Count > 0)
-            sql += " WHERE " + string.Join(" AND ", conditions);
-
+        if (filter?.AudienceFilter is { } audience)
+        {
+            sql += AudiencePredicate(audience)
+                .Replace("bot_type", "d.bot_type", StringComparison.Ordinal)
+                .Replace("bot_name", "d.bot_name", StringComparison.Ordinal)
+                .Replace("bot_probability", "d.bot_probability", StringComparison.Ordinal);
+            cmd.Parameters.AddWithValue("@botFloor", _botFloor);
+        }
         sql += " ORDER BY d.timestamp DESC LIMIT @limit";
         cmd.Parameters.AddWithValue("@limit", filter?.Limit ?? 100);
         cmd.CommandText = sql;
@@ -2241,7 +2249,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         }
 
         if (domains is { Count: > 0 })
-            sql += " AND " + BuildDomainPredicate(domains, "d");
+        {
+            var (predicate, parameters) = BuildDomainPredicate(domains, string.Empty);
+            sql += predicate;
+            foreach (var (name, value) in parameters) cmd.Parameters.AddWithValue(name, value);
+        }
 
         sql += " ORDER BY timestamp DESC LIMIT @count";
         cmd.Parameters.AddWithValue("@count", count);

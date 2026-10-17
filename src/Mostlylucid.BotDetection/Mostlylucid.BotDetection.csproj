@@ -61,6 +61,7 @@
              UserAgentContributor leaving signals[ua.raw] unset). Same composer, just
              one more call site with the raw UA from HttpContext threaded in. -->
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.UI" />
+        <InternalsVisibleTo Include="Mostlylucid.BotDetection.Dashboard.Data" />
     </ItemGroup>
     <PropertyGroup>
         <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>

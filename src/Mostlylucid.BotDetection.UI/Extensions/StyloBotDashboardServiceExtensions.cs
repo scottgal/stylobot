@@ -218,7 +218,28 @@ public static class StyloBotDashboardServiceExtensions
         services.AddMemoryCache();
 
         // Ensure MVC services are available for Razor view rendering (idempotent)
-        services.AddControllersWithViews();
+        services.AddControllersWithViews().AddApplicationPart(typeof(StyloBotDashboardMiddleware).Assembly);
+
+        var remoteSource = services.LastOrDefault(s => s.ServiceType == typeof(Adapters.Remote.DashboardSourceOptions))
+            ?.ImplementationInstance as Adapters.Remote.DashboardSourceOptions;
+        var trafficUrl = options.TrafficApiUrl ?? remoteSource?.Pull.Url;
+        var trafficKey = options.TrafficApiKey ?? remoteSource?.Pull.ApiKey;
+        if (options.UseApiTraffic)
+        {
+            if (!Uri.TryCreate(trafficUrl, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
+                throw new InvalidOperationException("API Traffic requires TrafficApiUrl or StyloBot:Source:Pull:Url with an HTTP(S) base URL.");
+            if (string.IsNullOrWhiteSpace(trafficKey))
+                throw new InvalidOperationException("API Traffic requires TrafficApiKey or StyloBot:Source:Pull:ApiKey.");
+            if (options.TrafficApiTimeoutSeconds is < 1 or > 120)
+                throw new InvalidOperationException("TrafficApiTimeoutSeconds must be between 1 and 120.");
+        }
+        services.AddHttpClient<Services.Traffic.TrafficApiClient>(http =>
+        {
+            if (trafficUrl is not null) http.BaseAddress = new Uri(trafficUrl.TrimEnd('/') + "/");
+            if (!string.IsNullOrWhiteSpace(trafficKey)) http.DefaultRequestHeaders.Add("X-SB-Api-Key", trafficKey);
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(StyloBotInternalUserAgent.Value);
+            http.Timeout = TimeSpan.FromSeconds(options.TrafficApiTimeoutSeconds);
+        });
 
         // Razor view renderer for middleware-hosted dashboard
         services.AddSingleton<RazorViewRenderer>();
@@ -971,6 +992,16 @@ public static class StyloBotDashboardServiceExtensions
                 cookie.Cookie.SameSite = SameSiteMode.Lax;
                 cookie.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
                 cookie.Cookie.Path = basePath.Length == 0 ? "/" : basePath;
+                cookie.Events.OnSigningIn = context =>
+                {
+                    context.CookieOptions.Path = context.HttpContext.Request.PathBase + (basePath.Length == 0 ? "/" : basePath);
+                    return Task.CompletedTask;
+                };
+                cookie.Events.OnSigningOut = context =>
+                {
+                    context.CookieOptions.Path = context.HttpContext.Request.PathBase + (basePath.Length == 0 ? "/" : basePath);
+                    return Task.CompletedTask;
+                };
                 cookie.SlidingExpiration = true;
                 cookie.ExpireTimeSpan = TimeSpan.FromMinutes(Math.Max(1, auth.SlidingExpirationMinutes));
                 cookie.LoginPath = basePath + "/login";
@@ -1076,6 +1107,7 @@ public static class StyloBotDashboardServiceExtensions
             // elected UI gateway, which serves the hub (or the gateway host does).
             if (app is IEndpointRouteBuilder routeBuilder && options.IsUiGateway)
             {
+                routeBuilder.MapStyloBotDashboardPages();
                 routeBuilder.MapHub<StyloBotDashboardHub>(options.HubPath)
                     .WithMetadata(new BotDetection.Attributes.BotPolicyAttribute("default") { BlockThreshold = 0.95 });
 
@@ -1111,6 +1143,7 @@ public static class StyloBotDashboardServiceExtensions
 
         app.UseMiddleware<DetectionBroadcastMiddleware>();
         app.UseMiddleware<StyloBotDashboardMiddleware>();
+        if (app is IEndpointRouteBuilder pageRoutes) pageRoutes.MapStyloBotDashboardPages();
 
         // Non-UI pods (IsUiGateway=false) do not map the hub — they redirect dashboard
         // requests to the elected UI gateway pod, which serves the hub.
@@ -1260,89 +1293,7 @@ public static class StyloBotDashboardServiceExtensions
     ///     </code>
     /// </example>
     public static IServiceCollection AddBotDetectionPersistence(this IServiceCollection services)
-    {
-        // Shared options. This host maps the SignalR hub, so these options ARE the hub's
-        // authorization inputs -- they are not "no UI needed" bookkeeping.
-        //
-        // This used to be a bare `new StyloBotDashboardOptions { Enabled = true }`. On the
-        // gateway that meant RequireAuthentication=false, Auth.Mode=None,
-        // AuthorizationFilter=null, RequireAuthorizationPolicy=null,
-        // AllowUnauthenticatedAccess=false and IsDevelopment()=false under Staging -- so
-        // every auth branch fell through to DENY, deterministically, no matter what the
-        // website resolved for the page. The hub aborted every connection with "dashboard
-        // auth failed" and live updates were dead (2026-08-09).
-        //
-        // Resolved through DashboardAccessResolver, the SAME function the website host uses,
-        // rather than by copying its config block here: two hosts reading the same env var
-        // independently is the two-sources-of-truth trap that caused this. Registered as a
-        // FACTORY so IConfiguration / IHostEnvironment are resolved from DI at build time.
-        // Still TryAdd, so a host that configures its own options explicitly still wins.
-        services.TryAddSingleton(sp =>
-        {
-            var options = new StyloBotDashboardOptions { Enabled = true };
-            return DashboardAccessResolver.ApplyAccessPosture(
-                options,
-                sp.GetService<IConfiguration>(),
-                sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>()?.EnvironmentName
-                    .Equals("Development", StringComparison.OrdinalIgnoreCase) ?? false);
-        });
-
-        // SignalR for broadcasting to connected dashboard clients
-        services.AddSignalR();
-        services.AddAotSafeDashboardHubContext(); // AOT-safe typed-hub wrapper (no-op on JIT)
-
-        // Event store: SQLite by default (persists across restarts).
-        // PostgreSQL package overrides via RemoveAll + AddSingleton when configured.
-        services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
-
-        // Operator-supplied signature labels for detector weighting / ground truth
-        // (in-memory by default; production wires a SQLite or PostgreSQL implementation).
-        services.TryAddSingleton<ISignatureLabelStore, SqliteSignatureLabelStore>();
-
-        // Visitor "flag as wrong" feedback store. Owned by the enforcement component
-        // (this host runs detection); the upstream site POSTs to /api/v1/feedback
-        // rather than writing it directly. PostgreSQL pack overrides via RemoveAll.
-        services.TryAddSingleton<IDetectionFeedbackStore, SqliteDetectionFeedbackStore>();
-
-        // Aggregate cache - populated by beacon, read by API endpoints
-        services.TryAddSingleton<DashboardAggregateCache>();
-
-        // Write-through signature cache - single source of truth for top bots
-        services.TryAddSingleton<SignatureAggregateCache>();
-
-        // Stateless UA aggregator - used by broadcaster beacon + view components with params
-        services.TryAddSingleton<DashboardUserAgentAggregator>();
-
-        // Warm the SignatureAggregateCache from DB on startup so Top Bots / Live Activity /
-        // visitor list aren't empty after restart. Cache is in-memory read-through;
-        // persistence is the source of truth in IDashboardEventStore.
-        //
-        // Gateway-only per project_gateway_data_locality. On remote-mode hosts
-        // (marketing site, stylobot-ui) the warmup would issue DB queries against
-        // a store that doesn't belong to this process AND freeze the cache at a
-        // stale startup snapshot — DetectionBroadcastMiddleware runs only on the
-        // gateway, so nothing refreshes the cache afterwards. That produces the
-        // classic "home YOU card shows 100% / signature detail shows 7% for the
-        // same sig" divergence: home reads cache (stale), detail reads event
-        // store (current). Skip the warmup when AddStyloBotDashboardRemote has
-        // already registered DashboardSourceOptions; the cache stays registered
-        // (satisfies DI for middleware / view-components) but stays empty, so
-        // all read paths cleanly fall through to IDashboardEventStore — which
-        // on remote-mode hosts is RemoteDashboardEventStore (REST → gateway).
-        // One source of truth.
-        if (!services.Any(s => s.ServiceType == typeof(Mostlylucid.BotDetection.UI.Adapters.Remote.DashboardSourceOptions)))
-        {
-            services.AddHostedService<SignatureAggregateCacheWarmupService>();
-        }
-
-        // LLM result callback (needed if LLM classification is enabled)
-        services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
-
-        // Cluster description callback for live cluster updates
-        services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
-
-        return services;
-    }
+        => Mostlylucid.BotDetection.Dashboard.Data.DashboardDataServiceExtensions.AddDashboardData(services);
 
     /// <summary>
     ///     Enables the built-in SMTP email sender for dashboard auth flows (confirmation,
@@ -1421,18 +1372,7 @@ public static class StyloBotDashboardServiceExtensions
     ///     </para>
     /// </summary>
     public static IApplicationBuilder UseBotDetectionPersistence(this IApplicationBuilder app)
-    {
-        // Broadcast middleware: persists detections to event store + broadcasts to SignalR
-        app.UseMiddleware<DetectionBroadcastMiddleware>();
-
-        // Map SignalR hub so dashboard clients (on other hosts) can connect
-        var options = app.ApplicationServices.GetService<StyloBotDashboardOptions>();
-        var hubPath = options?.HubPath ?? "/stylobot/hub";
-        if (app is IEndpointRouteBuilder erb)
-            erb.MapHub<StyloBotDashboardHub>(hubPath);
-
-        return app;
-    }
+        => Mostlylucid.BotDetection.Dashboard.Data.DashboardDataServiceExtensions.UseDashboardData(app);
 
     /// <summary>
     ///     Replace the default <c>NullEndpointPerfBaseline</c>

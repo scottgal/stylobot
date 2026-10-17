@@ -6,6 +6,8 @@
       "src/Mostlylucid.BotDetection.Demo/Mostlylucid.BotDetection.Demo.csproj",
       "src/Mostlylucid.BotDetection.Llm.Holodeck/Mostlylucid.BotDetection.Llm.Holodeck.csproj",
       "src/Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj",
+      "src/Mostlylucid.BotDetection.Dashboard.Contracts/Mostlylucid.BotDetection.Dashboard.Contracts.csproj",
+      "src/Mostlylucid.BotDetection.Dashboard.Data/Mostlylucid.BotDetection.Dashboard.Data.csproj",
       "src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj",
       "src/Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj",
       "src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj",

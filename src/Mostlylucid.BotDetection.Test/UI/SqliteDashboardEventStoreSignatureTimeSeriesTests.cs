@@ -48,7 +48,7 @@ public sealed class SqliteDashboardEventStoreSignatureTimeSeriesTests : IAsyncDi
     [Fact]
     public async Task Averages_multiple_detections_in_the_same_bucket_and_gap_fills_quiet_buckets()
     {
-        var end = DateTime.UtcNow;
+        var end = new DateTime(2026, 10, 17, 12, 34, 20, DateTimeKind.Utc);
         var start = end.AddMinutes(-5);
 
         // Two detections in the same (current) minute -- must average, not sum or overwrite.
@@ -81,7 +81,7 @@ public sealed class SqliteDashboardEventStoreSignatureTimeSeriesTests : IAsyncDi
     [Fact]
     public async Task Different_signature_does_not_bleed_into_the_series()
     {
-        var now = DateTime.UtcNow;
+        var now = new DateTime(2026, 10, 17, 12, 34, 20, DateTimeKind.Utc);
         await _store.AddDetectionAsync(MakeDetection("sig-a", now, 0.9, 0.9, 5));
         await _store.AddDetectionAsync(MakeDetection("sig-b", now, 0.1, 0.1, 5));
 

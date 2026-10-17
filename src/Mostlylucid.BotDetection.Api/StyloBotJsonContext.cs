@@ -209,6 +209,9 @@ namespace Mostlylucid.BotDetection.Api;
 [JsonSerializable(typeof(SingleResponse<ResolvedEntity>))]
 [JsonSerializable(typeof(EntityEdge))]
 [JsonSerializable(typeof(PaginatedResponse<EntityEdge>))]
+[JsonSerializable(typeof(Microsoft.AspNetCore.Http.HttpValidationProblemDetails))]
+[JsonSerializable(typeof(Microsoft.AspNetCore.Mvc.ProblemDetails))]
+[JsonSerializable(typeof(Mostlylucid.BotDetection.Dashboard.Contracts.TrafficSnapshot))]
 public partial class StyloBotJsonContext : JsonSerializerContext
 {
 }

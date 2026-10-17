@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Extract dashboard persistence and read services into `Mostlylucid.BotDetection.Dashboard.Data`, with transport DTOs in `Mostlylucid.BotDetection.Dashboard.Contracts`. API-only hosts no longer depend on the Razor UI package. Existing public UI types are forwarded for compatibility, and schema resource names remain stable.
+- Add an opt-in API-backed Traffic page (`UseApiTraffic`): one authenticated read supplies summary, timeline and recent detections; MVC renders HTML, HTMX swaps it, and Alpine controls filter visibility. Existing pages remain the default. Empty data, unavailable sources and stale refreshes have distinct states; errors log correlation references without exposing source credentials to browsers.
+- Fix SQLite domain filtering in detection and threat reads, and align the pilot's detail window with the summary's exclusive end. Add real SQLite/API/MVC integration tests, transport failure and cancellation checks, package-boundary guards and a dashboard outage harness exercised by a separate browser CI job.
+
 ## [8.14.2] - 2026-10-17
 
 - **Fix native sidecar distribution:** include SQLite/libsodium native libraries alongside the executable and explicitly initialize the SQLite bundle before host configuration. Archive startup verification caught the missing libraries after the 8.14.1 build-only gate passed.

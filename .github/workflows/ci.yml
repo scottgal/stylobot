@@ -187,3 +187,45 @@ jobs:
         path: ./test-results/**/*.trx
         reporter: dotnet-trx
         fail-on-error: true
+
+  dashboard-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+    - name: Setup .NET
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+      with:
+        dotnet-version: '10.0.x'
+    - name: Install browser CLI
+      run: |
+        npm install --global @playwright/cli@0.1.22
+        playwright-cli install-browser chrome --with-deps
+    - name: Build dashboard harness
+      run: dotnet build scripts/dashboard-harness/DashboardHarness.csproj -c Release
+    - name: Exercise Traffic browser filtering and failure recovery
+      shell: bash
+      run: |
+        dotnet scripts/dashboard-harness/bin/Release/net10.0/DashboardHarness.dll > /tmp/dashboard-harness.log 2>&1 &
+        dashboard_pid=$!
+        trap 'kill -INT "$dashboard_pid" 2>/dev/null || true' EXIT
+        ready=false
+        for attempt in {1..60}; do
+          if curl --fail --silent http://127.0.0.1:5078/ops/traffic > /dev/null; then ready=true; break; fi
+          if ! kill -0 "$dashboard_pid" 2>/dev/null; then cat /tmp/dashboard-harness.log; exit 1; fi
+          sleep 1
+        done
+        if [ "$ready" != true ]; then cat /tmp/dashboard-harness.log; exit 1; fi
+        playwright-cli -s=dashboard open http://127.0.0.1:5078/ops/traffic --browser chrome
+        playwright-cli -s=dashboard run-code --filename scripts/dashboard-harness/browser-check.js
+        playwright-cli -s=dashboard close
+    - name: Upload browser diagnostics
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: dashboard-browser-diagnostics
+        path: |
+          /tmp/dashboard-harness.log
+          .playwright-cli/
+        retention-days: 7

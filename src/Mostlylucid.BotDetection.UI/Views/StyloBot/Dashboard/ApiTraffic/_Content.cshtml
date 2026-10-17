@@ -1,0 +1,61 @@
+@using System.Globalization
+@using Mostlylucid.BotDetection.UI.Services.Traffic
+@model Mostlylucid.BotDetection.UI.Controllers.ApiTrafficPageModel
+@{
+    var snapshot = Model.Result.Snapshot;
+}
+<div id="sb-api-traffic-content" data-state="@Model.Result.State.ToString().ToLowerInvariant()" data-has-snapshot="@(snapshot is not null ? "true" : "false")" class="space-y-4">
+@if (snapshot is null)
+{
+    <div role="alert" class="alert alert-warning">
+        @if (Model.Result.State == TrafficReadState.InvalidQuery)
+        { <p>Check the time window, date range and domain filters, then retry.</p> }
+        else if (Model.Result.State == TrafficReadState.AccessDenied)
+        { <p>The data source refused access. Check the dashboard’s source credentials.</p> }
+        else
+        { <p>Traffic data is unavailable. Retry with Apply.</p> }
+        <p>Reference: @Model.Result.TraceId</p>
+    </div>
+}
+else
+{
+    <p class="text-sm opacity-70">@snapshot.FromUtc.ToString("u") – @snapshot.ToUtc.ToString("u") · Updated <time datetime="@snapshot.GeneratedAtUtc.ToString("O")">@snapshot.GeneratedAtUtc.ToString("u")</time></p>
+    <section aria-label="Traffic summary" class="stats shadow w-full">
+        <div class="stat"><div class="stat-title">Requests</div><div class="stat-value" data-sb-total>@snapshot.Summary.Requests.ToString("N0")</div></div>
+        <div class="stat"><div class="stat-title">Humans</div><div class="stat-value">@snapshot.Summary.Humans.ToString("N0")</div></div>
+        <div class="stat"><div class="stat-title">Bots</div><div class="stat-value">@snapshot.Summary.Bots.ToString("N0")</div></div>
+        <div class="stat"><div class="stat-title">Uncertain</div><div class="stat-value">@snapshot.Summary.Uncertain.ToString("N0")</div></div>
+    </section>
+    @if (Model.Result.State == TrafficReadState.Empty)
+    { <p data-sb-empty>No traffic in this time window.</p> }
+    <section class="card bg-base-100 p-4" aria-label="Traffic timeline">
+        <h2 class="text-lg font-semibold">Requests over time</h2>
+        <svg role="img" aria-label="Request counts per time bucket" viewBox="0 0 720 130" class="w-full">
+        @{
+            var maximum = Math.Max(1, snapshot.Timeline.Select(b => b.Requests).DefaultIfEmpty(0).Max());
+            var width = 720d / Math.Max(1, snapshot.Timeline.Count);
+        }
+        @for (var i = 0; i < snapshot.Timeline.Count; i++)
+        {
+            var bucket = snapshot.Timeline[i];
+            var height = bucket.Requests * 120d / maximum;
+            <rect x="@((i * width).ToString("0.##", CultureInfo.InvariantCulture))" y="@((125 - height).ToString("0.##", CultureInfo.InvariantCulture))"
+                  width="@(Math.Max(1, width - 1).ToString("0.##", CultureInfo.InvariantCulture))" height="@(height.ToString("0.##", CultureInfo.InvariantCulture))" fill="currentColor">
+                <title>@bucket.TimestampUtc.ToString("u"): @bucket.Requests requests, @bucket.Bots bots</title>
+            </rect>
+        }
+        </svg>
+    </section>
+    <section class="card bg-base-100 p-4 overflow-x-auto" aria-label="Recent detections">
+        <h2 class="text-lg font-semibold">Recent detections</h2>
+        <table class="table"><thead><tr><th>Time (UTC)</th><th>Request</th><th>Domain</th><th>Verdict</th><th>Probability</th><th>Risk</th></tr></thead><tbody>
+        @foreach (var row in snapshot.Detections)
+        {
+            <tr><td>@row.TimestampUtc.ToString("u")</td><td>@row.Method @row.Path</td><td>@row.Domain</td><td>@(row.IsBot ? "Bot" : "Human")</td><td>@row.BotProbability.ToString("P1")</td><td>@row.RiskBand</td></tr>
+        }
+        @if (snapshot.Detections.Count == 0)
+        { <tr><td colspan="6">No recent request details are available for this window.</td></tr> }
+        </tbody></table>
+    </section>
+}
+</div>

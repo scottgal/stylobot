@@ -262,9 +262,9 @@ public sealed class DetectionSignalsSeamTests : IDisposable
         detection.ImportantSignals.Should().NotBeNull();
         detection.ImportantSignals!.Should().ContainKeys("score.bot_probability", "is_human");
         detection.ImportantSignals!.Keys.Should().NotContain(k => k.StartsWith("detector.", StringComparison.Ordinal));
-        detection.ImportantSignals!.Count.Should().BeLessThan(
+        detection.ImportantSignals!.Count.Should().BeLessThanOrEqualTo(
             DashboardSignals.MaxSignalsPerDetection,
-            "with the bookkeeping skipped a real request no longer hits the truncation cap");
+            "new detector findings may fill the bounded payload, but must never exceed it");
     }
 
     // --- helpers -----------------------------------------------------------

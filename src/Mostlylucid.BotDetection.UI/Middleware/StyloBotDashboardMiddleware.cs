@@ -342,6 +342,13 @@ public class StyloBotDashboardMiddleware
             }
         }
 
+        if (_options.UseApiTraffic && relLower.TrimEnd('/') == "traffic")
+        {
+            context.Items[Controllers.ApiTrafficController.AuthorizedRequest] = true;
+            await _next(context);
+            return;
+        }
+
         switch (relLower)
         {
             case "":
@@ -997,7 +1004,7 @@ public class StyloBotDashboardMiddleware
 
     private async Task HandleUnauthenticatedAsync(HttpContext context, string relLower)
     {
-        if (!_usersExist)
+        if (!_usersExist && !IsApiTrafficFragment(context, relLower))
         {
             var userStore = context.RequestServices.GetService<IUserStore<StyloBotUser>>() as StyloBotUserStore;
             if (userStore != null)
@@ -1009,7 +1016,7 @@ public class StyloBotDashboardMiddleware
         }
 
         // API paths return 401 JSON; browser paths redirect to login UI
-        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal))
+        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal) || IsApiTrafficFragment(context, relLower))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.Headers.WWWAuthenticate = "Bearer";
@@ -1273,6 +1280,9 @@ public class StyloBotDashboardMiddleware
         return context.User.Identity?.IsAuthenticated == true;
     }
 
+    private bool IsApiTrafficFragment(HttpContext context, string relativePath) =>
+        _options.UseApiTraffic && relativePath.TrimEnd('/') == "traffic" && context.Request.Headers["HX-Request"] == "true";
+
     /// <summary>
     ///     Unauthenticated handling for Login mode: dashboard data/partials get a 401 JSON
     ///     (so XHR/HTMX callers don't get an HTML redirect body); HTML page requests are
@@ -1280,7 +1290,7 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private async Task HandleViewUnauthenticatedAsync(HttpContext context, string relLower)
     {
-        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal))
+        if (relLower.StartsWith("api/", StringComparison.Ordinal) || relLower.StartsWith("partials/", StringComparison.Ordinal) || IsApiTrafficFragment(context, relLower))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/json";
@@ -1288,13 +1298,13 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/login");
+        context.Response.Redirect(context.Request.PathBase + _options.BasePath.TrimEnd('/') + "/login");
     }
 
     /// <summary>Serves the login form (GET) and verifies the config credential (POST).</summary>
     private async Task ServeConfigLoginAsync(HttpContext context)
     {
-        var basePath = _options.BasePath.TrimEnd('/');
+        var basePath = context.Request.PathBase + _options.BasePath.TrimEnd('/');
 
         if (HttpMethods.IsPost(context.Request.Method))
         {
@@ -1332,7 +1342,7 @@ public class StyloBotDashboardMiddleware
     private async Task HandleConfigLogoutAsync(HttpContext context)
     {
         await context.SignOutAsync(DashboardViewAuthDefaults.Scheme);
-        context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/login");
+        context.Response.Redirect(context.Request.PathBase + _options.BasePath.TrimEnd('/') + "/login");
     }
 
     private async Task WriteLoginPageAsync(HttpContext context, string basePath, string? error, int statusCode)
@@ -1358,7 +1368,7 @@ public class StyloBotDashboardMiddleware
             HttpOnly = true,
             SameSite = SameSiteMode.Strict,
             Secure = context.Request.IsHttps,
-            Path = _options.BasePath.TrimEnd('/') + "/login",
+            Path = context.Request.PathBase + _options.BasePath.TrimEnd('/') + "/login",
             MaxAge = TimeSpan.FromMinutes(30)
         });
         return token;
