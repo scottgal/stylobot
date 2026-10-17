@@ -82,7 +82,7 @@
              GHSA-hv8m-jj95-wg3x, GHSA-vh6j-jc39-fggf). Same role as the NuGet.CommandLine
              pin below, which does carry a comment; this one did not, which is why it read
              as dead weight. Bump it, never delete it. -->
-        <PackageReference Include="MessagePack" Version="3.1.9" />
+        <PackageReference Include="MessagePack" Version="3.1.12" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
         <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
         <PackageReference Include="System.IO.Hashing" Version="10.0.10" />
