@@ -82,24 +82,29 @@
          hx-swap="outerHTML">
 
     @* ── Header ── *@
-    <h2 class="text-lg font-semibold">Site Analytics</h2>
-
-    @* ── Real-time ticker ── *@
-    <bot-ticker />
-
-    @* ── Row 1: Summary Stats + Domain Breakdown (side by side) ──
-       SbSummaryStats self-fetches via IDashboardEventStore + SignatureAggregateCache.
-       The right column is a named slot — commercial overlays inject DomainBreakdown
-       here. On pure-FOSS hosts it renders empty (graceful absence). *@
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
-        <sb-summary-stats range="@activeWindow" />
-        <div id="site-domain-breakdown-slot">
-            @* Commercial DomainBreakdownViewComponent renders here *@
-        </div>
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+        <h2 class="text-lg font-semibold">Site and endpoints</h2>
+        <a href="@bp/traffic" class="text-xs text-base-content/55 hover:text-base-content/80 underline">Traffic landing</a>
     </div>
 
-    @* ── Row 2: Site Health — response time + error rate timeseries ── *@
-    <vc:sb-site-health window="@activeWindow" />
+    @* The summary/ticker/health block used to lead the page. It stays fully live
+       and is one click away; the endpoint table is the page. *@
+    <details class="sb-more">
+        <summary class="sb-trend-summary">
+            <span class="sb-trend-title">Site summary</span>
+            <span class="sb-trend-sub">live ticker, summary stats and upstream health</span>
+        </summary>
+        <div class="sb-more-body space-y-2 pt-2">
+            <bot-ticker />
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                <sb-summary-stats range="@activeWindow" />
+                <div id="site-domain-breakdown-slot">
+                    @* Commercial DomainBreakdownViewComponent renders here *@
+                </div>
+            </div>
+            <vc:sb-site-health window="@activeWindow" />
+        </div>
+    </details>
 
     @* ── Row 3: Endpoint Filters ── *@
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">

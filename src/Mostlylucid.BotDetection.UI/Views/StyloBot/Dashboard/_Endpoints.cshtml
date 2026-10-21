@@ -35,24 +35,24 @@
     // component's parameter-driven reads (?window= or the 24h dashboard default) so all
     // three surfaces agree. Existing widgets only — no new ones.
     var analyticsWindow = QueryOrNull("window") ?? "24h";
-    var analyticsEnd = DateTime.UtcNow;
-    var analyticsSpan = analyticsWindow switch
-    {
-        "15m" => TimeSpan.FromMinutes(15),
-        "60m" or "1h" => TimeSpan.FromHours(1),
-        "6h" => TimeSpan.FromHours(6),
-        "12h" => TimeSpan.FromHours(12),
-        "7d" => TimeSpan.FromDays(7),
-        "30d" => TimeSpan.FromDays(30),
-        _ => TimeSpan.FromHours(24),
-    };
-    var analyticsStart = analyticsEnd - analyticsSpan;
+    // ONE window resolver: "custom" is a from/to pair, not a duration, so a switch
+    // here would silently default it to 24h. DashboardRangeScope shares the exact
+    // resolution used by the endpoint list, summary, top-bots and detail builder.
+    var (resolvedStart, resolvedEnd) = Mostlylucid.BotDetection.UI.Helpers.DashboardRangeScope.Resolve(Context, analyticsWindow);
+    var analyticsEnd = resolvedEnd ?? DateTime.UtcNow;
+    var analyticsStart = resolvedStart ?? analyticsEnd.AddHours(-24);
+    // Same domain scope the summary and endpoint table use: an unscoped trend under a
+    // domain-selected page would show every host's traffic.
+    var domainScope = Context.RequestServices
+        .GetService(typeof(Mostlylucid.BotDetection.UI.Dashboard.IDashboardDomainScope))
+        as Mostlylucid.BotDetection.UI.Dashboard.IDashboardDomainScope;
+    var scopedDomains = domainScope?.GetSelectedDomains(Context);
     TrafficTimeseries timeseries;
     try
     {
         var bucket = HitsPerPeriodChartletBuilder.BucketSizeForWindow(analyticsWindow);
         var points = await EventStore.GetTimeSeriesAsync(
-            analyticsStart, analyticsEnd, bucket, audienceFilter: null, domains: null);
+            analyticsStart, analyticsEnd, bucket, audienceFilter: null, domains: scopedDomains);
         timeseries = HitsPerPeriodChartletBuilder.BuildSeries(points, analyticsStart, analyticsEnd, bucket);
     }
     catch

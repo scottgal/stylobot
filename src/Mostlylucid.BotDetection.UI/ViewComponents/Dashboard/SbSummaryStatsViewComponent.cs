@@ -26,7 +26,7 @@ public class SbSummaryStatsViewComponent(
 {
     public async Task<IViewComponentResult> InvokeAsync(string? audience = null, string? range = null)
     {
-        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+        var (startTime, endTime) = DashboardRangeScope.Resolve(HttpContext, range);
 
         // If the page composer stashed a DashboardPageResult, read the Summary slice from it
         // directly (zero store calls). Otherwise fall through to the existing self-fetch so

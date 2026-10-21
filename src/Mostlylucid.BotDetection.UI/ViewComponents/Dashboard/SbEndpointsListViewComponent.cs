@@ -52,7 +52,11 @@ public class SbEndpointsListViewComponent(
         // identically instead of only working after the first chip click.
         string? status = null)
     {
-        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+        // "custom" is not a duration token: parsing it alone yields (null, null), which
+        // silently skips the windowed store branch. One resolver keeps this component,
+        // the summary/top-bots/country/user-agent widgets and the detail builder on
+        // the same canonical window. See DashboardRangeScope.
+        var (startTime, endTime) = DashboardRangeScope.Resolve(HttpContext, range);
 
         // If the page composer stashed a DashboardPageResult, read the Endpoints slice from
         // it directly (zero store calls). Otherwise fall through to the existing cache-first /
@@ -132,6 +136,7 @@ public class SbEndpointsListViewComponent(
         {
             // A genuine cold miss -- render the warming placeholder instead of falling through
             // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
+            ViewData["EndpointsLifetimeOnly"] = !eventStore.SupportsWindowedEndpointStats;
             return View(new EndpointsListModel
             {
                 Endpoints = [],
@@ -149,8 +154,12 @@ public class SbEndpointsListViewComponent(
         else
         {
             // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
+            // The aggregate snapshot is UNSCOPED: serving it for a request that carries a
+            // domain scope (commercial selector / ?domain=) would answer a scoped read with
+            // all-domain rows. Any non-empty scope must go to the store, which applies the
+            // domains filter -- same rule the API/timeseries path enforces remotely.
             var cached = aggregateCache.Current.Endpoints;
-            if (cached.Count > 0)
+            if (cached.Count > 0 && scopedDomains is not { Count: > 0 })
             {
                 data = cached;
             }
@@ -167,6 +176,15 @@ public class SbEndpointsListViewComponent(
                 isWarming = DashboardWarmingSignal.IsWarming(HttpContext, "endpoints", domainTag);
             }
         }
+        // Honesty seam (presentation only, no store call added or changed): endpoint
+        // aggregates are window-scoped on PG/remote but lifetime-only on SQLite. Read
+        // AFTER the read above -- a remote adapter learns windowed/lifetime from the
+        // response it just fetched and starts conservative, so sampling it earlier
+        // would mislabel a windowed gateway as "lifetime totals" on first paint.
+        // Read back by _Lean.cshtml (and by the full view), and propagated on partial
+        // swaps via the ?lifetime=1 URL token.
+        ViewData["EndpointsLifetimeOnly"] = !eventStore.SupportsWindowedEndpointStats;
+
         var basePath = options.Value.BasePath.TrimEnd('/');
         var navBasePath = string.IsNullOrEmpty(options.Value.NavBasePath)
             ? null

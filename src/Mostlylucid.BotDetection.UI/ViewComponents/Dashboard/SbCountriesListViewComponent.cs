@@ -25,7 +25,7 @@ public class SbCountriesListViewComponent(
         string? audience = null,
         string? range = null)
     {
-        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+        var (startTime, endTime) = DashboardRangeScope.Resolve(HttpContext, range);
 
         // If the page composer stashed a DashboardPageResult, read the Geo slice from it
         // directly (zero store calls). Otherwise fall through to the existing cache-first /

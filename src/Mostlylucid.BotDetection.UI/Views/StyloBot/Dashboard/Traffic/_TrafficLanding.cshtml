@@ -1,0 +1,192 @@
+@using Mostlylucid.BotDetection.UI.Dashboard
+@using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
+@using Mostlylucid.BotDetection.UI.Services.Dashboard
+@using Microsoft.Extensions.Options
+@using Mostlylucid.BotDetection.UI.Configuration
+@model TrafficPageModel
+@*
+    Inner body partial -- rendered standalone when /dashboard/traffic?partial=1
+    is fetched by the SignalR-driven HTMX swap, and inlined by the full Index
+    view for the SSR first paint. Keeping the data sections in one partial
+    means the SSR pass and the live-refresh swap render the same DOM with one
+    source of truth (per feedback_centralised_change_detection).
+*@
+@{
+    // Empty affordance slot for commercial domain-filter widget.
+    // FOSS provides only the slot host; the commercial feature (edit control + write endpoints)
+    // lives entirely in Stylobot.Commercial.Ui and plugs in from the commercial side.
+    string LinkWith(
+        string? country = null,
+        string? botType = null,
+        string? window = null,
+        string? threat = null,
+        string? remove = null,
+        IEnumerable<string>? domains = null)
+    {
+        var qs = new List<string>();
+        var c  = remove == "country"  ? null : (country  ?? Model.Filters.Country);
+        var bt = remove == "bot_type" ? null : (botType  ?? Model.Filters.BotType);
+        var w  = remove == "window"   ? null : (window   ?? Model.Filters.Window);
+        var th = remove == "threat"   ? null : (threat   ?? Model.Filters.Threat);
+        if (!string.IsNullOrEmpty(c))  qs.Add($"country={Uri.EscapeDataString(c)}");
+        if (!string.IsNullOrEmpty(bt)) qs.Add($"bot_type={Uri.EscapeDataString(bt)}");
+        // Default window is 24h; omit the query-string param when w matches
+        // the default so the URL stays clean.
+        if (!string.IsNullOrEmpty(w) && w != "24h")
+        {
+            qs.Add($"window={Uri.EscapeDataString(w)}");
+            // The baseline middleware only rewrites ?window= when it is ABSENT, so a
+            // custom token in the URL must carry its own pair or it resolves to nothing.
+            if (string.Equals(w, "custom", StringComparison.OrdinalIgnoreCase))
+            {
+                var customFrom = Context.Request.Query["from"].ToString();
+                var customTo = Context.Request.Query["to"].ToString();
+                if (!string.IsNullOrEmpty(customFrom)) qs.Add($"from={Uri.EscapeDataString(customFrom)}");
+                if (!string.IsNullOrEmpty(customTo)) qs.Add($"to={Uri.EscapeDataString(customTo)}");
+            }
+        }
+        if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
+
+        // Neutral domain plumbing. Callers (the commercial marketing-site
+        // Views/ overlay) may pass an explicit list to preserve the active
+        // domain filter across other filter changes; a null override falls
+        // back to the currently-bound filter state. FOSS has no widget of
+        // its own here — the multi-select UI ships in the commercial overlay
+        // because it is gated on License.Domains.
+        var effectiveDomains = remove == "domain"
+            ? Array.Empty<string>()
+            : (domains ?? Model.Filters.Domains);
+        foreach (var d in effectiveDomains)
+        {
+            if (string.IsNullOrWhiteSpace(d)) continue;
+            qs.Add($"domain={Uri.EscapeDataString(d)}");
+        }
+        var trafficPath = $"{Model.BasePath}/traffic";
+        return qs.Count == 0 ? trafficPath : $"{trafficPath}?{string.Join("&", qs)}";
+    }
+    // Analytics-package window set: short shape (6h/24h) through 7d/30d history.
+    // The timeseries bucketer adapts bucket width to the window so the longer
+    // ranges roll up rather than render thousands of thin buckets. The set is
+    // CAPPED at the detection-retention policy — no point offering 30d when the
+    // store only keeps, say, 7d.
+    // Refresh URL preserves the active filter set so the SignalR-driven swap
+    // re-renders the same view the operator is looking at, not a default one.
+    // The WINDOW is deliberately NOT in the refresh URL: the period selector owns
+    // ?window= via its cookie and DashboardScopeBaselineMiddleware rewrites it from
+    // the cookie on every request — a baked SSR-time window here would make the
+    // swapped body ignore the operator's selection (the "changing the window does
+    // nothing" defect, 2026-08-12).
+    var refreshUrl = LinkWith(remove: "window") + (LinkWith(remove: "window").Contains("?") ? "&" : "?") + "partial=1";
+}
+    <header class="flex items-center justify-between flex-wrap gap-2">
+        <div class="flex items-center gap-3 flex-wrap">
+            <h2 class="text-lg font-semibold">Traffic</h2>
+            @if (!string.IsNullOrEmpty(Model.Filters.Country))
+            {
+                <a href="@LinkWith(remove: "country")"
+                   class="badge badge-sm gap-1" title="Clear country filter">
+                    Country: @Model.Filters.Country <span aria-hidden="true">&times;</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Filters.BotType))
+            {
+                <a href="@LinkWith(remove: "bot_type")"
+                   class="badge badge-sm gap-1" title="Clear bot-type filter">
+                    Bot: @Model.Filters.BotType <span aria-hidden="true">&times;</span>
+                </a>
+            }
+            @if (!string.IsNullOrEmpty(Model.Filters.Threat))
+            {
+                <a href="@LinkWith(remove: "threat")"
+                   class="badge badge-sm badge-warning gap-1" title="Clear threat filter">
+                    Threat &ge; @Model.Filters.Threat.TrimEnd('+') <span aria-hidden="true">&times;</span>
+                </a>
+            }
+        </div>
+        @{
+            var advancedQs = new List<string> { "columns=full" };
+            var qsWindow = Context.Request.Query["window"].ToString();
+            if (!string.IsNullOrEmpty(qsWindow))
+            {
+                advancedQs.Add($"window={Uri.EscapeDataString(qsWindow)}");
+                if (string.Equals(qsWindow, "custom", StringComparison.OrdinalIgnoreCase))
+                {
+                    var advFrom = Context.Request.Query["from"].ToString();
+                    var advTo = Context.Request.Query["to"].ToString();
+                    if (!string.IsNullOrEmpty(advFrom)) advancedQs.Add($"from={Uri.EscapeDataString(advFrom)}");
+                    if (!string.IsNullOrEmpty(advTo)) advancedQs.Add($"to={Uri.EscapeDataString(advTo)}");
+                }
+            }
+            foreach (var qsDomain in Context.Request.Query["domain"])
+            {
+                if (!string.IsNullOrWhiteSpace(qsDomain)) advancedQs.Add($"domain={Uri.EscapeDataString(qsDomain)}");
+            }
+            var qsCountry = Context.Request.Query["country"].ToString();
+            if (!string.IsNullOrEmpty(qsCountry)) advancedQs.Add($"country={Uri.EscapeDataString(qsCountry)}");
+            var qsBotType = Context.Request.Query["bot_type"].ToString();
+            if (!string.IsNullOrEmpty(qsBotType)) advancedQs.Add($"bot_type={Uri.EscapeDataString(qsBotType)}");
+        }
+        <a href="@Model.BasePath/site?@string.Join("&", advancedQs)"
+           class="text-xs text-base-content/55 hover:text-base-content/80 underline">
+            Advanced columns
+        </a>
+    </header>
+
+    @* Commercial domain-filter widget slots in here (graceful absence on FOSS). *@
+    <div id="domain-filter-slot" class="sb-widget"></div>
+
+    @{ ViewData["YourDetection"] = Model.YourDetection; ViewData["IsWarming"] = Model.IsWarming; }
+    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
+
+    @{
+        var hitsChart = HitsPerPeriodChartletBuilder.BuildFromSeries(Model.Timeseries, Model.Filters.Window);
+        var chartLabel = $"Traffic trend — requests per period (last {Model.Filters.Window})";
+    }
+    @* One quiet trend, collapsed by default: the table is the page. A native
+       <details> keeps this keyboard-operable with no script and no extra CSP surface. *@
+    <details class="sb-trend">
+        <summary class="sb-trend-summary">
+            <span class="sb-trend-title">Traffic trend</span>
+            <span class="sb-trend-sub">requests per @Model.Filters.Window bucket</span>
+        </summary>
+        <div class="sb-trend-body">
+            @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_HitsPerPeriodChart.cshtml",
+                new HitsPerPeriodChartModel(hitsChart, chartLabel, Model.Filters.Window, Model.IsWarming))
+        </div>
+    </details>
+
+    @* The endpoint table is the page. No fixed-height tier and no inner scroll:
+       the page scrolls, so a row can never be clipped mid-number. *@
+    <div class="card bg-base-100 border border-base-300 sb-ep-card">
+        <div class="card-body p-3">
+            <sb-endpoints-list heading="Endpoints"
+                               range="@Model.Filters.Window"
+                               sort="total" dir="desc" page-size="18" />
+        </div>
+    </div>
+
+    @* Everything the landing page no longer leads with stays one click away and
+       keeps its real data + live-refresh behaviour behind this disclosure. *@
+    <details class="sb-more">
+        <summary class="sb-trend-summary">
+            <span class="sb-trend-title">More traffic detail</span>
+            <span class="sb-trend-sub">top visitors, countries, bot types, threats and upstream health</span>
+        </summary>
+        <div class="sb-more-body space-y-3 pt-3">
+            @* The panels below are projections of the SAME composed bundle the page
+               already read, so opening this disclosure adds no store work. The
+               self-fetching widgets that used to lead the page (Top Bots, site
+               health) are not rendered here: they stay on Visitors and Site, one
+               explicit click away, so the landing page never pays for them.
+               Deferred-load is a follow-up once a partial route exists for them. *@
+            @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", Model)
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <a class="underline" href="@Model.BasePath/visitors?window=@Uri.EscapeDataString(Model.Filters.Window)">
+                    Top visitors and signatures
+                </a>
+                <a class="underline" href="@Model.BasePath/site?columns=full&amp;window=@Uri.EscapeDataString(Model.Filters.Window)">
+                    Site health and full endpoint columns
+                </a>
+            </div>
+        </div>
+    </details>

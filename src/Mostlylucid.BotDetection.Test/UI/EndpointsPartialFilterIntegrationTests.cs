@@ -104,16 +104,15 @@ public sealed class EndpointsPartialFilterIntegrationTests : IAsyncDisposable
         var html = await app.GetTestClient().GetStringAsync("/dashboard/partials/endpoints?audience=all_incl_internal");
 
         Assert.Contains("/metrics", html);
-        // Chip markup itself must render in its "active" (highlighted) state -- the same
-        // warning-colored class AudienceChipClass gives every other active audience chip
-        // (mirrors the Honeypot chip's own highlight convention).
-        Assert.Contains("Show self-probe", html);
-        Assert.Contains("bg-warning/20 text-warning border border-warning/30", html);
+        // Contract change (operator-approved removal): the shared endpoint table no
+        // longer ADVERTISES self-probe. The audience token still routes through the
+        // store for API/deep-link callers, but no UI control offers it -- the PG
+        // endpoint rollup has no internal dimension, so a chip would be a no-op there.
+        Assert.DoesNotContain("Show self-probe", html);
     }
 
-    /// <summary>Default (no audience param) must NOT reveal the Internal-only endpoint --
-    ///     pins the new default posture on the same integration path -- and the chip must
-    ///     render in its inactive state.</summary>
+    /// <summary>Default (no audience param) must NOT reveal the Internal-only endpoint,
+    ///     and the table must not advertise the removed self-probe audience control.</summary>
     [Fact]
     public async Task Default_audience_hides_the_internal_only_endpoint()
     {
@@ -122,7 +121,7 @@ public sealed class EndpointsPartialFilterIntegrationTests : IAsyncDisposable
         var html = await app.GetTestClient().GetStringAsync("/dashboard/partials/endpoints");
 
         Assert.DoesNotContain("/metrics", html);
-        Assert.Contains("Show self-probe", html);
+        Assert.DoesNotContain("Show self-probe", html);
     }
 
     public async ValueTask DisposeAsync()

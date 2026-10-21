@@ -33,7 +33,7 @@ public class SbTopBotsViewComponent(
         string? audience = null,
         string? range = null)
     {
-        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+        var (startTime, endTime) = DashboardRangeScope.Resolve(HttpContext, range);
 
         // If the page composer stashed a DashboardPageResult for this request, read the
         // BotAggregate slice from it directly (zero store calls). Otherwise fall through

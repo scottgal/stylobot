@@ -3,106 +3,52 @@
 @model TrafficCounters
 @{
     var c = Model;
-    var humanShare = 1d - c.BotShare;
+    // ONE unit: requests. The old strip mixed distinct-fingerprint counts with a
+    // request share ("HUMAN 0 0% · 0"), which read as three numbers in two units.
+    //
+    // Endpoint/summary aggregates keep a BINARY split (bot vs not-bot); there is no
+    // per-endpoint uncertain count, so the complement is labelled "Human / unknown"
+    // and includes requests with no bot verdict. It is never "safe" and never a
+    // confirmed human classification.
+    var notBot = Math.Max(0, c.Total - c.Bots);
+    var botSharePct = c.Total > 0 ? c.Bots * 100.0 / c.Total : 0d;
+    var shareText = botSharePct.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + "%";
 
-    string DeltaText(int delta, double pct)
-    {
-        if (delta == 0) return "0";
-        var sign = delta > 0 ? "↑" : "↓";
-        var mag = Math.Abs(pct) >= 1000d ? "new" : $"{Math.Abs(pct):F0}%";
-        return $"{sign}{mag}";
-    }
-
-    // Operator's own detection pill, merged in (operator 2026-08-09: "the visitors
-    // summary bar and your score should be on one line" -- was its own full-width
-    // shell row above the tab content). Passed via ViewData, not the model, since
-    // this partial's @model (TrafficCounters) is shared with the Visitors page,
-    // which has no equivalent pill. Null/absent = the caller didn't opt in
-    // (e.g. Visitors), same shape as the IsWarming ViewData convention used by
-    // the traffic-panel cards.
-    var yd = ViewData["YourDetection"] as YourDetectionModel;
-    var ydRiskClass = yd is { RiskBand: "VeryHigh" or "High" } ? "text-error"
-        : yd is { RiskBand: "Medium" or "Elevated" } ? "text-warning" : "text-success";
-    var ydProbPct = yd is not null ? (yd.BotProbability * 100).ToString("F1") : "";
-    // Cold-stash counters never paint zeros (operator 2026-08-13: "pages NEVER
-    // load with empty data") — a warming page renders dashes instead; the
-    // materializer/beacon fills them on the next swap. Same ViewData convention
-    // the traffic-panel cards use.
+    // Cold-stash counters never paint zeros: a warming page renders dashes and the
+    // beacon fills them on the next swap. Same convention the panel cards use.
     var warming = ViewData["IsWarming"] as bool? == true;
-    // Terminal state (operator directive 2026-08-13): when the bounded first-paint
-    // wait gave up (the degraded marker — data feed unavailable), the strip renders
-    // the explicit message instead of dashes or zeros. Checked via the request.
+    // Terminal state: the bounded first-paint wait gave up (data feed unavailable).
     var degraded = Mostlylucid.BotDetection.UI.Dashboard.DashboardWarmingSignal.IsDegraded(Context);
 }
 @*
-    Compact visitors bar. Replaces the old full-height VISITORS card — the split
-    is one line so the volume chart can sit in the prime top-left slot. Headline
-    numbers are DISTINCT FINGERPRINTS ("how many actors"); requests are secondary.
-    Counts come from TrafficCounters (the durable projection), the single source —
-    NOT the dashboard summary strip, which drifted from these by a few requests.
+    Compact request summary: three numbers, one unit, no period deltas.
+    Layout and type are SELF-CONTAINED (sb-count-* rules in sb-components.css) rather
+    than utility classes, so the shared component keeps its approved shape on hosts
+    where the consumer's Tailwind/daisyUI bundle is absent or partial.
 *@
-<div class="card bg-base-100 border border-base-300 sb-traffic-summary">
+<div class="sb-traffic-summary">
     @if (degraded)
     {
-        <div class="card-body p-2.5 text-xs text-base-content/50">
-            Data feed unavailable — retrying on next tick
-        </div>
+        <p class="sb-count-meta">Data feed unavailable — retrying on next tick</p>
     }
     else
     {
-    <div class="card-body p-2.5 flex-row flex-wrap items-center gap-x-6 gap-y-2">
-        <span class="flex items-baseline gap-1.5">
-            <span class="text-[10px] uppercase tracking-wide text-base-content/50">Visitors</span>
-            <span class="text-lg font-bold leading-none">@(warming ? "—" : c.TotalFingerprints.ToString("N0"))</span>
-            <span class="text-[10px] text-base-content/40">· @(warming ? "—" : c.Total.ToString("N0")) req</span>
-        </span>
-
-        <span class="flex items-baseline gap-1.5" title="@c.Humans.ToString("N0") human requests">
-            <span class="text-[10px] uppercase tracking-wide text-success">Human</span>
-            <span class="text-lg font-bold text-success leading-none">@(warming ? "—" : c.HumanFingerprints.ToString("N0"))</span>
-            <span class="text-[10px] text-base-content/40">@(warming ? "—" : humanShare.ToString("P0") + " · " + DeltaText(c.HumansDelta, c.HumansDeltaPct))</span>
-        </span>
-
-        <span class="flex items-baseline gap-1.5" title="@c.Bots.ToString("N0") bot requests">
-            <span class="text-[10px] uppercase tracking-wide text-error">Bot</span>
-            <span class="text-lg font-bold text-error leading-none">@(warming ? "—" : c.BotFingerprints.ToString("N0"))</span>
-            <span class="text-[10px] text-base-content/40">@(warming ? "—" : c.BotShare.ToString("P0") + " · " + DeltaText(c.BotsDelta, c.BotsDeltaPct))</span>
-        </span>
-
-        @* Inline bot-pressure bar, takes the remaining width. *@
-        <span class="flex items-center gap-2 flex-1 min-w-[140px]">
-            <span class="flex h-2 flex-1 rounded overflow-hidden bg-base-300" title="@c.BotShare.ToString("P0") bot pressure">
-                <span class="bg-success" style="width:@((humanShare * 100).ToString("F1"))%"></span>
-                <span class="bg-error" style="width:@((c.BotShare * 100).ToString("F1"))%"></span>
-            </span>
-        </span>
-
-        @if (yd is { HasData: true })
-        {
-            @* Whole pill clicks through to the operator's own signature page when linkable. *@
-            if (!string.IsNullOrEmpty(yd.Signature))
-            {
-                <a href="@yd.BasePath/signature/@Uri.EscapeDataString(yd.Signature)"
-                   class="flex items-center gap-1.5 hover:opacity-80 border-l border-base-300 pl-4"
-                   title="View your own detection detail">
-                    <span class="text-[10px] text-base-content/40 uppercase tracking-wider">You</span>
-                    @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
-                    else { <span class="badge badge-xs badge-success">Human</span> }
-                    <span class="text-[11px] font-bold @ydRiskClass">@ydProbPct%</span>
-                    <span class="text-[10px] text-base-content/50">@yd.RiskBand</span>
-                </a>
-            }
-            else
-            {
-                <span class="flex items-center gap-1.5 border-l border-base-300 pl-4">
-                    <span class="text-[10px] text-base-content/40 uppercase tracking-wider">You</span>
-                    @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
-                    else { <span class="badge badge-xs badge-success">Human</span> }
-                    <span class="text-[11px] font-bold @ydRiskClass">@ydProbPct%</span>
-                    <span class="text-[10px] text-base-content/50">@yd.RiskBand</span>
-                </span>
-            }
-        }
-    </div>
+        <div class="sb-count-row">
+            <div class="sb-count">
+                <span class="sb-count-label">Requests</span>
+                <span class="sb-count-value">@(warming ? "—" : c.Total.ToString("N0"))</span>
+                <span class="sb-count-meta">in this range</span>
+            </div>
+            <div class="sb-count">
+                <span class="sb-count-label">Bot</span>
+                <span class="sb-count-value sb-audience-bot">@(warming ? "—" : c.Bots.ToString("N0"))</span>
+                <span class="sb-count-meta">@(warming ? "" : shareText + " of requests")</span>
+            </div>
+            <div class="sb-count">
+                <span class="sb-count-label">Human / unknown</span>
+                <span class="sb-count-value sb-audience-notbot">@(warming ? "—" : notBot.ToString("N0"))</span>
+                <span class="sb-count-meta">includes requests not identified as bots</span>
+            </div>
+        </div>
     }
 </div>

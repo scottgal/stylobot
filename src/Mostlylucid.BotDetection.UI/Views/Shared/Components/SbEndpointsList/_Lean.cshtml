@@ -1,0 +1,353 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@model EndpointsListModel
+@*
+    Lean endpoint table — the default surface for the Traffic landing page and the
+    Site page.
+
+    Five columns only: Endpoint · Requests · Human / unknown · Bot · Bot share.
+    Everything the old 14-column table carried (threat, latency, bytes, sigs,
+    policy, upstream/returned, split bar) stays reachable: the row expands to its
+    scoped scalars + returned-status mix, and links to the full endpoint detail.
+
+    Two constraints this markup encodes:
+      1. Endpoint aggregates keep a binary bot/not-bot split. "Human / unknown" is
+         Total − Bot, so it includes traffic with no bot verdict. Never label it
+         "Human" alone and never imply "safe".
+      2. Rows are a top-N slice, not a partition of the page total (different
+         populations). No reconciled "other" row, no fake totals.
+
+    The full 14-column view is still available with ?columns=full (Advanced / old
+    deep links); this partial only owns the lean mode.
+*@
+@{
+    var bp = Model.BasePath;
+    var columnsToken = "lean";
+    var pageSize = Math.Max(1, Model.PageSize);
+    var pageCount = Math.Max(1, (int)Math.Ceiling(Model.TotalCount / (double)pageSize));
+    var filterActive = !string.IsNullOrEmpty(Model.PathFilter);
+
+    // Window honesty: SQLite endpoint aggregates are lifetime totals and cannot be
+    // scoped to a range, so this table must not claim one. The flag comes from the
+    // view component (or the ?lifetime=1 token on a partial swap).
+    var lifetimeOnly = ViewData["EndpointsLifetimeOnly"] as bool? == true
+        || string.Equals(Context.Request.Query["lifetime"].ToString(), "1", StringComparison.Ordinal);
+
+    // Preserve every active URL filter across sort/search/pagination so the lean
+    // table never silently drops a scope the operator arrived with.
+    // Page-level scope that must survive an in-table round trip or a drilldown:
+    // an explicit ?window= deep link is not enough to rely on a cookie, and the
+    // domain / audience filters are multi-valued.
+    List<string> PageScopeTokens()
+    {
+        var parts = new List<string>();
+        var pageWindow = Context.Request.Query["window"].ToString();
+        if (!string.IsNullOrEmpty(pageWindow)) parts.Add($"window={Uri.EscapeDataString(pageWindow)}");
+        foreach (var d in Context.Request.Query["domain"])
+        {
+            if (!string.IsNullOrWhiteSpace(d)) parts.Add($"domain={Uri.EscapeDataString(d)}");
+        }
+        var from = Context.Request.Query["from"].ToString();
+        if (!string.IsNullOrEmpty(from)) parts.Add($"from={Uri.EscapeDataString(from)}");
+        var to = Context.Request.Query["to"].ToString();
+        if (!string.IsNullOrEmpty(to)) parts.Add($"to={Uri.EscapeDataString(to)}");
+        var country = Context.Request.Query["country"].ToString();
+        if (!string.IsNullOrEmpty(country)) parts.Add($"country={Uri.EscapeDataString(country)}");
+        var botType = Context.Request.Query["bot_type"].ToString();
+        if (!string.IsNullOrEmpty(botType)) parts.Add($"bot_type={Uri.EscapeDataString(botType)}");
+        return parts;
+    }
+
+    string ScopeQuery()
+    {
+        var scope = PageScopeTokens();
+        return scope.Count == 0 ? "" : "?" + string.Join("&", scope);
+    }
+
+    string ScopeAmp()
+    {
+        var scope = PageScopeTokens();
+        return scope.Count == 0 ? "" : "&" + string.Join("&", scope);
+    }
+
+    // The pager's non-JS fallback must always be a real page. After an HTMX swap
+    // Request.Path is the partial route, so never derive it from the request.
+    string CanonicalPagePath() => $"{bp}/traffic";
+
+    string FilterTail(bool includePath)
+    {
+        var parts = PageScopeTokens();
+        if (includePath && !string.IsNullOrEmpty(Model.PathFilter)) parts.Add($"path={Uri.EscapeDataString(Model.PathFilter)}");
+        if (!string.IsNullOrEmpty(Model.MethodFilter)) parts.Add($"method={Uri.EscapeDataString(Model.MethodFilter)}");
+        if (!string.IsNullOrEmpty(Model.StatusFilter) && !Model.StatusFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
+            parts.Add($"status={Uri.EscapeDataString(Model.StatusFilter)}");
+        if (!string.IsNullOrEmpty(Model.ModeFilter)) parts.Add($"mode={Uri.EscapeDataString(Model.ModeFilter)}");
+        if (!string.IsNullOrEmpty(Model.ThreatFilter)) parts.Add($"threat={Uri.EscapeDataString(Model.ThreatFilter)}");
+        if (!string.IsNullOrEmpty(Model.BotPressureFilter)) parts.Add($"bot_pressure={Uri.EscapeDataString(Model.BotPressureFilter)}");
+        if (!string.IsNullOrEmpty(Model.AudienceFilter) && !Model.AudienceFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
+            parts.Add($"audience={Uri.EscapeDataString(Model.AudienceFilter)}");
+        if (lifetimeOnly) parts.Add("lifetime=1");
+        return parts.Count == 0 ? "" : "&" + string.Join("&", parts);
+    }
+
+    string Filter(string extra) =>
+        $"{bp}/partials/endpoints?{extra}&columns={columnsToken}{FilterTail(includePath: true)}";
+    string SortUrl(string field) =>
+        Filter($"sort={field}&dir={((Model.SortField == field && Model.SortDir == "desc") ? "asc" : "desc")}&page=1&pageSize={pageSize}");
+    string PageUrl(int page) =>
+        Filter($"sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={pageSize}");
+    // Search supplies its own ?path= from the input, so the model's current path
+    // must not be echoed back (it would win as the first query value).
+    string SearchUrl() =>
+        $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={pageSize}&columns={columnsToken}" +
+        FilterTail(includePath: false);
+    // Non-JS fallback for paging: a real page URL that keeps the current scope.
+    string PageHref(int page)
+    {
+        var parts = new List<string>();
+        foreach (var kv in Context.Request.Query)
+        {
+            if (kv.Key is "page" or "pageSize" or "sort" or "dir" or "columns") continue;
+            foreach (var v in kv.Value)
+            {
+                if (!string.IsNullOrEmpty(v)) parts.Add($"{kv.Key}={Uri.EscapeDataString(v)}");
+            }
+        }
+        parts.Add($"columns={columnsToken}");
+        parts.Add($"sort={Model.SortField}");
+        parts.Add($"dir={Model.SortDir}");
+        parts.Add($"page={page}");
+        parts.Add($"pageSize={pageSize}");
+        return $"{CanonicalPagePath()}?{string.Join("&", parts)}";
+    }
+    string AriaSort(string field) =>
+        Model.SortField == field ? (Model.SortDir == "asc" ? "ascending" : "descending") : "none";
+    string Arrow(string field) =>
+        Model.SortField == field ? (Model.SortDir == "asc" ? "▲" : "▼") : "";
+
+    // Endpoint detail href: same route the full table already links to, keeping
+    // the method/path segments individually escaped.
+    string? EndpointHref(string method, string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        // Root cannot be a segment: the page route keeps everything after the method
+        // slash verbatim and never unescapes it, so both "/endpoint/GET/" and
+        // "/endpoint/GET/%2F" miss the "/" row. The query-string detail route binds
+        // ?path= through normal query decoding, so root uses that form.
+        if (path == "/")
+            return $"{bp}/endpoint?method={Uri.EscapeDataString(method)}&path=%2F{ScopeAmp()}";
+        var encodedPath = string.Join("/", path.Split('/').Select(Uri.EscapeDataString));
+        return $"{bp}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}{ScopeQuery()}";
+    }
+}
+<div class="sb-ep">
+    <div class="sb-ep-bar">
+        <h3 class="sb-ep-title">@Model.Heading</h3>
+        @if (!Model.IsWarming)
+        {
+            <span class="sb-ep-meta">@Model.TotalCount.ToString("N0") @(lifetimeOnly ? "lifetime totals" : "in this range")</span>
+        }
+        <label class="sb-ep-search">
+            <span class="sb-ep-vh">Search endpoints by path</span>
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false">
+                <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"></circle>
+                <path d="M13.5 13.5 17 17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
+            </svg>
+            <input type="search" name="path" value="@Model.PathFilter" placeholder="Search path"
+                   autocomplete="off"
+                   hx-get="@SearchUrl()"
+                   hx-trigger="keyup changed delay:300ms, search"
+                   hx-target="#endpoints-list" hx-swap="outerHTML"
+                   hx-include="this" />
+        </label>
+    </div>
+
+    @if (Model.IsWarming)
+    {
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_WarmingState.cshtml")
+    }
+    else if (Model.Endpoints.Count == 0)
+    {
+        <div class="sb-ep-empty">
+            @(filterActive
+                ? $"No endpoints match this filter {(lifetimeOnly ? "in the lifetime totals." : "in this range.")}"
+                : $"No endpoint traffic {(lifetimeOnly ? "recorded." : "in this range.")}")
+        </div>
+    }
+    else
+    {
+        <table class="sb-ep-table">
+            <caption class="sb-ep-vh">
+                @(lifetimeOnly ? "Endpoints, lifetime totals" : "Endpoints in this range"), sorted by @Model.SortField @Model.SortDir.
+                Each count includes every persisted detection for the endpoint; the bot split is binary, so
+                Human / unknown is the remainder and includes requests with no bot verdict. Use Endpoint detail
+                for status, timing and policy.
+            </caption>
+            <thead>
+                <tr>
+                    <th scope="col" aria-sort="@AriaSort("path")">
+                        <button type="button" class="sb-ep-sort"
+                                hx-get="@SortUrl("path")" hx-target="#endpoints-list" hx-swap="outerHTML">
+                            Endpoint <span class="sb-ep-arrow" aria-hidden="true">@Arrow("path")</span>
+                        </button>
+                    </th>
+                    <th scope="col" class="sb-ep-num" aria-sort="@AriaSort("total")">
+                        <button type="button" class="sb-ep-sort"
+                                hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML">
+                            Requests <span class="sb-ep-arrow" aria-hidden="true">@Arrow("total")</span>
+                        </button>
+                    </th>
+                    <th scope="col" class="sb-ep-num" aria-sort="@AriaSort("humans")">
+                        <button type="button" class="sb-ep-sort"
+                                hx-get="@SortUrl("humans")" hx-target="#endpoints-list" hx-swap="outerHTML">
+                            Human / unknown <span class="sb-ep-arrow" aria-hidden="true">@Arrow("humans")</span>
+                        </button>
+                    </th>
+                    <th scope="col" class="sb-ep-num" aria-sort="@AriaSort("bots")">
+                        <button type="button" class="sb-ep-sort"
+                                hx-get="@SortUrl("bots")" hx-target="#endpoints-list" hx-swap="outerHTML">
+                            Bot <span class="sb-ep-arrow" aria-hidden="true">@Arrow("bots")</span>
+                        </button>
+                    </th>
+                    <th scope="col" class="sb-ep-num" aria-sort="@AriaSort("botrate")">
+                        <button type="button" class="sb-ep-sort"
+                                hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML">
+                            Bot share <span class="sb-ep-arrow" aria-hidden="true">@Arrow("botrate")</span>
+                        </button>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+            @{ var rowIndex = 0; }
+            @foreach (var endpoint in Model.Endpoints)
+            {
+                rowIndex++;
+                var human = Math.Max(0, endpoint.TotalCount - endpoint.BotCount);
+                var sharePct = (int)Math.Round(endpoint.BotRate * 100);
+                var detailId = $"sb-ep-d-{(Model.Page - 1) * pageSize + rowIndex}";
+                var href = EndpointHref(endpoint.Method, endpoint.Path);
+                // Observed upstream responses only. A zero UpstreamNoneCount means
+                // "not recorded", not "reached", so the unknown remainder is shown
+                // explicitly instead of being credited to the app or blamed on a
+                // block we cannot see.
+                var observedAtApp = endpoint.UpstreamStatus2xx + endpoint.UpstreamStatus3xx
+                                    + endpoint.UpstreamStatus4xx + endpoint.UpstreamStatus5xx;
+                var noOriginStatus = Math.Max(0, endpoint.TotalCount - observedAtApp);
+                var reachedPct = endpoint.TotalCount > 0
+                    ? (int)Math.Round(observedAtApp * 100.0 / endpoint.TotalCount)
+                    : 0;
+                var s2 = endpoint.TotalCount > 0 ? (int)Math.Round(endpoint.Status2xx * 100.0 / endpoint.TotalCount) : 0;
+                var s3 = endpoint.TotalCount > 0 ? (int)Math.Round(endpoint.Status3xx * 100.0 / endpoint.TotalCount) : 0;
+                var s4 = endpoint.TotalCount > 0 ? (int)Math.Round(endpoint.Status4xx * 100.0 / endpoint.TotalCount) : 0;
+                var s5 = endpoint.TotalCount > 0 ? (int)Math.Round(endpoint.Status5xx * 100.0 / endpoint.TotalCount) : 0;
+                <tr class="sb-ep-row" data-sb-ep-row>
+                    <td class="sb-ep-ep">
+                        @* Two independent controls: the chevron discloses this row's
+                           scalars, the method+path is a real link to the endpoint page.
+                           The link works without JS; the disclosure is enhancement. *@
+                        <button type="button" class="sb-ep-toggle"
+                                aria-expanded="false" aria-controls="@detailId"
+                                data-sb-ep-toggle="@detailId"
+                                aria-label="Show detail for @endpoint.Method @endpoint.Path">
+                            <span class="sb-ep-chev" aria-hidden="true">▸</span>
+                        </button>
+                        @if (href is not null)
+                        {
+                            <a class="sb-ep-open" href="@href">
+                                <span class="sb-ep-verb">@endpoint.Method</span>
+                                <span class="sb-ep-path">@endpoint.Path</span>
+                            </a>
+                        }
+                        else
+                        {
+                            <span class="sb-ep-open">
+                                <span class="sb-ep-verb">@endpoint.Method</span>
+                                <span class="sb-ep-path">@endpoint.Path</span>
+                            </span>
+                        }
+                    </td>
+                    <td class="sb-ep-num">@endpoint.TotalCount.ToString("N0")</td>
+                    <td class="sb-ep-num sb-ep-human">@human.ToString("N0")</td>
+                    <td class="sb-ep-num sb-ep-bot">@endpoint.BotCount.ToString("N0")</td>
+                    <td class="sb-ep-num">
+                        <span class="sb-ep-share">
+                            <span class="sb-ep-sharebar" aria-hidden="true"><i style="width:@(sharePct)%"></i></span>
+                            <span class="sb-ep-pct">@sharePct%</span>
+                        </span>
+                    </td>
+                </tr>
+                <tr class="sb-ep-detail" id="@detailId" hidden>
+                    <td colspan="5">
+                        <div class="sb-ep-detail-in">
+                            <div class="sb-ep-dstats">
+                                <div><span class="sb-ep-dl">Requests</span><span class="sb-ep-dv">@endpoint.TotalCount.ToString("N0")</span></div>
+                                <div><span class="sb-ep-dl">Human / unknown</span><span class="sb-ep-dv sb-ep-human">@human.ToString("N0")</span></div>
+                                <div><span class="sb-ep-dl">Bot</span><span class="sb-ep-dv sb-ep-bot">@endpoint.BotCount.ToString("N0")</span></div>
+                                <div><span class="sb-ep-dl">Bot share</span><span class="sb-ep-dv">@sharePct%</span></div>
+                            </div>
+                            <div class="sb-ep-dblock">
+                                <span class="sb-ep-dh">Returned to the client</span>
+                                <span class="sb-ep-status">
+                                    <span>2xx @s2%</span><span>3xx @s3%</span><span>4xx @s4%</span><span>5xx @s5%</span>
+                                </span>
+                                <span class="sb-ep-dnote">
+                                    @if (observedAtApp == 0)
+                                    {
+                                        <text>No origin response status is recorded for these requests, so this row cannot say whether they reached your app.</text>
+                                    }
+                                    else
+                                    {
+                                        <text>@observedAtApp.ToString("N0") of @endpoint.TotalCount.ToString("N0") requests (@reachedPct%) have an observed response from your app.</text>
+                                    }
+                                    @if (noOriginStatus > 0)
+                                    {
+                                        <text> @noOriginStatus.ToString("N0") have no origin status on record — blocked, challenged, throttled, honeypot, or not reported. A missing status is not evidence either way.</text>
+                                    }
+                                    Blocked is an action, not a classification.
+                                </span>
+                            </div>
+                            <div class="sb-ep-dfoot">
+                                @if (href is not null)
+                                {
+                                    <a class="sb-ep-link" href="@href">Open full endpoint detail →</a>
+                                }
+                                else
+                                {
+                                    <span class="sb-ep-dnote">No detail page for this path.</span>
+                                }
+                                <span class="sb-ep-dnote">Signatures, sessions, timings and policy live there.</span>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+
+        @if (Model.TotalCount > pageSize)
+        {
+            <nav class="sb-ep-pager" aria-label="Endpoint pages">
+                @if (Model.Page > 1)
+                {
+                    <a href="@PageHref(Model.Page - 1)" hx-get="@PageUrl(Model.Page - 1)"
+                       hx-target="#endpoints-list" hx-swap="outerHTML">Previous</a>
+                }
+                else
+                {
+                    <span aria-hidden="true">Previous</span>
+                }
+                <span aria-current="page">Page @Model.Page of @pageCount</span>
+                @if (Model.Page < pageCount)
+                {
+                    <a href="@PageHref(Model.Page + 1)" hx-get="@PageUrl(Model.Page + 1)"
+                       hx-target="#endpoints-list" hx-swap="outerHTML">Next</a>
+                }
+                else
+                {
+                    <span aria-hidden="true">Next</span>
+                }
+            </nav>
+        }
+    }
+</div>
+<script src="/_content/Mostlylucid.BotDetection.UI/js/sb-endpoints.js"></script>

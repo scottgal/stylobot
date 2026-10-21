@@ -1,195 +1,25 @@
-@using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
-@using Mostlylucid.BotDetection.UI.Services.Dashboard
-@using Microsoft.Extensions.Options
-@using Mostlylucid.BotDetection.UI.Configuration
 @model TrafficPageModel
-@inject DashboardContributionRegistry Contributions
-@inject IOptions<StyloBotDashboardOptions> DashOpts
-@*
-    Inner body partial -- rendered standalone when /dashboard/traffic?partial=1
-    is fetched by the SignalR-driven HTMX swap, and inlined by the full Index
-    view for the SSR first paint. Keeping the data sections in one partial
-    means the SSR pass and the live-refresh swap render the same DOM with one
-    source of truth (per feedback_centralised_change_detection).
-*@
 @{
-    // Empty affordance slot for commercial domain-filter widget.
-    // FOSS provides only the slot host; the commercial feature (edit control + write endpoints)
-    // lives entirely in Stylobot.Commercial.Ui and plugs in from the commercial side.
-    var showDomainFilterSlot = true;  // FOSS read-only slot; commercial feature plugs in via DI
-
-    string LinkWith(
-        string? country = null,
-        string? botType = null,
-        string? window = null,
-        string? threat = null,
-        string? remove = null,
-        IEnumerable<string>? domains = null)
+    // Swap wrapper only: the composition lives in _TrafficLanding.cshtml so the
+    // commercial host overlay can render the SAME landing markup and still add
+    // its policy surface inside the swapped region, instead of forking the page.
+    // The window is deliberately NOT baked into the refresh URL: the period
+    // selector owns ?window= via its cookie, and a baked value would make the
+    // swapped body ignore the operator's current selection.
+    string RefreshUrl()
     {
-        var qs = new List<string>();
-        var c  = remove == "country"  ? null : (country  ?? Model.Filters.Country);
-        var bt = remove == "bot_type" ? null : (botType  ?? Model.Filters.BotType);
-        var w  = remove == "window"   ? null : (window   ?? Model.Filters.Window);
-        var th = remove == "threat"   ? null : (threat   ?? Model.Filters.Threat);
-        if (!string.IsNullOrEmpty(c))  qs.Add($"country={Uri.EscapeDataString(c)}");
-        if (!string.IsNullOrEmpty(bt)) qs.Add($"bot_type={Uri.EscapeDataString(bt)}");
-        // Default window is 24h; omit the query-string param when w matches
-        // the default so the URL stays clean.
-        if (!string.IsNullOrEmpty(w) && w != "24h") qs.Add($"window={Uri.EscapeDataString(w)}");
-        if (!string.IsNullOrEmpty(th)) qs.Add($"threat={Uri.EscapeDataString(th)}");
-
-        // Neutral domain plumbing. Callers (the commercial marketing-site
-        // Views/ overlay) may pass an explicit list to preserve the active
-        // domain filter across other filter changes; a null override falls
-        // back to the currently-bound filter state. FOSS has no widget of
-        // its own here — the multi-select UI ships in the commercial overlay
-        // because it is gated on License.Domains.
-        var effectiveDomains = remove == "domain"
-            ? Array.Empty<string>()
-            : (domains ?? Model.Filters.Domains);
-        foreach (var d in effectiveDomains)
-        {
-            if (string.IsNullOrWhiteSpace(d)) continue;
-            qs.Add($"domain={Uri.EscapeDataString(d)}");
-        }
-        return qs.Count == 0 ? "/dashboard/traffic" : $"/dashboard/traffic?{string.Join("&", qs)}";
+        var qs = System.Web.HttpUtility.ParseQueryString(Context.Request.QueryString.Value ?? "");
+        qs.Remove("window");
+        qs["partial"] = "1";
+        return Context.Request.Path + "?" + qs;
     }
-    // Analytics-package window set: short shape (6h/24h) through 7d/30d history.
-    // The timeseries bucketer adapts bucket width to the window so the longer
-    // ranges roll up rather than render thousands of thin buckets. The set is
-    // CAPPED at the detection-retention policy — no point offering 30d when the
-    // store only keeps, say, 7d.
-    // Refresh URL preserves the active filter set so the SignalR-driven swap
-    // re-renders the same view the operator is looking at, not a default one.
-    // The WINDOW is deliberately NOT in the refresh URL: the period selector owns
-    // ?window= via its cookie and DashboardScopeBaselineMiddleware rewrites it from
-    // the cookie on every request — a baked SSR-time window here would make the
-    // swapped body ignore the operator's selection (the "changing the window does
-    // nothing" defect, 2026-08-12).
-    var refreshUrl = LinkWith(remove: "window") + (LinkWith(remove: "window").Contains("?") ? "&" : "?") + "partial=1";
 }
 <div id="sb-traffic-body"
+     hx-get="@RefreshUrl()"
      hx-trigger="sb:signature-update from:body, sb:summary-update from:body"
-     class="space-y-4">
-    <header class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-3">
-            <h2 class="text-lg font-semibold">Traffic</h2>
-            @if (!string.IsNullOrEmpty(Model.Filters.Country))
-            {
-                <a href="@LinkWith(remove: "country")"
-                   class="badge badge-sm gap-1" title="Clear country filter">
-                    Country: @Model.Filters.Country <span aria-hidden="true">×</span>
-                </a>
-            }
-            @if (!string.IsNullOrEmpty(Model.Filters.BotType))
-            {
-                <a href="@LinkWith(remove: "bot_type")"
-                   class="badge badge-sm gap-1" title="Clear bot-type filter">
-                    Bot: @Model.Filters.BotType <span aria-hidden="true">×</span>
-                </a>
-            }
-            @if (!string.IsNullOrEmpty(Model.Filters.Threat))
-            {
-                <a href="@LinkWith(remove: "threat")"
-                   class="badge badge-sm badge-warning gap-1" title="Clear threat filter">
-                    Threat ≥ @Model.Filters.Threat.TrimEnd('+') <span aria-hidden="true">×</span>
-                </a>
-            }
-        </div>
-    </header>
-
-    @* Empty affordance slot for commercial domain-filter widget.
-        Commercial code plugs the filter control into this slot from the commercial side (DI).
-        FOSS renders this slot host only; no feature logic lives here. *@
-    @if (showDomainFilterSlot)
-    {
-        <div id="domain-filter-slot" class="sb-widget">
-            @* Commercial domain-filter widget renders here *@
-        </div>
-    }
-
-    @* PART 2: the standalone page-level warming banner used to print HERE while the
-       hits-per-period chart STILL rendered (an empty Chart.js canvas) below it -- warming
-       AND a bare chart at once. The warming state now lives ON each widget (warming-when),
-       so the chart shows warming-OR-data, never both. See the sb-widget below. *@
-
-    @{ ViewData["YourDetection"] = Model.YourDetection; }
-    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficCounters.cshtml", Model.Counters)
-
-    @{
-        // The shared sb-chartlet view component renders a Chart.js stacked bar
-        // (Human vs Bot) with real axes and a click-to-toggle legend. The data
-        // is the REAL durable time series (Model.Timeseries, read from the event
-        // store — Postgres on the gateway, forwarded over REST on remote hosts),
-        // NOT a re-projection of the visitor snapshot: it survives a restart and
-        // spans the full retention window (feedback_cache_lives_where_data_lives).
-        // Per project_dashboard_color_semantics the audience→colour mapping lives
-        // in HitsPerPeriodChartletBuilder, not view code. UX1: log-scale Y-axis.
-        var hitsChart = HitsPerPeriodChartletBuilder.BuildFromSeries(Model.Timeseries, Model.Filters.Window);
-        var chartLabel = $"Hits per period (last {Model.Filters.Window})";
-    }
-
-    @* Row A: the volume shape now sits in the prime top-left slot (where the old
-       VISITORS card was), with Top Bots beside it — the two headline widgets of
-       the page. The visitor split moved to the compact bar above. *@
-    <div class="sb-widget-grid">
-        @* The headline chart. Markup lives in _HitsPerPeriodChart.cshtml because the
-           beacon's OOB re-render (SbWidgetBatchMiddleware.RenderTimeChartAsync) must
-           emit byte-identical markup — one widget contract, one source of truth.
-           data-sb-widget="time-chart" is what lets the bridge see (and refresh) it. *@
-        @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_HitsPerPeriodChart.cshtml",
-            new HitsPerPeriodChartModel(hitsChart, chartLabel, Model.Filters.Window, Model.IsWarming))
-        @* height=tall (reverted from half, operator 2026-08-09): page-size is a fixed
-           6 rows, and 6 rows + header + pager does not fit inside the "half" tier
-           (~14.75rem) -- the card clipped to roughly one visible row with the rest
-           cut off behind a cramped scrollbar. "half" was chosen to avoid a void
-           underneath a SHORT bot list, but the void is the lesser problem: the
-           operator's bots must actually be visible without scrolling a mini box.
-           "tall" (~20.75rem) fits the fixed 6-row page size; dense grid flow still
-           backfills any leftover space with the next widget if this list is short. *@
-        <sb-widget width="half" height="tall">
-            <sb-top-bots filter="bots" range="@Model.Filters.Window" page-size="6" widget-id="overview-topbots" />
-        </sb-widget>
-    </div>
-
-    @* Row B: the UNIFIED endpoints control, full-width. This absorbs BOTH the
-       old "Top content pages" glance (which was SbEndpointsList compact +
-       content-only) AND the separate "Top endpoints" card that used to live in
-       _TrafficPanels (_TopEndpointsCard, a hand-rolled EndpointRow list). Both
-       were partial views onto the SAME endpoint dataset; showing them as two
-       different widgets, one content-only and one all-traffic, split one source
-       of truth across two places (feedback_never_two_sources_of_truth). The
-       full (non-compact, non-content-only) SbEndpointsList is the complete
-       control: Status / Mode / Method / path filters, perf (avg/p95) + status
-       (via the status chips + error-band) + bot-pressure columns, per-column
-       sort, and a real row -> /endpoint/{method}/{path} navigation. Mode=Content
-       recovers the old "content pages" view as one click of the filter it now
-       owns, instead of a second hard-coded widget. *@
-    <div class="sb-widget-grid">
-        <sb-widget width="full" height="tall">
-            <sb-endpoints-list heading="Endpoints"
-                               range="@Model.Filters.Window"
-                               sort="total" dir="desc" page-size="12" />
-        </sb-widget>
-    </div>
-
-    @* Site-health carries its own card (ms + percent, different units; a
-       dual-axis overlay on the endpoint table would mislead), backed by
-       persisted DegradationSnapshot rows via IDashboardEventStore. Now a
-       full-width quarter strip under the unified control. *@
-    <div class="sb-widget-grid">
-        <div class="sb-w-full sb-h-quarter">
-            <vc:sb-site-health window="@Model.Filters.Window" />
-        </div>
-    </div>
-
-    @* Empty affordance slot for commercial location-tree widget.
-        Commercial code plugs the location/domain tree into this slot from the commercial side (DI).
-        FOSS renders this slot host only; no feature logic lives here. *@
-    <div id="location-tree-slot" class="sb-widget">
-        @* Commercial location-tree widget renders here *@
-    </div>
-
-    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_TrafficPanels.cshtml", Model)
+     hx-target="this"
+     hx-swap="outerHTML"
+     class="space-y-3">
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/_TrafficLanding.cshtml", Model)
 </div>

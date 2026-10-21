@@ -887,3 +887,270 @@
     .sb-widget-grid { grid-template-columns: 1fr; }
     .sb-w-quarter, .sb-w-third, .sb-w-half, .sb-w-2third, .sb-w-full { grid-column: 1 / -1; }
 }
+
+/* ===========================================================================
+   Lean endpoint table (sb-ep-*)
+   ---------------------------------------------------------------------------
+   The shared default table for the Traffic landing page and the Site page:
+   Endpoint · Requests · Human / unknown · Bot · Bot share, with an in-row
+   detail disclosure. The full 14-column inventory stays available with
+   ?columns=full (Advanced) and keeps the markup it always had.
+
+   Deliberate choices:
+   - Content height, no inner scroll: the page scrolls, so a row can never be
+     clipped mid-number by a fixed tier (the old sb-h-tall failure).
+   - Headers are 12px (0.75rem) and hold a real <button>, so sorting works from
+     the keyboard and announces aria-sort.
+   - Human / unknown is a categorical colour, not success/error: bot traffic is
+     not an error and the complement is not a verified "safe" classification.
+   =========================================================================== */
+/* Theme-aware fallbacks for the lean table. Hosts that define the daisyUI /
+   commercial tokens keep their own values -- these names are only the fallback
+   chain, so a dark host without --sb-card-bg never paints white panels under
+   light text. */
+:root {
+    --sb-ui-surface: #ffffff;
+    --sb-ui-border: #e2e8f0;
+    --sb-ui-text: #14181d;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --sb-ui-surface: #161b22;
+        --sb-ui-border: #30363d;
+        --sb-ui-text: #e6edf3;
+    }
+}
+[data-theme="dark"] {
+    --sb-ui-surface: #161b22;
+    --sb-ui-border: #30363d;
+    --sb-ui-text: #e6edf3;
+}
+
+.sb-ep-host { min-width: 0; }
+/* Text fallback belongs on the CONTAINERS, not only the surface variables: on a
+   tokenless host the disclosure summaries inherited the host body colour (light
+   grey) and went white-on-white in light mode. Hosts that define
+   --color-base-content are unchanged. */
+.sb-ep,
+.sb-ep-bar,
+.sb-ep-card,
+.sb-traffic-summary,
+.sb-trend,
+.sb-more {
+    color: var(--color-base-content, var(--sb-ui-text));
+}
+/* Surfaces that ride on daisyUI classes still need the fallback chain: a host
+   with data-theme=dark and no daisyUI tokens otherwise paints them transparent
+   (or white) under light text. */
+.sb-traffic-summary,
+.sb-ep-card {
+    background: var(--sb-card-bg, var(--sb-ui-surface));
+    border-color: var(--sb-card-border, var(--sb-ui-border));
+}
+/* Self-contained summary layout: no dependency on Tailwind/daisyUI utilities.
+   Scoped to this component so no other host surface changes. */
+.sb-traffic-summary {
+    border: 1px solid var(--sb-card-border, var(--sb-ui-border));
+    border-radius: var(--sb-card-radius, 0.75rem);
+    padding: 0.75rem 1rem;
+}
+.sb-count-row {
+    display: flex; flex-wrap: wrap; align-items: flex-start;
+    gap: 0.5rem 2.5rem;
+}
+.sb-count { display: flex; flex-direction: column; gap: 0.15rem; min-width: 7rem; }
+.sb-count-label {
+    font-size: 0.75rem; line-height: 1.25; letter-spacing: 0.06em;
+    text-transform: uppercase; opacity: 0.6;
+}
+.sb-count-value {
+    font-size: 1.75rem; line-height: 1.05; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.sb-count-meta { font-size: 0.75rem; line-height: 1.35; opacity: 0.65; }
+@media (max-width: 720px) {
+    .sb-traffic-summary { padding: 0.625rem 0.75rem; }
+    .sb-count-row { gap: 0.5rem 0.75rem; flex-wrap: nowrap; }
+    .sb-count { flex: 1 1 0; min-width: 0; }
+    .sb-count-label { font-size: 0.6875rem; min-height: 2.4em; }
+    .sb-count-value { font-size: 1.5rem; }
+    .sb-count-meta { font-size: 0.6875rem; }
+}
+.sb-ep { min-width: 0; }
+.sb-ep-bar {
+    display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+    padding: 0.25rem 0 0.75rem;
+}
+.sb-ep-title { font-size: 0.875rem; font-weight: 600; margin: 0; color: var(--color-base-content, var(--sb-ui-text)); }
+.sb-ep-meta { font-size: 0.75rem; opacity: 0.62; }
+.sb-ep-search { position: relative; margin-left: auto; display: flex; align-items: center; }
+.sb-ep-search svg {
+    position: absolute; left: 0.5rem; width: 14px; height: 14px;
+    color: var(--color-base-content, var(--sb-ui-text)); opacity: 0.4; pointer-events: none;
+}
+.sb-ep-search input {
+    width: 15rem; max-width: 55vw; font: inherit; font-size: 0.8125rem;
+    padding: 0.35rem 0.5rem 0.35rem 1.75rem;
+    border: 1px solid var(--sb-card-border, #cbd5e1); border-radius: 0.5rem;
+    background: var(--sb-card-bg, var(--sb-ui-surface)); color: var(--color-base-content, var(--sb-ui-text));
+}
+.sb-ep-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.sb-ep-table thead th {
+    font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;
+    text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--sb-card-border, var(--sb-ui-border));
+    color: var(--color-base-content, var(--sb-ui-text)); opacity: 0.72; white-space: nowrap;
+}
+.sb-ep-table thead th.sb-ep-num { text-align: right; }
+.sb-ep-sort {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
+    font: inherit; font-size: 0.75rem; font-weight: 600; letter-spacing: inherit;
+    text-transform: inherit; color: inherit;
+}
+.sb-ep-sort:hover { opacity: 1; }
+.sb-ep-arrow { font-size: 0.5rem; opacity: 0.7; }
+.sb-ep-row td {
+    height: 2.75rem; padding: 0 0.5rem; text-align: right;
+    border-bottom: 1px solid var(--sb-card-border, var(--sb-ui-border));
+    font-variant-numeric: tabular-nums;
+}
+.sb-ep-row td.sb-ep-ep { text-align: left; }
+.sb-ep-row:hover td { background: color-mix(in srgb, var(--sb-card-bg, var(--sb-ui-surface)) 88%, var(--color-base-content, var(--sb-ui-text))); }
+.sb-ep-ep { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.sb-ep-toggle {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 1.5rem; height: 1.5rem; padding: 0;
+    background: none; border: 0; cursor: pointer; font: inherit; color: inherit;
+}
+.sb-ep-open {
+    display: flex; align-items: center; gap: 0.5rem; min-width: 0;
+    color: inherit; text-decoration: none;
+}
+.sb-ep-open:hover .sb-ep-path { text-decoration: underline; }
+.sb-ep-chev {
+    flex: none; font-size: 0.625rem; opacity: 0.5;
+    transition: transform 0.12s ease;
+}
+.sb-ep-toggle[aria-expanded="true"] .sb-ep-chev { transform: rotate(90deg); }
+.sb-ep-verb {
+    flex: none; font-family: var(--sb-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.625rem; font-weight: 700; letter-spacing: 0.03em;
+    padding: 0.2rem 0.3rem; border-radius: 0.25rem;
+    border: 1px solid var(--sb-card-border, var(--sb-ui-border)); opacity: 0.8;
+}
+.sb-ep-path {
+    font-family: var(--sb-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.8125rem; overflow-wrap: anywhere;
+}
+.sb-ep-num { font-variant-numeric: tabular-nums; }
+.sb-ep-human { color: #1d4ed8; }
+.sb-ep-bot { color: #b45309; }
+[data-theme="dark"] .sb-ep-human { color: #93c5fd; }
+[data-theme="dark"] .sb-ep-bot { color: #fbbf24; }
+/* Shared audience colours (counters + table). Categorical, not success/error:
+   bot traffic is not an error, and the complement is not a verified safe
+   classification. */
+.sb-audience-notbot { color: #1d4ed8; }
+.sb-audience-bot { color: #b45309; }
+[data-theme="dark"] .sb-audience-notbot { color: #93c5fd; }
+[data-theme="dark"] .sb-audience-bot { color: #fbbf24; }
+.sb-ep-share { display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-end; width: 100%; }
+.sb-ep-sharebar {
+    width: 3.5rem; height: 0.3rem; border-radius: 999px; flex: none; overflow: hidden;
+    background: var(--sb-card-border, var(--sb-ui-border));
+}
+.sb-ep-sharebar i { display: block; height: 100%; background: #d97706; }
+.sb-ep-pct { min-width: 2.4rem; text-align: right; font-size: 0.75rem; opacity: 0.8; }
+.sb-ep-table tbody tr:last-child td { border-bottom: 0; }
+
+.sb-ep-detail > td {
+    padding: 0; text-align: left;
+    background: color-mix(in srgb, var(--sb-card-bg, var(--sb-ui-surface)) 92%, var(--color-base-content, var(--sb-ui-text)));
+}
+.sb-ep-detail-in {
+    display: grid; gap: 0.75rem; padding: 0.9rem 1rem;
+    border-left: 3px solid var(--color-primary, #0f766e);
+}
+.sb-ep-dstats { display: flex; flex-wrap: wrap; gap: 0.5rem 1.75rem; }
+.sb-ep-dl { display: block; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.62; }
+.sb-ep-dv { font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sb-ep-dh { display: block; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.62; margin-bottom: 0.2rem; }
+.sb-ep-status { display: flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.sb-ep-dnote { display: block; font-size: 0.75rem; opacity: 0.62; margin-top: 0.35rem; max-width: 78ch; }
+.sb-ep-dfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; }
+.sb-ep-link { font-size: 0.8125rem; font-weight: 600; }
+.sb-ep-empty { font-size: 0.8125rem; opacity: 0.62; padding: 2rem 0.5rem; text-align: center; }
+.sb-ep-pager {
+    display: flex; align-items: center; justify-content: flex-end; gap: 0.9rem;
+    padding: 0.6rem 0.5rem 0.2rem; font-size: 0.75rem;
+}
+.sb-ep-pager a { font-size: 0.75rem; }
+.sb-ep-vh {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Collapsible chrome for the landing page: one quiet trend and one "more
+   detail" disclosure. Native <details> keeps both keyboard-operable with no
+   script and no extra CSP surface. */
+.sb-trend, .sb-more {
+    border: 1px solid var(--sb-card-border, var(--sb-ui-border));
+    background: var(--sb-card-bg, var(--sb-ui-surface));
+    border-radius: var(--sb-card-radius, 0.75rem);
+}
+.sb-trend-summary {
+    display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.7rem 0.9rem; cursor: pointer; list-style: none;
+}
+.sb-trend-summary::-webkit-details-marker { display: none; }
+.sb-trend-summary::before {
+    content: "\25B8"; font-size: 0.6rem; opacity: 0.5;
+    display: inline-block; transition: transform 0.12s ease;
+}
+details[open] > .sb-trend-summary::before { transform: rotate(90deg); }
+.sb-trend-title { font-size: 0.8125rem; font-weight: 600; }
+.sb-trend-sub { font-size: 0.75rem; opacity: 0.62; }
+.sb-trend-body { padding: 0 0.9rem 0.75rem; }
+.sb-more-body { padding: 0 0.9rem 0.9rem; }
+.sb-trend-summary:focus-visible { outline: 2px solid var(--color-primary, #0f766e); outline-offset: -2px; }
+
+/* Advanced nav group: one primary entry, everything deeper behind a labelled,
+   keyboard-operable disclosure. */
+.sb-nav-advanced > summary { list-style: none; }
+.sb-nav-advanced > summary::-webkit-details-marker { display: none; }
+.sb-nav-advanced > summary::before {
+    content: "\25B8"; display: inline-block; width: 0.9rem;
+    font-size: 0.6rem; opacity: 0.5; transition: transform 0.12s ease;
+}
+.sb-nav-advanced[open] > summary::before { transform: rotate(90deg); }
+.sb-nav-advanced > summary:focus-visible { outline: 2px solid var(--color-primary, #0f766e); outline-offset: -2px; }
+
+@media (max-width: 720px) {
+    .sb-ep-bar { gap: 0.5rem; }
+    .sb-ep-search { flex: 1 1 100%; margin-left: 0; }
+    .sb-ep-search input { width: 100%; max-width: none; }
+    .sb-ep-table, .sb-ep-table tbody, .sb-ep-row, .sb-ep-row td { display: block; }
+    .sb-ep-table thead {
+        position: absolute; width: 1px; height: 1px; overflow: hidden;
+        clip: rect(0 0 0 0); white-space: nowrap;
+    }
+    .sb-ep-row {
+        position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.5rem 0.75rem; padding: 0.75rem 0.875rem;
+        border-bottom: 1px solid var(--sb-card-border, var(--sb-ui-border));
+    }
+    .sb-ep-row td { border: 0; padding: 0; height: auto; text-align: left; }
+    .sb-ep-row td.sb-ep-ep { grid-column: 1 / -1; padding-right: 4.75rem; }
+    .sb-ep-row td:nth-child(5) { position: absolute; top: 0.75rem; right: 0.875rem; width: 4rem; }
+    .sb-ep-row td:nth-child(2)::before { content: "Requests"; }
+    .sb-ep-row td:nth-child(3)::before { content: "Human / unknown"; }
+    .sb-ep-row td:nth-child(4)::before { content: "Bot"; }
+    .sb-ep-row td:nth-child(n+2):nth-child(-n+4)::before {
+        display: block; font-size: 0.75rem; letter-spacing: 0.02em; text-transform: uppercase;
+        opacity: 0.62; margin-bottom: 0.1rem;
+    }
+    .sb-ep-detail > td { display: block; }
+    .sb-ep-detail-in { grid-template-columns: 1fr; padding: 0.875rem; }
+    .sb-ep-dstats { gap: 0.5rem 1.25rem; }
+    .sb-ep-pager { justify-content: space-between; }
+}

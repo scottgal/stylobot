@@ -25,7 +25,7 @@ public class SbUserAgentsListViewComponent(
         string? audience = null,
         string? range = null)
     {
-        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+        var (startTime, endTime) = DashboardRangeScope.Resolve(HttpContext, range);
 
         // If the page composer stashed a DashboardPageResult for this request, read the
         // UserAgentsRaw slice from it directly (zero store calls) -- already windowed to

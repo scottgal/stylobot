@@ -19,102 +19,58 @@
 <nav id="sb-left-nav" class="w-56 shrink-0 bg-base-100 border-r border-base-300 sticky top-0 self-start h-screen overflow-y-auto py-3"
      aria-label="Dashboard navigation">
 
-    @* Aggregate group: Traffic / Visitors / Site *@
-    <div class="mb-3">
+    @* One primary entry: Traffic is the dashboard. Everything else is a deeper
+       surface and lives under Advanced, which stays a real, labelled, keyboard-
+       operable group rather than a second competing nav. Deep URLs are unchanged. *@
+    <div class="mb-1">
         @if (NavVisibility.IsVisible("traffic", Model.IsPrivilegedViewer))
         {
             <a href="@bp/traffic" class="@rowClass(IsActivePath("traffic"))">Traffic</a>
         }
-        @if (NavVisibility.IsVisible("visitors", Model.IsPrivilegedViewer))
-        {
-            <a href="@bp/visitors" class="@rowClass(IsActivePath("visitors"))">Visitors</a>
-        }
-        @if (NavVisibility.IsVisible("site", Model.IsPrivilegedViewer))
-        {
-            <a href="@bp/site" class="@rowClass(IsActivePath("site"))">Site</a>
-        }
     </div>
 
-    @* Packs group: every registered IDashboardPack, each with its sub-nav. This
-       used to be a hardcoded two-entry array (aspnet-pack, otel-mesh) that
-       silently excluded every other pack (Settings, Domains, ...) from the nav
-       even though the row registry already resolved them correctly by URL --
-       reachable-but-undiscoverable. Model.Packs is the same DI-registered
-       IDashboardPack collection the legacy _LeftNav.cshtml and the row registry
-       both already use; iterating it here keeps all three in sync. *@
-    @if (Model.Packs.Count > 0)
-    {
-        <div class="mb-3" x-data="sbPacksNav()">
+    <details class="sb-nav-advanced">
+        <summary class="px-3 py-1.5 text-xs font-semibold text-base-content/60 hover:text-base-content cursor-pointer">
+            Advanced
+        </summary>
+        <div class="mt-1">
+            @if (NavVisibility.IsVisible("visitors", Model.IsPrivilegedViewer))
+            {
+                <a href="@bp/visitors" class="@rowClass(IsActivePath("visitors"))">Visitors</a>
+            }
+            @if (NavVisibility.IsVisible("site", Model.IsPrivilegedViewer))
+            {
+                <a href="@bp/site" class="@rowClass(IsActivePath("site"))">Site and endpoints</a>
+            }
+
+            @* Packs: every registered IDashboardPack with its sub-nav. Rendered
+               statically (no client state) so the group works without script. *@
             @foreach (var pack in Model.Packs)
             {
                 if (!NavVisibility.IsVisible(pack.Id, Model.IsPrivilegedViewer)) { continue; }
                 var packActive = IsActivePath(pack.Id);
                 var firstSub = pack.SubRows.Count > 0 ? pack.SubRows[0].Id : null;
                 var headerHref = firstSub is null ? $"{bp}/{pack.Id}" : $"{bp}/{pack.Id}/{firstSub}";
-                <div class="mb-1">
-                    <div class="flex items-center">
-                        <a href="@headerHref" class="@rowClass(packActive) flex-1">
-                            <i class="@pack.Icon mr-1.5"></i>@pack.Label
-                        </a>
-                        <button type="button"
-                                class="px-2 text-base-content/40 hover:text-base-content"
-                                aria-label="Toggle @pack.Label sub-rows"
-                                @@click="toggle('@pack.Id')">
-                            <i class="bx" :class="isOpen('@pack.Id') ? 'bx-chevron-down' : 'bx-chevron-right'"></i>
-                        </button>
-                    </div>
-                    <div x-show="isOpen('@pack.Id')" x-cloak class="ml-3">
-                        @foreach (var sub in pack.SubRows)
-                        {
-                            if (!NavVisibility.IsVisible($"{pack.Id}/{sub.Id}", Model.IsPrivilegedViewer)) { continue; }
-                            <a href="@bp/@pack.Id/@sub.Id" class="@rowClass(IsActivePath($"{pack.Id}/{sub.Id}"))">@sub.Label</a>
-                        }
-                    </div>
-                </div>
+                <a href="@headerHref" class="@rowClass(packActive)"><i class="@pack.Icon mr-1.5"></i>@pack.Label</a>
+                foreach (var sub in pack.SubRows)
+                {
+                    if (!NavVisibility.IsVisible($"{pack.Id}/{sub.Id}", Model.IsPrivilegedViewer)) { continue; }
+                    <a href="@bp/@pack.Id/@sub.Id" class="@rowClass(IsActivePath($"{pack.Id}/{sub.Id}")) pl-7">@sub.Label</a>
+                }
+            }
+
+            @if (NavVisibility.IsVisible("policies", Model.IsPrivilegedViewer))
+            {
+                <a href="@bp/policies" class="@rowClass(IsActivePath("policies"))">Policies</a>
+            }
+            @if (NavVisibility.IsVisible("configuration", Model.IsPrivilegedViewer))
+            {
+                <a href="@bp/configuration" class="@rowClass(IsActivePath("configuration"))">Configuration</a>
+            }
+            @if (NavVisibility.IsVisible("compliance", Model.IsPrivilegedViewer))
+            {
+                <a href="@bp/compliance" class="@rowClass(IsActivePath("compliance"))">Compliance</a>
             }
         </div>
-    }
-
-    @* Manage group: Policies / Configuration / Compliance *@
-    <div class="mb-3">
-        @if (NavVisibility.IsVisible("policies", Model.IsPrivilegedViewer))
-        {
-            <a href="@bp/policies" class="@rowClass(IsActivePath("policies"))">Policies</a>
-        }
-        @if (NavVisibility.IsVisible("configuration", Model.IsPrivilegedViewer))
-        {
-            <a href="@bp/configuration" class="@rowClass(IsActivePath("configuration"))">Configuration</a>
-        }
-        @if (NavVisibility.IsVisible("compliance", Model.IsPrivilegedViewer))
-        {
-            <a href="@bp/compliance" class="@rowClass(IsActivePath("compliance"))">Compliance</a>
-        }
-    </div>
+    </details>
 </nav>
-<script nonce="@Model.CspNonce">
-    function sbPacksNav() {
-        return {
-            _state: {},
-            init() {
-                try {
-                    var keys = Object.keys(localStorage);
-                    for (var i = 0; i < keys.length; i++) {
-                        if (keys[i].indexOf('sb-pack-collapsed:') === 0) {
-                            this._state[keys[i].substring('sb-pack-collapsed:'.length)] =
-                                localStorage.getItem(keys[i]) !== '1';
-                        }
-                    }
-                } catch (_) { /* localStorage blocked -- all open by default */ }
-            },
-            isOpen(packId) {
-                return this._state[packId] !== false;
-            },
-            toggle(packId) {
-                var newOpen = !this.isOpen(packId);
-                this._state[packId] = newOpen;
-                try { localStorage.setItem('sb-pack-collapsed:' + packId, newOpen ? '0' : '1'); }
-                catch (_) {}
-            },
-        };
-    }
-</script>

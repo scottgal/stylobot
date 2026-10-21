@@ -4,6 +4,20 @@
 @using Mostlylucid.BotDetection.UI.Helpers
 @model EndpointsListModel
 @{
+    // Lean (default) vs full 14-column rendering. Lean is the shared default for
+    // the Traffic landing page and the Site page; the full inventory stays
+    // reachable with ?columns=full (Advanced navigation and old deep links).
+    // The mode is a presentation concern only -- the composed bundle already
+    // carries every field both modes read, so no model or store change is needed.
+    var columnsToken = ViewData["EndpointsColumns"] as string;
+    if (string.IsNullOrEmpty(columnsToken)) columnsToken = Context.Request.Query["columns"].ToString();
+    if (string.IsNullOrEmpty(columnsToken)) columnsToken = "lean";
+    var lean = !Model.IsCompact && !string.Equals(columnsToken, "full", StringComparison.OrdinalIgnoreCase);
+    // SQLite endpoint aggregates are lifetime totals. The full inventory must say so
+    // too, or Advanced columns presents unscoped numbers under the page's range.
+    var lifetimeOnly = ViewData["EndpointsLifetimeOnly"] as bool? == true
+        || string.Equals(Context.Request.Query["lifetime"].ToString(), "1", StringComparison.Ordinal);
+
     var bp = Model.BasePath;
     var currentMethod = Model.MethodFilter ?? "";
     var currentMode = Model.ModeFilter ?? "";
@@ -11,7 +25,9 @@
     // navigating one axis preserves the others. Sort + pagination changes drop back
     // to page=1 so the new ordering or filter isn't paged past its first page.
     string FilterQs(string statusOverride, string pathOverride, string audienceOverride, string methodOverride, string modeOverride)
-        => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}&audience={Uri.EscapeDataString(audienceOverride)}&method={Uri.EscapeDataString(methodOverride)}&mode={Uri.EscapeDataString(modeOverride)}";
+        => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}&audience={Uri.EscapeDataString(audienceOverride)}&method={Uri.EscapeDataString(methodOverride)}&mode={Uri.EscapeDataString(modeOverride)}" +
+           $"&columns={Uri.EscapeDataString(columnsToken)}" +
+           (lifetimeOnly ? "&lifetime=1" : "");
     string CurrentFilterQs() => FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter, currentMethod, currentMode);
     string SortUrl(string field)
     {
@@ -52,6 +68,10 @@
         // normalized path made the href collapse to the bare method). Null returns
         // render the cells as text-only.
         if (string.IsNullOrWhiteSpace(path)) return null;
+        // The segment route keeps everything after the method slash verbatim and never
+        // unescapes it, so root ("/") cannot be represented there; the query-string
+        // detail route binds ?path= through normal query decoding.
+        if (path == "/") return $"{bp}/endpoint?method={Uri.EscapeDataString(method)}&path=%2F";
         var encodedPath = string.Join("/", path.Split('/').Select(seg => Uri.EscapeDataString(seg)));
         return $"{bp}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}";
     }
@@ -86,7 +106,13 @@
      data-sb-widget="endpoints"
      data-sb-depends="endpoints"
      data-sb-params="page=@Model.Page&sort=@Model.SortField&dir=@Model.SortDir&pageSize=@Model.PageSize"
-     class="transition-colors duration-200 sb-scroll-shell">
+     class="transition-colors duration-200 @(lean ? "sb-ep-host" : "sb-scroll-shell")">
+    @if (lean)
+    {
+        @await Html.PartialAsync("~/Views/Shared/Components/SbEndpointsList/_Lean.cshtml", Model)
+    }
+    else
+    {
     @* Operator directive 2026-08-12: the filter header must be ONE row in the title
        bar — status/mode chips + method dropdown + path filter all inline. flex-wrap
        was wrapping the header onto 2-3 lines on typical widths; overflow-x-auto keeps
@@ -94,6 +120,10 @@
     <div class="flex items-center gap-2 mb-3 text-xs overflow-x-auto whitespace-nowrap">
         <span class="flex items-center gap-1">
             <h3 class="text-sm font-bold text-base-content">@Model.Heading</h3>
+            @if (lifetimeOnly)
+            {
+                <span class="badge badge-xs badge-ghost" title="This store keeps endpoint aggregates as lifetime totals; the selected range does not scope them.">lifetime totals</span>
+            }
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </span>
         @if (!Model.IsCompact)
@@ -125,13 +155,10 @@
                 <i class="bx bx-radar text-[11px] mr-0.5"></i>Honeypot
             </a>
 
-            @* Self-probe toggle *@
-            <a href="#" hx-get="@AudienceUrl("all_incl_internal")"
-               hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
-               class="@AudienceChipClass("all_incl_internal")"
-               title="Include self-probe / health-check traffic (bot_type=Internal)">
-                <i class="bx bx-pulse text-[11px] mr-0.5"></i>Show self-probe
-            </a>
+            @* Self-probe is deliberately NOT offered here: the PG endpoint rollup has no
+               internal dimension, so the toggle would be a no-op there and a partial
+               filter on SQLite. Honeypot is the only audience cut the shared contract
+               supports. *@
             @if (!Model.AudienceFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
             {
                 <a href="#" hx-get="@AudienceUrl("all")"
@@ -163,7 +190,7 @@
             <span class="text-base-content/30 mx-1">·</span>
             <select name="method"
                     class="select select-xs select-bordered font-mono"
-                    hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&path=@Uri.EscapeDataString(Model.PathFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&mode=@Uri.EscapeDataString(currentMode)"
+                    hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&path=@Uri.EscapeDataString(Model.PathFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&mode=@Uri.EscapeDataString(currentMode)&columns=@Uri.EscapeDataString(columnsToken)@(lifetimeOnly ? "&lifetime=1" : "")"
                     hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                     hx-trigger="change" hx-include="this">
                 <option value="" selected="@(string.IsNullOrEmpty(currentMethod))">All methods</option>
@@ -287,7 +314,7 @@
                        side-column widget is a glance, not the full control. *@
                     @if (!compact)
                     {
-                        <th class="py-1 text-right @ThClass("humans") cursor-pointer" hx-get="@SortUrl("humans")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Human@(Html.Raw(SortIcon("humans")))</th>
+                        <th class="py-1 text-right @ThClass("humans") cursor-pointer" hx-get="@SortUrl("humans")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Requests not classified as bots; includes traffic with no bot verdict">Human / unknown@(Html.Raw(SortIcon("humans")))</th>
                         <th class="py-1 text-right @ThClass("bots") cursor-pointer" hx-get="@SortUrl("bots")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Bot@(Html.Raw(SortIcon("bots")))</th>
                     }
                     <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Total@(Html.Raw(SortIcon("total")))</th>
@@ -297,7 +324,7 @@
                     <th class="py-1 text-right @ThClass("latency") cursor-pointer whitespace-nowrap @(compact ? "" : "hidden md:table-cell")" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Avg / p95 ms">Latency@(Html.Raw(SortIcon("latency")))</th>
                     @if (!compact)
                     {
-                        <th class="py-1 text-center hidden lg:table-cell" title="The status the origin/upstream actually returned. Dash = no real origin call (blocked or honeypot before the proxy hop).">Upstream</th>
+                        <th class="py-1 text-center hidden lg:table-cell" title="The status your app returned. A dash means no origin status is on record — blocked, challenged, throttled, honeypot, or not reported; that is not evidence either way.">Upstream</th>
                         <th class="py-1 text-center hidden lg:table-cell" title="The status StyloBot actually sent the client -- diverges from Upstream when a bot was blocked/challenged/throttled.">Returned</th>
                         <th class="py-1 text-right @ThClass("bytes") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("bytes")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Total response bytes served (Content-Length sum)">Bytes@(Html.Raw(SortIcon("bytes")))</th>
                         <th class="py-1 text-right @ThClass("unique") cursor-pointer hidden lg:table-cell" hx-get="@SortUrl("unique")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Sigs@(Html.Raw(SortIcon("unique")))</th>
@@ -435,7 +462,7 @@
                             <td class="py-1 text-center hidden lg:table-cell">
                                 @if (upstreamBucket == "none" || string.IsNullOrEmpty(upstreamBucket))
                                 {
-                                    <span class="text-base-content/30" title="@(endpoint.IsHoneypot ? "Honeypot -- deliberate tracking response, no real origin behind it" : "No real origin call (blocked before the proxy hop)")">
+                                    <span class="text-base-content/30" title="@(endpoint.IsHoneypot ? "Honeypot -- a deliberate tracking response with no origin call" : "No origin status on record — blocked, challenged, throttled, honeypot, or not reported; that is not evidence either way")">
                                         &mdash;
                                         @if (endpoint.IsHoneypot)
                                         {
@@ -521,5 +548,6 @@
                 PageUrl: PageUrl,
                 PageSizeUrl: PageSizeUrl,
                 TargetId: "endpoints-list"))
+    }
     }
 </div>
