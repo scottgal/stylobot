@@ -141,7 +141,8 @@ public sealed class TrafficControllerComposeTests
             DateTime startTime, DateTime endTime, TimeSpan bucketSize, string? audienceFilter = null)
             => throw new InvalidOperationException("Live time-series overlay must ride in ComposeBatchAsync (DatasetKind.LiveTimeBuckets), not a direct read.");
         public Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
-            DateTime windowStart, DateTime windowEnd, string? audienceFilter = null)
+            DateTime windowStart, DateTime windowEnd, string? audienceFilter = null,
+            IReadOnlyList<string>? domains = null)
             => throw new InvalidOperationException("Live endpoint overlay must ride in ComposeBatchAsync (DatasetKind.LiveEndpointStats), not a direct read.");
         public Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(string signature, int topN = 25, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null) => throw new NotImplementedException();

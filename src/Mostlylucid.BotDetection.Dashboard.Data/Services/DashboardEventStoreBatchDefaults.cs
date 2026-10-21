@@ -74,7 +74,7 @@ public static class DashboardEventStoreBatchDefaults
                         throw new ArgumentException(
                             "ComposeBatchAsync: a LiveEndpointStats dataset requires both StartTime and EndTime (a window is needed).",
                             nameof(req));
-                    liveEndpointsTask = store.GetLiveEndpointStatsAsync(req.StartTime.Value, req.EndTime.Value, req.AudienceFilter);
+                    liveEndpointsTask = store.GetLiveEndpointStatsAsync(req.StartTime.Value, req.EndTime.Value, req.AudienceFilter, req.Domains);
                     break;
             }
         }
@@ -100,6 +100,7 @@ public static class DashboardEventStoreBatchDefaults
             endpointsTask is null ? null : endpointsTask.Result,
             degradationsTask is null ? null : degradationsTask.Result,
             liveBucketsTask is null ? null : liveBucketsTask.Result,
-            liveEndpointsTask is null ? null : liveEndpointsTask.Result);
+            liveEndpointsTask is null ? null : liveEndpointsTask.Result,
+            EndpointStatsWindowed: store.SupportsWindowedEndpointStats);
     }
 }

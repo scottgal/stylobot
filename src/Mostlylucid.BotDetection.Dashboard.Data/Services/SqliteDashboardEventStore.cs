@@ -303,6 +303,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         }
     }
 
+    public bool SupportsWindowedEndpointStats => false;
+
     public async Task AddDetectionAsync(DashboardDetectionEvent detection)
     {
         await EnsureInitializedAsync();
@@ -1656,17 +1658,24 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
-        // Build WHERE clause. Time predicates fix the latent bug where startTime/endTime were
-        // accepted by the signature but never applied. The audience filter maps "humans"/"bots"
         // Read from the bounded endpoint_stats table — split by is_bot so
         // audience filters work correctly. Aggregate across is_bot for the
         // default (all) view.
+        //
+        // endpoint_stats has NO time dimension (one lifetime counter row per
+        // method/path/domain/is_bot, updated in place). A windowed request is
+        // therefore NOT a windowed count: the table cannot be filtered by
+        // last_seen without presenting lifetime counters as a range. We return the
+        // lifetime rows unchanged and advertise SupportsWindowedEndpointStats=false
+        // so presentation labels them as lifetime. Aggregating the per-request
+        // table is not a substitute: fusion collapses the path dimension, so a
+        // fused row's counters cannot be attributed to the representative path.
         var honeyPotOnly = string.Equals(audienceFilter, "honeypot", StringComparison.OrdinalIgnoreCase);
         await using var cmd = conn.CreateCommand();
-        // Check if the bounded table has any data; fall back to detections
-        // scan on a pre-migration (empty) host. Also fall back for audience
-        // filters that include Internal traffic (endpoint_stats excludes
-        // Internal at upsert time to keep the operator-facing list clean).
+        // Fall back to the detections source only when the bounded table is empty
+        // (pre-migration host) or the audience includes Internal traffic
+        // (endpoint_stats excludes Internal at upsert time). Those fallback rows are
+        // raw-only and therefore retention-bounded; they are not a windowed read.
         await using (var checkCmd = conn.CreateCommand())
         {
             var fallbackAudiences = string.Equals(audienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase)
@@ -1678,11 +1687,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     conn, count, startTime, endTime, audienceFilter, domains);
         }
 
-        // Build WHERE for the inner per-is_bot row filter, then GROUP BY
-        // (method, path, domain) to merge bot + human rows.
+        // No time predicate here: the bounded table is lifetime-only (see above).
         var innerWhere = new System.Text.StringBuilder("WHERE 1=1");
-        if (startTime.HasValue) innerWhere.Append(" AND last_seen >= @start");
-        if (endTime.HasValue)   innerWhere.Append(" AND last_seen <= @end");
         // Audience: filter to is_bot = 1 (bots) or 0 (humans), or all rows.
         if (string.Equals(audienceFilter, "bots", StringComparison.OrdinalIgnoreCase))
             innerWhere.Append(" AND is_bot = 1");
@@ -1777,7 +1783,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     /// <summary>
     ///     Fallback: scan the per-request detections table for endpoint stats
     ///     when the bounded <c>endpoint_stats</c> table is empty (pre-migration
-    ///     hosts where the upsert hasn't been running yet).
+    ///     hosts where the upsert hasn't been running yet) or the requested
+    ///     audience needs Internal rows, which the bounded table excludes.
+    ///     <para>
+    ///     Deliberately raw-only (<c>fused = 0</c>): fusion groups by
+    ///     signature/hour/domain/country/bot_type and DROPS the path dimension, so a
+    ///     fused row's counters cannot be attributed to its representative path. This
+    ///     is why windowed endpoint counts are advertised as unsupported on SQLite
+    ///     rather than served from this scan.
+    ///     </para>
     /// </summary>
     private async Task<List<DashboardEndpointStats>> GetEndpointStatsFromDetectionsFallbackAsync(
         SqliteConnection conn,
@@ -1966,7 +1980,13 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return rows;
     }
 
-    public async Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
+    public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(
+        string method, string path, DateTime? startTime = null, DateTime? endTime = null)
+        => GetEndpointDetailAsync(method, path, startTime, endTime, domains: null);
+
+    public async Task<DashboardEndpointDetail?> GetEndpointDetailAsync(
+        string method, string path, DateTime? startTime, DateTime? endTime,
+        IReadOnlyList<string>? domains)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
@@ -1975,6 +1995,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var timeFilter = "";
         if (startTime.HasValue) timeFilter += " AND timestamp >= @start";
         if (endTime.HasValue)   timeFilter += " AND timestamp <= @end";
+        var (domainPredicate, domainParams) = BuildDomainPredicate(domains, columnAlias: string.Empty);
+        timeFilter += domainPredicate;
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
@@ -1992,6 +2014,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
         cmd.Parameters.AddWithValue("@botFloor", _botFloor);
         if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+        foreach (var (n, v) in domainParams) cmd.Parameters.AddWithValue(n, v);
 
         await using var reader = await cmd.ExecuteReaderAsync();
         if (!await reader.ReadAsync() || reader.IsDBNull(0)) return null;
@@ -2025,6 +2048,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         profileCmd.Parameters.AddWithValue("@path", path);
         if (startTime.HasValue) profileCmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
         if (endTime.HasValue)   profileCmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+        foreach (var (n, v) in domainParams) profileCmd.Parameters.AddWithValue(n, v);
 
         EndpointBehavioralProfile? botProfile = null, humanProfile = null;
         double maxMs = Math.Max(avgMs, 1);

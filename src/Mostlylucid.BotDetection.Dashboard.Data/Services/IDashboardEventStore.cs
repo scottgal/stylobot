@@ -9,6 +9,17 @@ namespace Mostlylucid.BotDetection.UI.Services;
 public interface IDashboardEventStore
 {
     /// <summary>
+    ///     Whether <see cref="GetEndpointStatsAsync"/> can answer a real time window.
+    ///     The default is true (the commercial PostgreSQL rollup is hourly, the remote
+    ///     adapter forwards the window to the gateway). The FOSS SQLite store keeps a
+    ///     lifetime counter table with no time dimension and fused rows that no longer
+    ///     carry a per-path split, so it returns lifetime rows for any window and
+    ///     overrides this to false. Presentation must surface the lifetime label when
+    ///     false rather than printing a window the data cannot honour.
+    /// </summary>
+    bool SupportsWindowedEndpointStats => true;
+
+    /// <summary>
     ///     Add a detection event to the store.
     /// </summary>
     Task AddDetectionAsync(DashboardDetectionEvent detection);
@@ -87,7 +98,8 @@ public interface IDashboardEventStore
     Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
         DateTime windowStart,
         DateTime windowEnd,
-        string? audienceFilter = null)
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
         => Task.FromResult<IReadOnlyList<DashboardEndpointStats>>([]);
 
     /// <summary>
@@ -221,6 +233,18 @@ public interface IDashboardEventStore
     ///     Get detailed statistics for a single endpoint.
     /// </summary>
     Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null);
+
+    /// <summary>
+    ///     Domain-scoped endpoint detail. Default delegates to the unscoped read so
+    ///     existing stores/fakes keep their current behaviour; stores that can apply
+    ///     a domain predicate override it, and the remote adapter forwards it to the
+    ///     gateway. A dashboard that is scoped to a domain must use this overload so
+    ///     opening a row cannot widen the scope back to every domain.
+    /// </summary>
+    Task<DashboardEndpointDetail?> GetEndpointDetailAsync(
+        string method, string path, DateTime? startTime = null, DateTime? endTime = null,
+        IReadOnlyList<string>? domains = null)
+        => GetEndpointDetailAsync(method, path, startTime, endTime);
 
     /// <summary>
     ///     Get recent threat activity (CVE probes, honeypot engagements, high threat-score detections).

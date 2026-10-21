@@ -13,6 +13,15 @@ namespace Mostlylucid.BotDetection.Test.Helpers;
 /// </summary>
 public sealed class NullDashboardEventStore : IDashboardEventStore
 {
+    private readonly bool _supportsWindowedEndpointStats;
+
+    public NullDashboardEventStore(bool supportsWindowedEndpointStats = true)
+    {
+        _supportsWindowedEndpointStats = supportsWindowedEndpointStats;
+    }
+
+    public bool SupportsWindowedEndpointStats => _supportsWindowedEndpointStats;
+
     public Task AddDetectionAsync(DashboardDetectionEvent detection) => Task.CompletedTask;
 
     public Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature)
@@ -62,10 +71,19 @@ public sealed class NullDashboardEventStore : IDashboardEventStore
         string countryCode, DateTime? startTime = null, DateTime? endTime = null)
         => Task.FromResult<DashboardCountryDetail?>(null);
 
+    public DateTime? LastEndpointStart { get; private set; }
+    public DateTime? LastEndpointEnd { get; private set; }
+    public IReadOnlyList<string>? LastEndpointDomains { get; private set; }
+
     public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
         int count = 50, DateTime? startTime = null, DateTime? endTime = null,
         string? audienceFilter = null, IReadOnlyList<string>? domains = null)
-        => Task.FromResult(new List<DashboardEndpointStats>());
+    {
+        LastEndpointStart = startTime;
+        LastEndpointEnd = endTime;
+        LastEndpointDomains = domains;
+        return Task.FromResult(new List<DashboardEndpointStats>());
+    }
 
     public Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(
         string signature, int topN = 25, CancellationToken ct = default)

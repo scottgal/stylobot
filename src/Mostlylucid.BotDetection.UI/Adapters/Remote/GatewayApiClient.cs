@@ -31,23 +31,34 @@ public sealed class GatewayApiClient
     ///     data when the gateway is unreachable instead of bubbling HTTP 500s to operators.
     /// </summary>
     public async Task<T?> GetEnvelopeAsync<T>(string path, CancellationToken ct = default)
+        => (await GetEnvelopeWithMetaAsync<T>(path, ct)).Data;
+
+    /// <summary>
+    ///     Same GET/envelope/failure semantics as <see cref="GetEnvelopeAsync{T}"/>, but
+    ///     also returns the envelope's endpoint-window capability when present. This rides
+    ///     the SAME response as the data — no extra request is made. <c>null</c> means the
+    ///     gateway did not report it (older build); callers must treat that conservatively
+    ///     as "not windowed", never as confirmed windowed.
+    /// </summary>
+    public async Task<(T? Data, string? EndpointStatsWindow)> GetEnvelopeWithMetaAsync<T>(
+        string path, CancellationToken ct = default)
     {
         try
         {
             using var response = await _http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (response.StatusCode == HttpStatusCode.NotFound) return default;
+            if (response.StatusCode == HttpStatusCode.NotFound) return (default, null);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Remote gateway returned {Status} for GET {Path}", (int)response.StatusCode, path);
-                return default;
+                return (default, null);
             }
             var envelope = await response.Content.ReadFromJsonAsync<RemoteEnvelope<T>>(ct);
-            return envelope is null ? default : envelope.Data;
+            return envelope is null ? (default, null) : (envelope.Data, envelope.Meta?.EndpointStatsWindow);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
             _logger.LogWarning(ex, "Remote gateway call failed for GET {Path}", path);
-            return default;
+            return (default, null);
         }
     }
 

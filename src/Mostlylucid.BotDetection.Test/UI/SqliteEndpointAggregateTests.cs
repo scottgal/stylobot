@@ -98,7 +98,7 @@ public class SqliteEndpointAggregateTests
     }
 
     [Fact]
-    public async Task GetEndpointStatsAsync_honours_startTime_endTime_window()
+    public async Task GetEndpointStatsAsync_sqlite_is_lifetime_only_and_advertises_it()
     {
         await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-time");
 
@@ -110,11 +110,35 @@ public class SqliteEndpointAggregateTests
         await fx.Store.AddDetectionAsync(old);
         await fx.Store.AddDetectionAsync(recent);
 
+        // SQLite's endpoint_stats table is a lifetime counter with no time dimension.
+        // A windowed call must not pretend to honour the window (the old last_seen
+        // predicate returned lifetime counts for anything touched inside the range).
+        fx.Store.SupportsWindowedEndpointStats.Should().BeFalse();
+
         var rows = await fx.Store.GetEndpointStatsAsync(
             startTime: DateTime.UtcNow.AddHours(-2),
             endTime:   DateTime.UtcNow);
 
-        rows.Select(r => r.Path).Should().BeEquivalentTo(new[] { "/api/recent" });
+        rows.Select(r => r.Path).Should().BeEquivalentTo(new[] { "/api/old", "/api/recent" });
+    }
+
+    [Fact]
+    public async Task GetEndpointDetailAsync_domain_scope_does_not_widen_to_other_domains()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-detail-domain");
+
+        await fx.Store.AddDetectionAsync(
+            MakeDetection("/api/widget", isBot: false, bytes: 100, ms: 5) with { Domain = "a.example.com" });
+        await fx.Store.AddDetectionAsync(
+            MakeDetection("/api/widget", isBot: true, bytes: 200, ms: 5) with { Domain = "b.example.com" });
+
+        var scoped = await fx.Store.GetEndpointDetailAsync(
+            "GET", "/api/widget", startTime: null, endTime: null,
+            domains: new[] { "a.example.com" });
+
+        scoped.Should().NotBeNull();
+        scoped!.TotalCount.Should().Be(1);
+        scoped.BotCount.Should().Be(0);
     }
 
     [Fact]

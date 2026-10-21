@@ -41,6 +41,16 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     private readonly GatewayApiClient _api;
     private readonly IMemoryCache _cache;
 
+    /// <summary>
+    ///     Endpoint-window capability reported by the gateway on the most recent
+    ///     <c>/api/v1/endpoints</c> response. Conservative until proven: an older
+    ///     gateway that omits the metadata, or a failed read, must not be presented
+    ///     as windowed. No extra request is made — the value rides the same response.
+    /// </summary>
+    private volatile bool _endpointStatsWindowed;
+
+    public bool SupportsWindowedEndpointStats => _endpointStatsWindowed;
+
     public RemoteDashboardEventStore(GatewayApiClient api, IMemoryCache cache)
     {
         _api = api;
@@ -246,7 +256,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync(query, async () =>
         {
-            var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);
+            var (list, window) = await _api.GetEnvelopeWithMetaAsync<List<DashboardEndpointStats>>(query);
+            ObserveEndpointStatsWindow(window);
             if (list is { Count: > 0 } || (startTime is null && endTime is null) || domains is { Count: > 0 })
                 return list ?? new List<DashboardEndpointStats>();
 
@@ -256,9 +267,24 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
             var liveQuery = BuildRangedQuery("/api/v1/endpoints", count, null, null);
             if (!string.IsNullOrEmpty(audienceFilter))
                 liveQuery += $"&audience={Uri.EscapeDataString(audienceFilter)}";
-            var live = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(liveQuery);
+            var (live, liveWindow) = await _api.GetEnvelopeWithMetaAsync<List<DashboardEndpointStats>>(liveQuery);
+            ObserveEndpointStatsWindow(liveWindow);
             return live is { Count: > 0 } ? live : list ?? new List<DashboardEndpointStats>();
         });
+    }
+
+    /// <summary>
+    ///     Track the gateway's endpoint-window capability from the same response that
+    ///     carried the rows. <c>null</c> (older gateway / transport failure) leaves the
+    ///     previous value alone: unknown is not permission to claim windowed, and a
+    ///     transient failure must not flip a known-windowed gateway to lifetime.
+    /// </summary>
+    private void ObserveEndpointStatsWindow(string? window)
+    {
+        if (string.Equals(window, "windowed", StringComparison.OrdinalIgnoreCase))
+            _endpointStatsWindowed = true;
+        else if (string.Equals(window, "lifetime", StringComparison.OrdinalIgnoreCase))
+            _endpointStatsWindowed = false;
     }
 
     /// <summary>
@@ -275,6 +301,11 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         => Task.FromResult(new List<SignatureEndpointStats>());
 
     public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
+        => GetEndpointDetailAsync(method, path, startTime, endTime, domains: null);
+
+    public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(
+        string method, string path, DateTime? startTime, DateTime? endTime,
+        IReadOnlyList<string>? domains)
     {
         // The root endpoint's path "/" trims to an EMPTY catch-all segment — the gateway's
         // /endpoints/{method}/{**path} route rejects the trailing-slash-empty with a 400,
@@ -286,6 +317,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
             : trimmedPath;
         var query = $"/api/v1/endpoints/{Uri.EscapeDataString(method)}/{pathSegment}"
             + BuildSinceUntil(startTime, endTime, prefix: "?");
+        var sep = query.Contains('?') ? '&' : '?';
+        query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync(query, () => _api.GetEnvelopeAsync<DashboardEndpointDetail>(query)!);
     }
 
@@ -344,6 +377,12 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     {
         var bundle = await _api.PostEnvelopeAsync<DashboardBatchRequest, DashboardDatasetBundle>(
             "/api/v1/compose-batch", request, ct);
+        // The composed page carries the endpoint-window capability on the SAME response.
+        // This is what lets the website's first paint label a SQLite gateway as lifetime
+        // without an extra /endpoints request (the first-paint reader is served from this
+        // bundle, not from a direct store call). Unknown stays conservative.
+        if (bundle?.EndpointStatsWindowed is { } windowed)
+            _endpointStatsWindowed = windowed;
         return bundle ?? new DashboardDatasetBundle(null, null, null, null, null);
     }
 
@@ -516,13 +555,16 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     public Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
         DateTime windowStart,
         DateTime windowEnd,
-        string? audienceFilter = null)
+        string? audienceFilter = null,
+        IReadOnlyList<string>? domains = null)
     {
         var query = "/api/v1/endpoints/live"
             + $"?windowStart={Uri.EscapeDataString(windowStart.ToString("o"))}"
             + $"&windowEnd={Uri.EscapeDataString(windowEnd.ToString("o"))}";
         if (!string.IsNullOrEmpty(audienceFilter))
             query += $"&audienceFilter={Uri.EscapeDataString(audienceFilter)}";
+        var sep = '&';
+        query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync<IReadOnlyList<DashboardEndpointStats>>(query, async () =>
         {
             var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);

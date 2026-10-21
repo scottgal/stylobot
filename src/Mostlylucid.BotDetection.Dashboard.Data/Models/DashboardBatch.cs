@@ -79,4 +79,8 @@ public sealed record DashboardDatasetBundle(
     // Optional trailing slots (default null) so existing 5/6-arg constructions keep compiling.
     IReadOnlyList<DegradationSnapshot>? Degradations = null,
     IReadOnlyList<DashboardTimeSeriesPoint>? LiveTimeBuckets = null,
-    IReadOnlyList<DashboardEndpointStats>? LiveEndpointStats = null);
+    IReadOnlyList<DashboardEndpointStats>? LiveEndpointStats = null,
+    // Endpoint-window capability of the store that composed this bundle. Null when the
+    // backend did not report one. The remote viewer learns it from the SAME compose
+    // response (no extra request) and must treat null conservatively.
+    bool? EndpointStatsWindowed = null);

@@ -23,6 +23,14 @@ public sealed record PaginationInfo
 public sealed record ResponseMeta
 {
     public DateTimeOffset GeneratedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    ///     For <c>GET /api/v1/endpoints</c>: <c>windowed</c> when the backing store can
+    ///     answer the requested time range, <c>lifetime</c> when it only has lifetime
+    ///     counters. Null on every other route and on older gateways. A remote viewer
+    ///     must treat null as unknown (conservatively: not windowed), never as windowed.
+    /// </summary>
+    public string? EndpointStatsWindow { get; init; }
 }
 
 /// <summary>

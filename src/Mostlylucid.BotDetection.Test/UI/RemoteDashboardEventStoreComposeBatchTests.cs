@@ -36,6 +36,23 @@ public sealed class RemoteDashboardEventStoreComposeBatchTests
     }
 
     [Fact]
+    public async Task ComposeBatch_learns_endpoint_window_capability_from_the_same_response()
+    {
+        var expected = new DashboardDatasetBundle(
+            null, null, null, null, null,
+            EndpointStatsWindowed: true);
+        var (store, _) = BuildStore(expected);
+
+        Assert.False(store.SupportsWindowedEndpointStats);
+
+        await store.ComposeBatchAsync(new DashboardBatchRequest(
+            StartTime: null, EndTime: null,
+            Datasets: [new DatasetRequest(DatasetKind.EndpointStats)]));
+
+        Assert.True(store.SupportsWindowedEndpointStats);
+    }
+
+    [Fact]
     public async Task ComposeBatch_POSTs_to_compose_batch_path()
     {
         var expected = new DashboardDatasetBundle(

@@ -28,6 +28,7 @@ using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Helpers;
@@ -863,7 +864,7 @@ public class StyloBotDashboardMiddleware
                     else
                     {
                         var segMethod = Uri.UnescapeDataString(rest[..slashIdx]);
-                        var segPath = rest[slashIdx..];
+                        var segPath = NormalizeEndpointPathSegment(rest[slashIdx..]);
                         await ServeEndpointDetailPageAsync(context, segMethod, segPath);
                     }
                 }
@@ -2979,7 +2980,9 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var detail = await _eventStore.GetEndpointDetailAsync(split[0], split[1]);
+        var domains = context.RequestServices.GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
+        var detail = await _eventStore.GetEndpointDetailAsync(split[0], split[1], domains: domains);
         if (detail == null)
         {
             context.Response.ContentType = "application/json";
@@ -7575,7 +7578,25 @@ public class StyloBotDashboardMiddleware
             context.Response.StatusCode = 400;
             return context.Response.WriteAsync("Missing method or path parameter");
         }
-        return ServeEndpointDetailPageAsync(context, method, path);
+        return ServeEndpointDetailPageAsync(context, method, NormalizeEndpointPathSegment(path));
+    }
+
+    /// <summary>
+    ///     Canonicalise the endpoint path a page route/query pair carries. The root
+    ///     endpoint is linkable as <c>%2F</c> (the encoded single slash); ASP.NET may
+    ///     hand it over still encoded (<c>/%2F</c>) or already collapsed (<c>//</c>),
+    ///     and both must resolve to the stored root path <c>/</c>, not a literal
+    ///     <c>/%2F</c> or a double slash. Non-root paths keep their decoded form.
+    /// </summary>
+    private static string NormalizeEndpointPathSegment(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "/";
+        var decoded = Uri.UnescapeDataString(raw);
+        if (decoded.Length == 0) return "/";
+        // Any run of slashes is the root form (this is exactly what %2F and a trailing
+        // empty catch-all produce); a real endpoint path has at least one non-slash.
+        if (decoded.All(c => c == '/')) return "/";
+        return decoded.StartsWith('/') ? decoded : "/" + decoded;
     }
 
     /// <summary>
@@ -7819,7 +7840,22 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     private async Task<EndpointDetailModel> BuildEndpointDetailModelAsync(
         HttpContext context, string method, string path, bool standalonePage)
     {
-        var detail = await _eventStore.GetEndpointDetailAsync(method, path);
+        // The detail read is a continuation of the list, not a fresh unscoped read:
+        // carry the dashboard-wide domain scope through, and honour ?window= when the
+        // row link/refresh carries one. Without this, selecting a domain and opening a
+        // row silently widened the detail back to every domain.
+        var domains = context.RequestServices.GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
+        DateTime? detailSince = null, detailUntil = null;
+        var windowToken = context.Request.Query["window"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(windowToken))
+        {
+            // One resolver for every widget (list/summary/trend/countries/user-agents)
+            // AND this detail read: duration tokens parse as before, custom resolves its
+            // explicit from/to pair. Do not invent a second time derivation here.
+            (detailSince, detailUntil) = DashboardRangeScope.Resolve(context, windowToken);
+        }
+        var detail = await _eventStore.GetEndpointDetailAsync(method, path, detailSince, detailUntil, domains);
 
         var epNonce = context.Items.TryGetValue("CspNonce", out var epN) && epN is string epNs ? epNs : "";
 

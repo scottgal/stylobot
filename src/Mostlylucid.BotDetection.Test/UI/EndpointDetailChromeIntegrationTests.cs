@@ -27,10 +27,12 @@ namespace Mostlylucid.BotDetection.Test.UI;
 public sealed class EndpointDetailChromeIntegrationTests : IAsyncDisposable
 {
     private WebApplication? _app;
+    private FakeEventStore? _store;
 
     private async Task<WebApplication> BuildAppAsync()
     {
         var store = new FakeEventStore();
+        _store = store;
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
@@ -98,6 +100,37 @@ public sealed class EndpointDetailChromeIntegrationTests : IAsyncDisposable
         Assert.Contains("/dashboard/site", html);
     }
 
+    [Fact]
+    public async Task Root_segment_route_decodes_encoded_slash_to_the_stored_root_path()
+    {
+        var app = await BuildAppAsync();
+
+        // _Lean emits the root row as /endpoint/GET/%2F. Kestrel/TestServer may hand the
+        // middleware the encoded form or an already-collapsed //; both must resolve to "/".
+        var response = await app.GetTestClient().GetAsync("/dashboard/endpoint/GET/%2F");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("/", _store!.LastDetailPath);
+        Assert.Contains("data-endpoint-detail", html);
+        Assert.DoesNotContain("Endpoint detail not found", html);
+    }
+
+    [Fact]
+    public async Task Custom_range_detail_uses_the_exact_from_to_pair_not_24h()
+    {
+        var app = await BuildAppAsync();
+
+        var response = await app.GetTestClient().GetAsync(
+            "/dashboard/endpoint/GET/api/orders?window=custom&from=2026-01-01&to=2026-01-03");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var (expectedStart, expectedEnd) = Mostlylucid.BotDetection.UI.Helpers.AnalyticsRangeParser
+            .ParseCustom("2026-01-01", "2026-01-03");
+        Assert.Equal(expectedStart, _store!.LastDetailSince);
+        Assert.Equal(expectedEnd, _store.LastDetailUntil);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_app is not null) await _app.DisposeAsync();
@@ -119,8 +152,16 @@ public sealed class EndpointDetailChromeIntegrationTests : IAsyncDisposable
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null) => throw new NotImplementedException();
         public Task<List<SignatureEndpointStats>> GetEndpointStatsForSignatureAsync(string signature, int topN = 25, CancellationToken ct = default) => throw new NotImplementedException();
 
-        public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null) =>
-            Task.FromResult<DashboardEndpointDetail?>(new DashboardEndpointDetail
+        public string? LastDetailPath { get; private set; }
+        public DateTime? LastDetailSince { get; private set; }
+        public DateTime? LastDetailUntil { get; private set; }
+
+        public Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
+        {
+            LastDetailPath = path;
+            LastDetailSince = startTime;
+            LastDetailUntil = endTime;
+            return Task.FromResult<DashboardEndpointDetail?>(new DashboardEndpointDetail
             {
                 Method = method,
                 Path = path,
@@ -133,6 +174,7 @@ public sealed class EndpointDetailChromeIntegrationTests : IAsyncDisposable
                 TopBots = [],
                 RecentDetections = [],
             });
+        }
 
         public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null) => throw new NotImplementedException();
         public Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20) => throw new NotImplementedException();

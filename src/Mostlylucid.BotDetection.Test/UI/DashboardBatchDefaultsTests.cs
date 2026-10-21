@@ -222,7 +222,8 @@ public class DashboardBatchDefaultsTests
         }
 
         public Task<IReadOnlyList<DashboardEndpointStats>> GetLiveEndpointStatsAsync(
-            DateTime windowStart, DateTime windowEnd, string? audienceFilter = null)
+            DateTime windowStart, DateTime windowEnd, string? audienceFilter = null,
+            IReadOnlyList<string>? domains = null)
         {
             LiveEndpointStatsCallCount++;
             return Task.FromResult<IReadOnlyList<DashboardEndpointStats>>([

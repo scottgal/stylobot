@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
+using Mostlylucid.BotDetection.Dashboard.Data.Queries;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
@@ -291,13 +292,22 @@ public static class ReadEndpoints
         [FromServices] DashboardAggregateCache aggregateCache,
         [FromServices] Mostlylucid.BotDetection.UI.Dashboard.Materialization.IDashboardContentCache? contentCache = null,
         [FromServices] Mostlylucid.BotDetection.UI.Dashboard.Composition.IDashboardPageManifestSource? manifests = null,
-        string interval = "5m", DateTime? since = null, DateTime? until = null)
+        string interval = "5m", DateTime? since = null, DateTime? until = null,
+        string? audience = null, [FromQuery(Name = "domain")] string[]? domains = null)
     {
         aggregateCache.MarkHit();
+        // Normalize BEFORE any cache decision: a scoped request must never be answered
+        // from an unscoped aggregate/content-cache snapshot. Repeated domain params are
+        // trimmed, lower-cased, de-duplicated and ordered exactly like TrafficQueryService.
+        var normalizedAudience = DashboardQueryParameters.NormalizeAudience(audience);
+        var normalizedDomains = DashboardQueryParameters.NormalizeDomains(domains);
+        var isScoped = normalizedAudience is not null || normalizedDomains is { Count: > 0 };
+
         var snapshot = aggregateCache.Current;
-        // Default-view window only: trailing 24 h at 5-minute buckets.
-        // Anything else gets the store path.
-        if (since is null && until is null && interval == "5m"
+        // Default-view window only: trailing 24 h at 5-minute buckets, UNSCOPED only.
+        // A scoped request falls through to the store even when its window happens to
+        // match the snapshot's shape.
+        if (!isScoped && since is null && until is null && interval == "5m"
             && snapshot.TimeSeries.Count > 0
             && snapshot.ComputedAt != DateTime.MinValue)
         {
@@ -319,7 +329,9 @@ public static class ReadEndpoints
         // frozen fold served [] through the live compose). The default view's pinned
         // envelope (24h/5m); a miss or an empty bundle falls through to the live
         // compose (the honest pre-envelope behavior during the boot wave).
-        if (contentCache is not null && manifests is not null && since is null && until is null && interval == "5m")
+        // Scope guard: the pinned envelope is composed for ALL domains / no audience,
+        // so a scoped request must bypass it.
+        if (!isScoped && contentCache is not null && manifests is not null && since is null && until is null && interval == "5m")
         {
             var manifest = manifests.For("dashboard.traffic");
             if (manifest is not null)
@@ -350,7 +362,7 @@ public static class ReadEndpoints
         };
         var start = since ?? DateTime.UtcNow.AddHours(-24);
         var end = until ?? DateTime.UtcNow;
-        var timeseries = await store.GetTimeSeriesAsync(start, end, bucketSize);
+        var timeseries = await store.GetTimeSeriesAsync(start, end, bucketSize, normalizedAudience, normalizedDomains);
         return TypedResults.Ok(new PaginatedResponse<DashboardTimeSeriesPoint>
         {
             Data = timeseries,
@@ -426,17 +438,29 @@ public static class ReadEndpoints
     }
 
     private static async Task<Ok<PaginatedResponse<DashboardEndpointStats>>> HandleEndpoints(
+        HttpContext context,
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
-        int limit = 50, DateTime? since = null, DateTime? until = null)
+        int limit = 50, DateTime? since = null, DateTime? until = null,
+        string? audience = null, [FromQuery(Name = "domain")] string[]? domains = null)
     {
         aggregateCache.MarkHit();
-        var eps = await store.GetEndpointStatsAsync(limit, since, until);
+        var normalizedAudience = DashboardQueryParameters.NormalizeAudience(audience);
+        var normalizedDomains = DashboardQueryParameters.NormalizeDomains(domains);
+        // A windowed request can only be honoured by the bounded store when it has a
+        // time dimension. SQLite's lifetime table says so via the capability; advertise
+        // it on the response so a client never prints a range over lifetime counters.
+        context.Response.Headers["X-StyloBot-Endpoint-Stats-Window"] =
+            store.SupportsWindowedEndpointStats ? "windowed" : "lifetime";
+        var eps = await store.GetEndpointStatsAsync(limit, since, until, normalizedAudience, normalizedDomains);
         return TypedResults.Ok(new PaginatedResponse<DashboardEndpointStats>
         {
             Data = eps,
             Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = eps.Count },
-            Meta = new ResponseMeta()
+            Meta = new ResponseMeta
+            {
+                EndpointStatsWindow = store.SupportsWindowedEndpointStats ? "windowed" : "lifetime"
+            }
         });
     }
 
@@ -444,7 +468,8 @@ public static class ReadEndpoints
         string method, string path,
         [FromServices] IDashboardEventStore store,
         [FromServices] DashboardAggregateCache aggregateCache,
-        DateTime? since = null, DateTime? until = null)
+        DateTime? since = null, DateTime? until = null,
+        [FromQuery(Name = "domain")] string[]? domains = null)
     {
         aggregateCache.MarkHit();
         // The root endpoint's path is sent as its percent-encoded segment ("%2F" — the
@@ -453,7 +478,8 @@ public static class ReadEndpoints
         // "Endpoint detail not found" because the empty catch-all never reached the store).
         var decodedPath = path == "%2F" ? "/" : Uri.UnescapeDataString(path);
         var fullPath = decodedPath == "/" ? decodedPath : "/" + decodedPath;
-        var detail = await store.GetEndpointDetailAsync(method, fullPath, since, until);
+        var normalizedDomains = DashboardQueryParameters.NormalizeDomains(domains);
+        var detail = await store.GetEndpointDetailAsync(method, fullPath, since, until, normalizedDomains);
         if (detail is null) return TypedResults.NotFound();
         return TypedResults.Ok(new SingleResponse<DashboardEndpointDetail> { Data = detail, Meta = new ResponseMeta() });
     }

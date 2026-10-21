@@ -27,9 +27,8 @@ public sealed class TrafficQueryService(
             throw new TrafficQueryValidationException("The time range must be ordered and at most 30 days.", nameof(query.From));
         if (query.Limit is < 1 or > 200)
             throw new TrafficQueryValidationException("Limit must be between 1 and 200.", nameof(query.Limit));
-        var domains = (query.Domains ?? []).Where(d => !string.IsNullOrWhiteSpace(d))
-            .Select(d => d.Trim().ToLowerInvariant()).Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (domains.Length > 20 || domains.Any(d => d.Length > 253 || d.Any(char.IsControl)))
+        var domains = DashboardQueryParameters.NormalizeDomains(query.Domains) ?? [];
+        if (domains.Count > 20 || domains.Any(d => d.Length > 253 || d.Any(char.IsControl)))
             throw new TrafficQueryValidationException("Supply at most 20 domains, each at most 253 characters.", nameof(query.Domains));
         var from = start.Value.UtcDateTime;
         var to = end.Value.UtcDateTime;
