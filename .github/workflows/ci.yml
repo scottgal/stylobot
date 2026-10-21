@@ -7,6 +7,11 @@ on:
       - develop
       - 'feature/**'
       - 'fix/**'
+      # Release-line branches get the same build+test gate while a candidate is
+      # being prepared. This workflow publishes nothing: no tag, no package, no
+      # image, no deploy - publication lives in the tag-triggered publish-*.yml
+      # workflows, which a release/* push cannot trigger.
+      - 'release/**'
   pull_request:
     branches:
       - main

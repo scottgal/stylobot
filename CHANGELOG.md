@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.0-alpha.1] - 2026-10-21
+
+First alpha of the 9.0 line. The dashboard rework — shared UI components and
+endpoint-first reads — is tracked here; this is a preview of work in progress,
+not a stable release.
+
+- Alpha packages carry the `-alpha.1` prerelease suffix and alpha container
+  images are published without the `latest` tag, so stable channels are not
+  advanced by this release.
+- Entries are expanded as dashboard changes land on `release/9.0.0-alpha.1`.
+
 ## [8.15.0] - 2026-10-17
 
 - **Dependency maintenance (#125, #128, #129, #132):** update MessagePack to 3.1.12, update SignalR.Client to 10.0.13 and pin patched System.Security.Cryptography.Pkcs 10.0.13 and Microsoft.OpenApi.Readers 1.6.30, upgrade Caddy to 2.11.7 with its compatible CEL 0.32.0 dependency, and refresh Node gRPC/URI/proxy dependencies and lockfiles. Supersedes the older MessagePack proposal in #131. CEL 0.29.0 alone does not compile with Caddy 2.11.4; update the parent dependency rather than shipping that incompatible pair.

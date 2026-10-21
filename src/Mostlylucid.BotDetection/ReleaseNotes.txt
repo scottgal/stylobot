@@ -1,3 +1,8 @@
+9.0.0-alpha.1 - 2026-10-21
+
+- First alpha of the 9.0 line: the dashboard rework (shared UI components and endpoint-first reads) lands here. This is a preview of work in progress, not a stable release.
+- Alpha builds do not advance the stable channels: packages carry the `-alpha.1` prerelease suffix and container images are published without the `latest` tag.
+
 8.15.0 - 2026-10-17
 
 - Update MessagePack to 3.1.12 and update SignalR.Client to 10.0.13 and pin patched PKCS/OpenAPI reader dependencies.
