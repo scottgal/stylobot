@@ -61,7 +61,24 @@ public class SbSummaryStatsViewComponent(
         // strip beside populated widgets (Top Bots 390). Fall back to the aggregate
         // cache's unwindowed LIVE snapshot (the broadcaster's) rather than painting
         // zeros; the windowed read warms in the background and the next paint is exact.
-        if (summary.TotalRequests == 0 && aggregateCache?.Current.Summary is { TotalRequests: > 0 } liveSummary)
+        //
+        // SCOPE/RANGE TRUTH (2026-10-22): that cache is populated by
+        // DashboardSummaryBroadcaster from _eventStore.GetSummaryAsync() — UNSCOPED and
+        // UNWINDOWED. It is only a valid substitute for a request with the same query
+        // shape: default audience, no selected domains and no resolved window.
+        // Substituting it for a scoped, filtered or windowed read answered a
+        // selected-domain/bots/humans zero with all-domains lifetime traffic
+        // (staging: scoped endpoints 0, summary 9 from another domain). Keep the
+        // honest zero when audience, scope or range differs; the windowed read
+        // warms in the background and the next paint is exact.
+        var defaultAudience = string.IsNullOrEmpty(audience)
+                              || string.Equals(audience, "all", StringComparison.OrdinalIgnoreCase);
+        if (summary.TotalRequests == 0
+            && defaultAudience
+            && scopedDomains is not { Count: > 0 }
+            && startTime is null
+            && endTime is null
+            && aggregateCache?.Current.Summary is { TotalRequests: > 0 } liveSummary)
             summary = liveSummary;
 
         // Never paint zeros for a cold placeholder (operator directive 2026-08-12): when

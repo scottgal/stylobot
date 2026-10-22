@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.AspNetCore.Mvc.ViewComponents;
+using Microsoft.AspNetCore.Mvc.ViewEngines;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Dashboard;
@@ -134,11 +136,12 @@ public sealed class SbSummaryStatsWarmingFallbackTests
     }
 
     [Fact]
-    public async Task Cold_placeholder_with_a_live_aggregate_prefers_real_numbers()
+    public async Task Unwindowed_unscoped_cold_placeholder_with_a_live_aggregate_prefers_real_numbers()
     {
         // The aggregate-cache fallback (c143f61b) outranks the spinner: when the
-        // broadcaster's unwindowed snapshot has real data, serve it — the honest
-        // spinner is only the last resort.
+        // broadcaster's unwindowed, unscoped snapshot has real data and the request
+        // has the same query shape (no domains, no resolved window), serve it — the
+        // honest spinner is only the last resort.
         var httpContext = new DefaultHttpContext();
         DashboardWarmingSignal.MarkWarming(httpContext, "summary");
         var store = StoreReturningEmptySummary();
@@ -173,11 +176,121 @@ public sealed class SbSummaryStatsWarmingFallbackTests
             }
         };
 
-        var result = await vc.InvokeAsync(audience: null, range: "24h");
+        var result = await vc.InvokeAsync(audience: null, range: null);
 
         var view = Assert.IsType<ViewViewComponentResult>(result);
         var model = Assert.IsType<SummaryStatsModel>(view.ViewData!.Model);
         Assert.False(model.IsWarming);
         Assert.Equal(129, model.Summary.TotalRequests);
+    }
+
+    [Fact]
+    public async Task Scoped_zero_keeps_zero_and_does_not_borrow_the_unscoped_aggregate()
+    {
+        // Regression for the staging 9-vs-0 defect: a selected-domain read that is
+        // genuinely empty must not be replaced by the broadcaster's UNSCOPED live
+        // snapshot. Scope truth outranks the first-load cosmetics.
+        var httpContext = new DefaultHttpContext
+        {
+            RequestServices = new ServiceCollection()
+                .AddSingleton<IDashboardDomainScope>(new FixedDashboardDomainScope("stylo.bot"))
+                // The ViewComponent.View() call resolves the view engine from
+                // RequestServices; this test only inspects the model, so a stub is enough.
+                .AddSingleton(Mock.Of<ICompositeViewEngine>())
+                .BuildServiceProvider()
+        };
+        var store = StoreReturningEmptySummary();
+        var aggregate = new DashboardAggregateCache();
+        aggregate.Update(new DashboardAggregateCache.AggregateSnapshot
+        {
+            Countries = [],
+            Endpoints = [],
+            UserAgents = [],
+            Summary = new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 9,
+                BotRequests = 6,
+                HumanRequests = 3,
+                UncertainRequests = 0,
+                UniqueSignatures = 9,
+                RiskBandCounts = new(),
+                TopBotTypes = new(),
+                TopActions = new()
+            }
+        });
+        var vc = new SbSummaryStatsViewComponent(
+            store.Object,
+            Options.Create(new StyloBotDashboardOptions { BasePath = "/dashboard" }),
+            signatureCache: null,
+            aggregateCache: aggregate)
+        {
+            ViewComponentContext = new ViewComponentContext
+            {
+                ViewContext = new ViewContext { HttpContext = httpContext }
+            }
+        };
+
+        var result = await vc.InvokeAsync(audience: null, range: "24h");
+
+        var view = Assert.IsType<ViewViewComponentResult>(result);
+        var model = Assert.IsType<SummaryStatsModel>(view.ViewData!.Model);
+        Assert.False(model.IsWarming);
+        Assert.Equal(0, model.Summary.TotalRequests);
+    }
+
+    [Fact]
+    public async Task Bots_zero_keeps_zero_and_does_not_borrow_the_default_all_aggregate()
+    {
+        // Audience is a query scope too: a bots/humans slice that is genuinely empty
+        // must not borrow the broadcaster's default-all snapshot.
+        var httpContext = new DefaultHttpContext();
+        var store = StoreReturningEmptySummary();
+        var aggregate = new DashboardAggregateCache();
+        aggregate.Update(new DashboardAggregateCache.AggregateSnapshot
+        {
+            Countries = [],
+            Endpoints = [],
+            UserAgents = [],
+            Summary = new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 129,
+                BotRequests = 0,
+                HumanRequests = 129,
+                UncertainRequests = 0,
+                UniqueSignatures = 129,
+                RiskBandCounts = new(),
+                TopBotTypes = new(),
+                TopActions = new()
+            }
+        });
+        var vc = new SbSummaryStatsViewComponent(
+            store.Object,
+            Options.Create(new StyloBotDashboardOptions { BasePath = "/dashboard" }),
+            signatureCache: null,
+            aggregateCache: aggregate)
+        {
+            ViewComponentContext = new ViewComponentContext
+            {
+                ViewContext = new ViewContext { HttpContext = httpContext }
+            }
+        };
+
+        var result = await vc.InvokeAsync(audience: "bots", range: null);
+
+        var view = Assert.IsType<ViewViewComponentResult>(result);
+        var model = Assert.IsType<SummaryStatsModel>(view.ViewData!.Model);
+        Assert.False(model.IsWarming);
+        Assert.Equal(0, model.Summary.TotalRequests);
+    }
+
+    private sealed class FixedDashboardDomainScope : IDashboardDomainScope
+    {
+        private readonly IReadOnlyList<string> _domains;
+
+        public FixedDashboardDomainScope(params string[] domains) => _domains = domains;
+
+        public IReadOnlyList<string>? GetSelectedDomains(HttpContext context) => _domains;
     }
 }
