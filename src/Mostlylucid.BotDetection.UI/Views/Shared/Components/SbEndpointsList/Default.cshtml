@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.Dashboard.Data.Queries
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @using Mostlylucid.BotDetection.UI.Services
@@ -13,10 +14,22 @@
     if (string.IsNullOrEmpty(columnsToken)) columnsToken = Context.Request.Query["columns"].ToString();
     if (string.IsNullOrEmpty(columnsToken)) columnsToken = "lean";
     var lean = !Model.IsCompact && !string.Equals(columnsToken, "full", StringComparison.OrdinalIgnoreCase);
-    // SQLite endpoint aggregates are lifetime totals. The full inventory must say so
-    // too, or Advanced columns presents unscoped numbers under the page's range.
-    var lifetimeOnly = ViewData["EndpointsLifetimeOnly"] as bool? == true
-        || string.Equals(Context.Request.Query["lifetime"].ToString(), "1", StringComparison.Ordinal);
+    // Three-state scope, same producer-first order as the lean table: ViewData scope,
+    // nullable request item, legacy boolean, safe fallback. Query tokens never label.
+    var legacyLifetime = ViewData["EndpointsLifetimeOnly"] as bool?;
+    var rawScope = ViewData["EndpointsScope"] as string;
+    // Validate case-insensitively before the data helper (which is case-sensitive):
+    // anything unrecognised goes through Normalize, which maps it to Lifetime.
+    string? scope = rawScope is null ? null
+        : string.Equals(rawScope, EndpointStatsScope.Lifetime, StringComparison.OrdinalIgnoreCase) ? EndpointStatsScope.Lifetime
+        : string.Equals(rawScope, EndpointStatsScope.Windowed, StringComparison.OrdinalIgnoreCase) ? EndpointStatsScope.Windowed
+        : string.Equals(rawScope, EndpointStatsScope.RetainedWindow, StringComparison.OrdinalIgnoreCase) ? EndpointStatsScope.RetainedWindow
+        : EndpointStatsScope.Normalize(rawScope);
+    scope ??= EndpointStatsScope.Read(Context);
+    scope ??= legacyLifetime is bool legacy ? (legacy ? EndpointStatsScope.Lifetime : EndpointStatsScope.Windowed) : null;
+    scope ??= EndpointStatsScope.Lifetime;
+    var lifetimeOnly = string.Equals(scope, EndpointStatsScope.Lifetime, StringComparison.Ordinal);
+    var retainedWindow = string.Equals(scope, EndpointStatsScope.RetainedWindow, StringComparison.Ordinal);
 
     var bp = Model.BasePath;
     var currentMethod = Model.MethodFilter ?? "";
@@ -24,10 +37,31 @@
     // URL builders honour every filter axis (status/path/audience/method/mode) so
     // navigating one axis preserves the others. Sort + pagination changes drop back
     // to page=1 so the new ordering or filter isn't paged past its first page.
+    // Actual request scope, shared by every link this view builds: canonical range
+    // (cookie or query), every domain, custom from/to and the page-level internal
+    // toggle. No presentation/label tokens.
+    string ScopeQs()
+    {
+        var parts = new List<string>();
+        var windowToken = (ViewData["EndpointsWindow"] as string) ?? Context.Request.Query["window"].ToString();
+        if (!string.IsNullOrEmpty(windowToken)) parts.Add($"window={Uri.EscapeDataString(windowToken)}");
+        foreach (var domain in Context.Request.Query["domain"])
+        {
+            if (!string.IsNullOrWhiteSpace(domain)) parts.Add($"domain={Uri.EscapeDataString(domain)}");
+        }
+        var from = Context.Request.Query["from"].ToString();
+        if (!string.IsNullOrEmpty(from)) parts.Add($"from={Uri.EscapeDataString(from)}");
+        var to = Context.Request.Query["to"].ToString();
+        if (!string.IsNullOrEmpty(to)) parts.Add($"to={Uri.EscapeDataString(to)}");
+        // Single source: the model's audience is the one the read used.
+        if (string.Equals(Model.AudienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase))
+            parts.Add("internal=show");
+        return parts.Count == 0 ? "" : "&" + string.Join("&", parts);
+    }
+
     string FilterQs(string statusOverride, string pathOverride, string audienceOverride, string methodOverride, string modeOverride)
         => $"status={Uri.EscapeDataString(statusOverride)}&path={Uri.EscapeDataString(pathOverride)}&audience={Uri.EscapeDataString(audienceOverride)}&method={Uri.EscapeDataString(methodOverride)}&mode={Uri.EscapeDataString(modeOverride)}" +
-           $"&columns={Uri.EscapeDataString(columnsToken)}" +
-           (lifetimeOnly ? "&lifetime=1" : "");
+           $"&columns={Uri.EscapeDataString(columnsToken)}{ScopeQs()}";
     string CurrentFilterQs() => FilterQs(Model.StatusFilter, Model.PathFilter, Model.AudienceFilter, currentMethod, currentMode);
     string SortUrl(string field)
     {
@@ -68,12 +102,25 @@
         // normalized path made the href collapse to the bare method). Null returns
         // render the cells as text-only.
         if (string.IsNullOrWhiteSpace(path)) return null;
+        // Detail navigation preserves the ACTUAL scope (window/domain/internal) so the
+        // destination derives its own truth rather than inheriting a presentation label.
+        // One canonical builder: the detail link carries exactly the same actual scope
+        // as every other generated link (cookie-resolved range, domains, from/to, internal).
+        string ScopeSuffix()
+        {
+            var qs = ScopeQs();                       // "" or "&a=b&c=d"
+            return qs.Length == 0 ? "" : "?" + qs[1..];
+        }
         // The segment route keeps everything after the method slash verbatim and never
         // unescapes it, so root ("/") cannot be represented there; the query-string
         // detail route binds ?path= through normal query decoding.
-        if (path == "/") return $"{bp}/endpoint?method={Uri.EscapeDataString(method)}&path=%2F";
+        if (path == "/")
+        {
+            var scope = ScopeQs();                    // leading "&"
+            return $"{bp}/endpoint?method={Uri.EscapeDataString(method)}&path=%2F{scope}";
+        }
         var encodedPath = string.Join("/", path.Split('/').Select(seg => Uri.EscapeDataString(seg)));
-        return $"{bp}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}";
+        return $"{bp}/endpoint/{Uri.EscapeDataString(method)}{encodedPath}{ScopeSuffix()}";
     }
     // Shared status-bucket palette (2xx=success, 3xx=neutral, 4xx=warning, 5xx=error) --
     // same semantics as the dashboard's block/throttle/allow policy colors elsewhere.
@@ -123,6 +170,10 @@
             @if (lifetimeOnly)
             {
                 <span class="badge badge-xs badge-ghost" title="This store keeps endpoint aggregates as lifetime totals; the selected range does not scope them.">lifetime totals</span>
+            }
+            else if (retainedWindow)
+            {
+                <span class="badge badge-xs badge-ghost" title="Internal traffic is read from the retained window, not the selected range.">internal, retained window</span>
             }
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </span>
@@ -190,7 +241,7 @@
             <span class="text-base-content/30 mx-1">·</span>
             <select name="method"
                     class="select select-xs select-bordered font-mono"
-                    hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&path=@Uri.EscapeDataString(Model.PathFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&mode=@Uri.EscapeDataString(currentMode)&columns=@Uri.EscapeDataString(columnsToken)@(lifetimeOnly ? "&lifetime=1" : "")"
+                    hx-get="@(bp)/partials/endpoints?sort=@Model.SortField&dir=@Model.SortDir&page=1&pageSize=@Model.PageSize&status=@Uri.EscapeDataString(Model.StatusFilter)&path=@Uri.EscapeDataString(Model.PathFilter)&audience=@Uri.EscapeDataString(Model.AudienceFilter)&mode=@Uri.EscapeDataString(currentMode)&columns=@Uri.EscapeDataString(columnsToken)@ScopeQs()"
                     hx-target="#endpoints-list" hx-swap="outerHTML transition:true"
                     hx-trigger="change" hx-include="this">
                 <option value="" selected="@(string.IsNullOrEmpty(currentMethod))">All methods</option>

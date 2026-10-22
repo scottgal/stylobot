@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Dashboard.Data.Queries;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
@@ -71,6 +72,33 @@ public class SbEndpointsListViewComponent(
         // always win over the composed snapshot, never be shadowed by it.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
 
+        // Scope honesty. The bundle's scope describes the bundle's rows, so it may be
+        // used ONLY when those rows are what we returned; a parameter-driven read that
+        // bypasses the bundle must resolve from the actual inputs. A legacy bundle
+        // exposes only the windowed flag, and an explicit false means "not windowed"
+        // (do not fall through to the store capability).
+        string? ScopeFromBundle(DashboardPageResult? page) =>
+            !string.IsNullOrEmpty(page?.EndpointStatsScope)
+                ? page!.EndpointStatsScope
+                : page?.EndpointStatsWindowed is bool windowed
+                    ? (windowed ? EndpointStatsScope.Windowed : EndpointStatsScope.Lifetime)
+                    : null;
+
+        // The page-level internal toggle is a request input, not a VC parameter: the
+        // traffic tag helper never forwards an audience, so ?internal=show must be read
+        // here or a retained-window read is mislabelled Lifetime.
+        var requestAudience = !string.IsNullOrEmpty(audience)
+            ? audience
+            : string.Equals(HttpContext?.Request.Query["internal"].ToString(), "show", StringComparison.OrdinalIgnoreCase)
+                ? "all_incl_internal"
+                : "all";
+
+        string ResolveFromRequest() =>
+            EndpointStatsScope.Resolve(eventStore.SupportsWindowedEndpointStats, requestAudience, startTime, endTime);
+
+        // Set per branch below; never inferred from the bundle when the rows did not come from it.
+        string? resolvedScope = null;
+
         // Dashboard-wide domain scope (DI seam). FOSS default returns null (no filter =
         // today's behavior); a commercial impl supplies the operator's selected domains,
         // threaded into the self-fetch store reads below. The composed path is already
@@ -87,7 +115,10 @@ public class SbEndpointsListViewComponent(
         var isWarming = false;
 
         IReadOnlyList<DashboardEndpointStats> data;
-        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
+        // A page-level internal read is a distinct data request even with no audience
+        // parameter and no window: it must take this branch, not the composed/default one.
+        if ((!string.IsNullOrEmpty(requestAudience) && !string.Equals(requestAudience, "all", StringComparison.Ordinal))
+            || startTime.HasValue)
         {
             // Parameter-driven: always bypass cache/compose, query store with the provided args.
             // Must win over the warming/composed checks below -- a specific audience/window
@@ -109,14 +140,17 @@ public class SbEndpointsListViewComponent(
             // first HTML response must carry real rows. Audience-specific requests retain
             // the normal store path because they are interactive filter slices, not the
             // initial page render.
-            var firstPaintReader = string.IsNullOrEmpty(audience) && startTime.HasValue
+            resolvedScope = ResolveFromRequest();
+            // The seeded first-paint slice is the DEFAULT audience: use it only when this
+            // read is the default audience too, never for an internal/other slice.
+            var firstPaintReader = string.Equals(requestAudience, "all", StringComparison.Ordinal) && startTime.HasValue
                 ? DashboardEndpointsFirstPaintContext.Get(HttpContext)
                 : null;
             var usedFirstPaint = firstPaintReader is not null;
             data = usedFirstPaint
                 ? await firstPaintReader.GetEndpointStatsAsync(
-                    500, startTime, endTime, audience, scopedDomains, HttpContext?.RequestAborted ?? default)
-                : await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience, scopedDomains);
+                    500, startTime, endTime, requestAudience, scopedDomains, HttpContext?.RequestAborted ?? default)
+                : await eventStore.GetEndpointStatsAsync(500, startTime, endTime, requestAudience, scopedDomains);
             // ALWAYS check the warming signal on an empty result (the 2026-08-13
             // windowed-partial P0): the old guard only checked on the store path, on the
             // theory that "a present reader means real data". On a cold windowed partial
@@ -136,7 +170,9 @@ public class SbEndpointsListViewComponent(
         {
             // A genuine cold miss -- render the warming placeholder instead of falling through
             // to a live store call. See SbTopBotsViewComponent for the same guard's rationale.
-            ViewData["EndpointsLifetimeOnly"] = !eventStore.SupportsWindowedEndpointStats;
+            var warmingScope = EndpointStatsScope.Normalize(ScopeFromBundle(pageResult) ?? ResolveFromRequest());
+            ViewData["EndpointsScope"] = warmingScope;
+            ViewData["EndpointsLifetimeOnly"] = string.Equals(warmingScope, EndpointStatsScope.Lifetime, StringComparison.Ordinal);
             return View(new EndpointsListModel
             {
                 Endpoints = [],
@@ -150,10 +186,12 @@ public class SbEndpointsListViewComponent(
         else if (pageResult?.Endpoints is { } composedEndpoints)
         {
             data = composedEndpoints;
+            resolvedScope = ScopeFromBundle(pageResult) ?? ResolveFromRequest();
         }
         else
         {
             // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
+            resolvedScope = ResolveFromRequest();
             // The aggregate snapshot is UNSCOPED: serving it for a request that carries a
             // domain scope (commercial selector / ?domain=) would answer a scoped read with
             // all-domain rows. Any non-empty scope must go to the store, which applies the
@@ -176,14 +214,23 @@ public class SbEndpointsListViewComponent(
                 isWarming = DashboardWarmingSignal.IsWarming(HttpContext, "endpoints", domainTag);
             }
         }
-        // Honesty seam (presentation only, no store call added or changed): endpoint
-        // aggregates are window-scoped on PG/remote but lifetime-only on SQLite. Read
-        // AFTER the read above -- a remote adapter learns windowed/lifetime from the
-        // response it just fetched and starts conservative, so sampling it earlier
-        // would mislabel a windowed gateway as "lifetime totals" on first paint.
-        // Read back by _Lean.cshtml (and by the full view), and propagated on partial
-        // swaps via the ?lifetime=1 URL token.
-        ViewData["EndpointsLifetimeOnly"] = !eventStore.SupportsWindowedEndpointStats;
+        // Read AFTER the read above: a remote adapter learns windowed/lifetime from the
+        // response it just fetched and starts conservative, so sampling earlier would
+        // mislabel a windowed gateway as "lifetime totals" on first paint. The bundle
+        // scope wins; the request-scoped fallback covers direct reads. Read back by
+        // _Lean.cshtml / Default.cshtml; retained-window spreads via ?retained=1.
+        resolvedScope = EndpointStatsScope.Normalize(resolvedScope ?? ResolveFromRequest());
+        ViewData["EndpointsScope"] = resolvedScope;
+        ViewData["EndpointsLifetimeOnly"] = string.Equals(resolvedScope, EndpointStatsScope.Lifetime, StringComparison.Ordinal);
+        // Canonical window token for the table's own links: the range resolved by the
+        // page (cookie or query) is not always present in the request query, and a
+        // sort/page/search swap without it would ask for a different slice.
+        var windowForLinks = range;
+        if (string.IsNullOrWhiteSpace(windowForLinks) && startTime is { } s0 && endTime is { } e0)
+        {
+            windowForLinks = DashboardRoutingHelpers.WindowTokenForMinutes((int)(e0 - s0).TotalMinutes);
+        }
+        if (!string.IsNullOrWhiteSpace(windowForLinks)) ViewData["EndpointsWindow"] = windowForLinks;
 
         var basePath = options.Value.BasePath.TrimEnd('/');
         var navBasePath = string.IsNullOrEmpty(options.Value.NavBasePath)
@@ -271,7 +318,7 @@ public class SbEndpointsListViewComponent(
             ContentOnly = contentOnly,
             IsCompact = compact,
             AllowEndpointPinning = options.Value.EnableEndpointPinning,
-            AudienceFilter = string.IsNullOrEmpty(audience) ? "all" : audience,
+            AudienceFilter = requestAudience,
             StatusFilter = string.IsNullOrEmpty(status) ? "all" : status,
             PathFilter = path ?? string.Empty,
             MethodFilter = string.IsNullOrEmpty(method) ? null : method,

@@ -154,6 +154,78 @@ public sealed class LeanEndpointsRenderedTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Internal_window_read_is_retained_and_survives_sort()
+    {
+        // Lifetime-only store + internal audience + an explicit range: the rows are a
+        // RETAINED window, not lifetime. Sorting must carry the same actual inputs
+        // (audience/window) so the next swap derives the same truth.
+        var app = await BuildAppAsync();
+        var client = app.GetTestClient();
+
+        var html = await client.GetStringAsync("/dashboard/partials/endpoints?audience=all_incl_internal&window=7d");
+        Assert.True(html.Contains("internal, retained window"),
+            "expected retained-window label; rendered: " + Truncate(html));
+        Assert.DoesNotContain("lifetime totals", html);
+        Assert.Contains("audience=all_incl_internal", html);
+        Assert.Contains("window=7d", html);
+
+        var sorted = await client.GetStringAsync(
+            "/dashboard/partials/endpoints?audience=all_incl_internal&window=7d&sort=path&dir=asc");
+        Assert.Contains("internal, retained window", sorted);
+        Assert.DoesNotContain("lifetime totals", sorted);
+    }
+
+    [Fact]
+    public async Task Page_level_internal_toggle_keeps_its_scope_on_table_links()
+    {
+        // The page-level toggle is ?internal=show WITHOUT an audience parameter. The read
+        // must resolve all_incl_internal, the label must be retained-window, and the
+        // generated sort/page links must keep internal=show (or the next swap reads the
+        // default audience and relabels).
+        var app = await BuildAppAsync();
+        var client = app.GetTestClient();
+
+        var html = await client.GetStringAsync("/dashboard/partials/endpoints?internal=show&window=7d");
+        Assert.True(html.Contains("internal, retained window"),
+            "expected retained-window label for internal=show; rendered: " + Truncate(html));
+        Assert.DoesNotContain("lifetime totals", html);
+        Assert.Contains("internal=show", html);
+        Assert.Contains("window=7d", html);
+
+        // Follow the generated sort URL, not a hand-built one.
+        var sortUrl = ExtractFirst(html, "hx-get=\"([^\"]*sort=path[^\"]*)\"");
+        Assert.True(sortUrl is not null, "expected a generated sort link; rendered: " + Truncate(html));
+        var sorted = await client.GetStringAsync(sortUrl);
+        Assert.Contains("internal, retained window", sorted);
+        Assert.Contains("internal=show", sorted);
+        Assert.Contains("window=7d", sorted);
+
+        // Detail navigation must keep the same actual scope.
+        var detailUrl = RootHref(html);
+        Assert.True(detailUrl is not null, "expected the endpoint detail link");
+        Assert.Contains("internal=show", detailUrl);
+        Assert.Contains("window=7d", detailUrl);
+        var detail = await client.GetAsync(detailUrl);
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+    }
+
+    [Fact]
+    public async Task Presentation_tokens_cannot_forge_the_scope_label()
+    {
+        // A lifetime-only store with no internal audience: the producer says Lifetime.
+        // A forged ?retained=1 / ?lifetime=1 must NOT change what the rows are called.
+        var app = await BuildAppAsync();
+        var client = app.GetTestClient();
+
+        var forgedRetained = await client.GetStringAsync("/dashboard/partials/endpoints?retained=1");
+        Assert.Contains("lifetime totals", forgedRetained);
+        Assert.DoesNotContain("internal, retained window", forgedRetained);
+
+        var forgedWindowed = await client.GetStringAsync("/dashboard/partials/endpoints?lifetime=1");
+        Assert.Contains("lifetime totals", forgedWindowed);
+    }
+
+    [Fact]
     public async Task Lifetime_scope_token_labels_the_table_and_defaults_to_range()
     {
         // The first paint sets this from IDashboardEventStore.SupportsWindowedEndpointStats
@@ -189,6 +261,12 @@ public sealed class LeanEndpointsRenderedTests : IAsyncDisposable
         Assert.Contains("80 of 100 requests", html);
         Assert.Contains("20 have no origin status", html);
         Assert.DoesNotContain("answered by StyloBot", html);
+    }
+
+    private static string? ExtractFirst(string html, string pattern)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(html, pattern);
+        return match.Success ? System.Net.WebUtility.HtmlDecode(match.Groups[1].Value) : null;
     }
 
     /// <summary>Root row href as the browser would see it (HTML-decoded).</summary>

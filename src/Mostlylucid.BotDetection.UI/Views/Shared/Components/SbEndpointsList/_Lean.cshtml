@@ -1,3 +1,4 @@
+@using Mostlylucid.BotDetection.Dashboard.Data.Queries
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Services
 @model EndpointsListModel
@@ -27,11 +28,31 @@
     var pageCount = Math.Max(1, (int)Math.Ceiling(Model.TotalCount / (double)pageSize));
     var filterActive = !string.IsNullOrEmpty(Model.PathFilter);
 
-    // Window honesty: SQLite endpoint aggregates are lifetime totals and cannot be
-    // scoped to a range, so this table must not claim one. The flag comes from the
-    // view component (or the ?lifetime=1 token on a partial swap).
-    var lifetimeOnly = ViewData["EndpointsLifetimeOnly"] as bool? == true
-        || string.Equals(Context.Request.Query["lifetime"].ToString(), "1", StringComparison.Ordinal);
+    // Window honesty, producer-first: ViewData scope, then the nullable request item the
+    // read path stamps, then the legacy boolean, then a safe fallback. Query tokens are
+    // presentation-only and NEVER label the table (a forged ?retained=1 must not change
+    // what the rows are claimed to be).
+    //   Lifetime       -> "lifetime totals"
+    //   Windowed       -> "in this range"
+    //   RetainedWindow -> "internal, retained window" (never lifetime: the internal path
+    //                     reads a retained window, so calling it lifetime is false)
+    var legacyLifetime = ViewData["EndpointsLifetimeOnly"] as bool?;
+    var rawScope = ViewData["EndpointsScope"] as string;
+    // Validate case-insensitively before the data helper (which is case-sensitive):
+    // anything unrecognised goes through Normalize, which maps it to Lifetime.
+    string? scope = rawScope is null ? null
+        : string.Equals(rawScope, EndpointStatsScope.Lifetime, StringComparison.OrdinalIgnoreCase) ? EndpointStatsScope.Lifetime
+        : string.Equals(rawScope, EndpointStatsScope.Windowed, StringComparison.OrdinalIgnoreCase) ? EndpointStatsScope.Windowed
+        : string.Equals(rawScope, EndpointStatsScope.RetainedWindow, StringComparison.OrdinalIgnoreCase) ? EndpointStatsScope.RetainedWindow
+        : EndpointStatsScope.Normalize(rawScope);
+    scope ??= EndpointStatsScope.Read(Context);
+    scope ??= legacyLifetime is bool legacy ? (legacy ? EndpointStatsScope.Lifetime : EndpointStatsScope.Windowed) : null;
+    scope ??= EndpointStatsScope.Lifetime;
+    var lifetimeOnly = string.Equals(scope, EndpointStatsScope.Lifetime, StringComparison.Ordinal);
+    var retainedWindow = string.Equals(scope, EndpointStatsScope.RetainedWindow, StringComparison.Ordinal);
+    var scopeLabel = lifetimeOnly ? "lifetime totals"
+        : retainedWindow ? "internal, retained window"
+        : "in this range";
 
     // Preserve every active URL filter across sort/search/pagination so the lean
     // table never silently drops a scope the operator arrived with.
@@ -41,7 +62,9 @@
     List<string> PageScopeTokens()
     {
         var parts = new List<string>();
-        var pageWindow = Context.Request.Query["window"].ToString();
+        // Canonical range: the page's resolved token (cookie or query) when the view
+        // component supplied it, else the request query on a partial swap.
+        var pageWindow = (ViewData["EndpointsWindow"] as string) ?? Context.Request.Query["window"].ToString();
         if (!string.IsNullOrEmpty(pageWindow)) parts.Add($"window={Uri.EscapeDataString(pageWindow)}");
         foreach (var d in Context.Request.Query["domain"])
         {
@@ -55,6 +78,9 @@
         if (!string.IsNullOrEmpty(country)) parts.Add($"country={Uri.EscapeDataString(country)}");
         var botType = Context.Request.Query["bot_type"].ToString();
         if (!string.IsNullOrEmpty(botType)) parts.Add($"bot_type={Uri.EscapeDataString(botType)}");
+        // Single source: the model's audience is the one the read used.
+        if (string.Equals(Model.AudienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase))
+            parts.Add("internal=show");
         return parts;
     }
 
@@ -86,7 +112,6 @@
         if (!string.IsNullOrEmpty(Model.BotPressureFilter)) parts.Add($"bot_pressure={Uri.EscapeDataString(Model.BotPressureFilter)}");
         if (!string.IsNullOrEmpty(Model.AudienceFilter) && !Model.AudienceFilter.Equals("all", StringComparison.OrdinalIgnoreCase))
             parts.Add($"audience={Uri.EscapeDataString(Model.AudienceFilter)}");
-        if (lifetimeOnly) parts.Add("lifetime=1");
         return parts.Count == 0 ? "" : "&" + string.Join("&", parts);
     }
 
@@ -145,7 +170,7 @@
         <h3 class="sb-ep-title">@Model.Heading</h3>
         @if (!Model.IsWarming)
         {
-            <span class="sb-ep-meta">@Model.TotalCount.ToString("N0") @(lifetimeOnly ? "lifetime totals" : "in this range")</span>
+            <span class="sb-ep-meta">@Model.TotalCount.ToString("N0") @scopeLabel</span>
         }
         <label class="sb-ep-search">
             <span class="sb-ep-vh">Search endpoints by path</span>
@@ -170,7 +195,7 @@
     {
         <div class="sb-ep-empty">
             @(filterActive
-                ? $"No endpoints match this filter {(lifetimeOnly ? "in the lifetime totals." : "in this range.")}"
+                ? $"No endpoints match this filter {(lifetimeOnly ? "in the lifetime totals." : retainedWindow ? "in the internal retained window." : "in this range.")}"
                 : $"No endpoint traffic {(lifetimeOnly ? "recorded." : "in this range.")}")
         </div>
     }
@@ -178,7 +203,7 @@
     {
         <table class="sb-ep-table">
             <caption class="sb-ep-vh">
-                @(lifetimeOnly ? "Endpoints, lifetime totals" : "Endpoints in this range"), sorted by @Model.SortField @Model.SortDir.
+                @(lifetimeOnly ? "Endpoints, lifetime totals" : retainedWindow ? "Endpoints, internal retained-window totals" : "Endpoints in this range"), sorted by @Model.SortField @Model.SortDir.
                 Each count includes every persisted detection for the endpoint; the bot split is binary, so
                 Human / unknown is the remainder and includes requests with no bot verdict. Use Endpoint detail
                 for status, timing and policy.
