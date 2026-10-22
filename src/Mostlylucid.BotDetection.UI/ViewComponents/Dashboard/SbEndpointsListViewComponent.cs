@@ -72,18 +72,6 @@ public class SbEndpointsListViewComponent(
         // always win over the composed snapshot, never be shadowed by it.
         var pageResult = HttpContext?.Items["sb.dashboard.pageresult"] as DashboardPageResult;
 
-        // Scope honesty. The bundle's scope describes the bundle's rows, so it may be
-        // used ONLY when those rows are what we returned; a parameter-driven read that
-        // bypasses the bundle must resolve from the actual inputs. A legacy bundle
-        // exposes only the windowed flag, and an explicit false means "not windowed"
-        // (do not fall through to the store capability).
-        string? ScopeFromBundle(DashboardPageResult? page) =>
-            !string.IsNullOrEmpty(page?.EndpointStatsScope)
-                ? page!.EndpointStatsScope
-                : page?.EndpointStatsWindowed is bool windowed
-                    ? (windowed ? EndpointStatsScope.Windowed : EndpointStatsScope.Lifetime)
-                    : null;
-
         // The page-level internal toggle is a request input, not a VC parameter: the
         // traffic tag helper never forwards an audience, so ?internal=show must be read
         // here or a retained-window read is mislabelled Lifetime.
@@ -93,8 +81,31 @@ public class SbEndpointsListViewComponent(
                 ? "all_incl_internal"
                 : "all";
 
+        // Scope honesty. The bundle's scope describes the bundle's rows, so it may be
+        // used ONLY when those rows are what we returned; a parameter-driven read that
+        // bypasses the bundle must resolve from the actual inputs. A legacy bundle
+        // exposes only the windowed flag, and an explicit false means "not windowed"
+        // (do not fall through to the store capability).
+        var internalRequested = string.Equals(requestAudience, "all_incl_internal", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(requestAudience, "internal", StringComparison.OrdinalIgnoreCase);
+
+        string? ScopeFromBundle(DashboardPageResult? page)
+        {
+            if (!string.IsNullOrEmpty(page?.EndpointStatsScope)) return page!.EndpointStatsScope;
+            // Internal requested but the producer cannot supply internal endpoint volume:
+            // the rows are external, so the label must say so rather than imply internal.
+            if (internalRequested && page?.EndpointStatsInternalSupported is not true)
+                return EndpointStatsScope.InternalUnavailable;
+            return page?.EndpointStatsWindowed is bool windowed
+                ? (windowed ? EndpointStatsScope.Windowed : EndpointStatsScope.Lifetime)
+                : null;
+        }
+
         string ResolveFromRequest() =>
-            EndpointStatsScope.Resolve(eventStore.SupportsWindowedEndpointStats, requestAudience, startTime, endTime);
+            EndpointStatsScope.Resolve(
+                eventStore.SupportsWindowedEndpointStats,
+                eventStore.SupportsInternalEndpointStats,
+                requestAudience, startTime, endTime);
 
         // Set per branch below; never inferred from the bundle when the rows did not come from it.
         string? resolvedScope = null;
@@ -140,7 +151,6 @@ public class SbEndpointsListViewComponent(
             // first HTML response must carry real rows. Audience-specific requests retain
             // the normal store path because they are interactive filter slices, not the
             // initial page render.
-            resolvedScope = ResolveFromRequest();
             // The seeded first-paint slice is the DEFAULT audience: use it only when this
             // read is the default audience too, never for an internal/other slice.
             var firstPaintReader = string.Equals(requestAudience, "all", StringComparison.Ordinal) && startTime.HasValue
@@ -160,6 +170,14 @@ public class SbEndpointsListViewComponent(
             // absence — the exact bug class the shellWarming seeding fix already called
             // out). A stamped warming signal now always renders the spinner; a genuinely
             // empty compose (no stamp) still renders the honest empty state.
+            // Resolve AFTER the read: a remote store learns its windowed/internal
+            // capabilities from the response it just fetched, so sampling earlier would
+            // label a first direct/internal read with the conservative pre-read defaults.
+            // First paint is served from the composed bundle and carries its own
+            // capability/scope; only a real store read relies on the refreshed store.
+            resolvedScope = usedFirstPaint
+                ? (ScopeFromBundle(pageResult) ?? ResolveFromRequest())
+                : ResolveFromRequest();
             if (data.Count == 0)
             {
                 var windowedDomainTag = scopedDomains is { Count: 1 } ? scopedDomains[0] : null;
@@ -191,7 +209,6 @@ public class SbEndpointsListViewComponent(
         else
         {
             // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
-            resolvedScope = ResolveFromRequest();
             // The aggregate snapshot is UNSCOPED: serving it for a request that carries a
             // domain scope (commercial selector / ?domain=) would answer a scoped read with
             // all-domain rows. Any non-empty scope must go to the store, which applies the
@@ -213,6 +230,8 @@ public class SbEndpointsListViewComponent(
                 var domainTag = scopedDomains is { Count: 1 } ? scopedDomains[0] : null;
                 isWarming = DashboardWarmingSignal.IsWarming(HttpContext, "endpoints", domainTag);
             }
+            // Resolve AFTER the legacy read for the same capability-freshness reason.
+            resolvedScope = ResolveFromRequest();
         }
         // Read AFTER the read above: a remote adapter learns windowed/lifetime from the
         // response it just fetched and starts conservative, so sampling earlier would

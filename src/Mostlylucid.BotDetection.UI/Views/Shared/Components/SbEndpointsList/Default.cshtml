@@ -30,6 +30,7 @@
     scope ??= EndpointStatsScope.Lifetime;
     var lifetimeOnly = string.Equals(scope, EndpointStatsScope.Lifetime, StringComparison.Ordinal);
     var retainedWindow = string.Equals(scope, EndpointStatsScope.RetainedWindow, StringComparison.Ordinal);
+    var internalUnavailable = string.Equals(scope, EndpointStatsScope.InternalUnavailable, StringComparison.Ordinal);
 
     var bp = Model.BasePath;
     var currentMethod = Model.MethodFilter ?? "";
@@ -174,6 +175,10 @@
             else if (retainedWindow)
             {
                 <span class="badge badge-xs badge-ghost" title="Internal traffic is read from the retained window, not the selected range.">internal, retained window</span>
+            }
+            else if (internalUnavailable)
+            {
+                <span class="badge badge-xs badge-ghost" title="Internal self-probe is not available at endpoint level on this host; these counts are external traffic only.">external only</span>
             }
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </span>

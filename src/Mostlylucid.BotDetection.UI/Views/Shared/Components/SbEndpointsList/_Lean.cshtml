@@ -50,7 +50,14 @@
     scope ??= EndpointStatsScope.Lifetime;
     var lifetimeOnly = string.Equals(scope, EndpointStatsScope.Lifetime, StringComparison.Ordinal);
     var retainedWindow = string.Equals(scope, EndpointStatsScope.RetainedWindow, StringComparison.Ordinal);
-    var scopeLabel = lifetimeOnly ? "lifetime totals"
+    var internalUnavailable = string.Equals(scope, EndpointStatsScope.InternalUnavailable, StringComparison.Ordinal);
+    // Range wording must not claim a window the request never had.
+    var hasWindowScope = !string.IsNullOrEmpty(ViewData["EndpointsWindow"] as string)
+        || !string.IsNullOrEmpty(Context.Request.Query["window"].ToString())
+        || !string.IsNullOrEmpty(Context.Request.Query["from"].ToString())
+        || !string.IsNullOrEmpty(Context.Request.Query["to"].ToString());
+    var scopeLabel = internalUnavailable ? "external only"
+        : lifetimeOnly ? "lifetime totals"
         : retainedWindow ? "internal, retained window"
         : "in this range";
 
@@ -170,7 +177,7 @@
         <h3 class="sb-ep-title">@Model.Heading</h3>
         @if (!Model.IsWarming)
         {
-            <span class="sb-ep-meta">@Model.TotalCount.ToString("N0") @scopeLabel</span>
+            <span class="sb-ep-meta">@Model.TotalCount.ToString("N0") @(internalUnavailable ? (hasWindowScope ? "in this range (external only)" : "external traffic only") : scopeLabel)</span>
         }
         <label class="sb-ep-search">
             <span class="sb-ep-vh">Search endpoints by path</span>
@@ -187,6 +194,14 @@
         </label>
     </div>
 
+    @if (internalUnavailable)
+    {
+        <p class="sb-ep-meta">
+            Internal self-probe is not available at endpoint level on this host; these counts are
+            external traffic only.
+        </p>
+    }
+
     @if (Model.IsWarming)
     {
         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_WarmingState.cshtml")
@@ -194,16 +209,20 @@
     else if (Model.Endpoints.Count == 0)
     {
         <div class="sb-ep-empty">
-            @(filterActive
-                ? $"No endpoints match this filter {(lifetimeOnly ? "in the lifetime totals." : retainedWindow ? "in the internal retained window." : "in this range.")}"
-                : $"No endpoint traffic {(lifetimeOnly ? "recorded." : "in this range.")}")
+            @(internalUnavailable
+                ? (hasWindowScope
+                    ? "No external endpoint traffic in this range."
+                    : "No external endpoint traffic recorded.")
+                : filterActive
+                    ? $"No endpoints match this filter {(lifetimeOnly ? "in the lifetime totals." : retainedWindow ? "in the internal retained window." : "in this range.")}"
+                    : $"No endpoint traffic {(lifetimeOnly ? "recorded." : "in this range.")}")
         </div>
     }
     else
     {
         <table class="sb-ep-table">
             <caption class="sb-ep-vh">
-                @(lifetimeOnly ? "Endpoints, lifetime totals" : retainedWindow ? "Endpoints, internal retained-window totals" : "Endpoints in this range"), sorted by @Model.SortField @Model.SortDir.
+                @(internalUnavailable ? "Endpoints, external traffic only" : lifetimeOnly ? "Endpoints, lifetime totals" : retainedWindow ? "Endpoints, internal retained-window totals" : "Endpoints in this range"), sorted by @Model.SortField @Model.SortDir.
                 Each count includes every persisted detection for the endpoint; the bot split is binary, so
                 Human / unknown is the remainder and includes requests with no bot verdict. Use Endpoint detail
                 for status, timing and policy.

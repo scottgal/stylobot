@@ -29,12 +29,12 @@ public sealed class LeanEndpointsRenderedTests : IAsyncDisposable
 {
     private WebApplication? _app;
 
-    private async Task<WebApplication> BuildAppAsync(bool windowedEndpoints = false)
+    private async Task<WebApplication> BuildAppAsync(bool windowedEndpoints = false, bool supportsInternalEndpoints = true, bool emptyEndpoints = false)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
-        builder.Services.AddSingleton<IDashboardEventStore>(new SeededEndpointStore(windowedEndpoints));
+        builder.Services.AddSingleton<IDashboardEventStore>(new SeededEndpointStore(windowedEndpoints, supportsInternalEndpoints, emptyEndpoints));
         builder.Services.AddControllersWithViews().AddApplicationPart(typeof(StyloBotDashboardMiddleware).Assembly);
         builder.Services.AddStyloBotDashboard(options =>
         {
@@ -210,6 +210,56 @@ public sealed class LeanEndpointsRenderedTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Internal_request_on_a_host_without_internal_endpoint_data_says_external_only()
+    {
+        // PG after option A: the rollup no longer carries Internal, so an internal request
+        // returns external rows. The table must say so, not imply internal/retained.
+        var app = await BuildAppAsync(windowedEndpoints: true, supportsInternalEndpoints: false);
+        var client = app.GetTestClient();
+
+        var html = await client.GetStringAsync("/dashboard/partials/endpoints?internal=show&window=7d");
+
+        Assert.Contains("external only", html);
+        Assert.Contains("Internal self-probe is not available at endpoint level", html);
+        Assert.DoesNotContain("internal, retained window", html);
+        Assert.DoesNotContain("lifetime totals", html);
+    }
+
+    [Fact]
+    public async Task External_only_without_a_window_does_not_claim_a_range()
+    {
+        // No ?window= at all: the label must not say "in this range".
+        var app = await BuildAppAsync(windowedEndpoints: true, supportsInternalEndpoints: false);
+        var html = await app.GetTestClient().GetStringAsync("/dashboard/partials/endpoints?internal=show");
+
+        Assert.Contains("external traffic only", html);
+        Assert.Contains("Internal self-probe is not available at endpoint level", html);
+        Assert.DoesNotContain("in this range (external only)", html);
+    }
+
+    [Fact]
+    public async Task Empty_external_only_state_does_not_claim_a_range()
+    {
+        var app = await BuildAppAsync(windowedEndpoints: true, supportsInternalEndpoints: false, emptyEndpoints: true);
+        var html = await app.GetTestClient().GetStringAsync("/dashboard/partials/endpoints?internal=show");
+
+        Assert.Contains("No external endpoint traffic recorded.", html);
+        Assert.DoesNotContain("No endpoint traffic in this range.", html);
+    }
+
+    [Fact]
+    public async Task Full_view_shows_the_external_only_badge_for_an_unsupported_internal_read()
+    {
+        var app = await BuildAppAsync(windowedEndpoints: true, supportsInternalEndpoints: false);
+        var html = await app.GetTestClient()
+            .GetStringAsync("/dashboard/partials/endpoints?columns=full&internal=show&window=7d");
+
+        Assert.Contains("external only", html);
+        Assert.DoesNotContain("internal, retained window", html);
+        Assert.DoesNotContain("lifetime totals", html);
+    }
+
+    [Fact]
     public async Task Presentation_tokens_cannot_forge_the_scope_label()
     {
         // A lifetime-only store with no internal audience: the producer says Lifetime.
@@ -296,14 +346,16 @@ public sealed class LeanEndpointsRenderedTests : IAsyncDisposable
         _app = null;
     }
 
-    private sealed class SeededEndpointStore(bool windowedEndpoints) : IDashboardEventStore
+    private sealed class SeededEndpointStore(bool windowedEndpoints, bool supportsInternalEndpoints, bool emptyEndpoints) : IDashboardEventStore
     {
         public bool SupportsWindowedEndpointStats => windowedEndpoints;
+        public bool SupportsInternalEndpointStats => supportsInternalEndpoints;
 
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
             int count = 50, DateTime? startTime = null, DateTime? endTime = null,
             string? audienceFilter = null, IReadOnlyList<string>? domains = null)
         {
+            if (emptyEndpoints) return Task.FromResult(new List<DashboardEndpointStats>());
             var rows = new List<DashboardEndpointStats>
             {
                 new()

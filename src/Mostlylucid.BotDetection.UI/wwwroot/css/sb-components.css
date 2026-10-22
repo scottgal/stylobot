@@ -968,6 +968,16 @@
     font-variant-numeric: tabular-nums;
 }
 .sb-count-meta { font-size: 0.75rem; line-height: 1.35; opacity: 0.65; }
+/* The dashboard footer prints v<version>+<40-char SHA>. As an unbreakable token in a
+   flex row it widened the document (measured 412px at a 375 viewport; the same token
+   can widen any wider layout). It must wrap inside its own box; the rest of the
+   footer is unaffected. */
+.sb-footer-version {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
 @media (max-width: 720px) {
     .sb-traffic-summary { padding: 0.625rem 0.75rem; }
     .sb-count-row { gap: 0.5rem 0.75rem; flex-wrap: nowrap; }
@@ -1140,8 +1150,16 @@ details[open] > .sb-trend-summary::before { transform: rotate(90deg); }
         border-bottom: 1px solid var(--sb-card-border, var(--sb-ui-border));
     }
     .sb-ep-row td { border: 0; padding: 0; height: auto; text-align: left; }
-    .sb-ep-row td.sb-ep-ep { grid-column: 1 / -1; padding-right: 4.75rem; }
-    .sb-ep-row td:nth-child(5) { position: absolute; top: 0.75rem; right: 0.875rem; width: 4rem; }
+    .sb-ep-row td.sb-ep-ep { grid-column: 1 / -1; padding-right: 5.5rem; }
+    /* The share cell is absolutely positioned, so its CONTENT must fit its own box.
+       Old: 56px bar + 8px gap + 38px pct = 102px inside a 64px cell; flex-end made it
+       overflow LEFT over the endpoint label (measured bar x=245 vs path right 259 at
+       375). It was not the page-level scroll cause (that is the footer version SHA),
+       but the overlap is real. New: 40 + 4 + 28 = 72px inside 72px. */
+    .sb-ep-row td:nth-child(5) { position: absolute; top: 0.75rem; right: 0.875rem; width: 4.5rem; }
+    .sb-ep-share { gap: 0.25rem; }
+    .sb-ep-sharebar { width: 2.5rem; }
+    .sb-ep-pct { min-width: 1.75rem; font-size: 0.6875rem; }
     .sb-ep-row td:nth-child(2)::before { content: "Requests"; }
     .sb-ep-row td:nth-child(3)::before { content: "Human / unknown"; }
     .sb-ep-row td:nth-child(4)::before { content: "Bot"; }

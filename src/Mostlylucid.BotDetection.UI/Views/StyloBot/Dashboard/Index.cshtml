@@ -294,11 +294,12 @@
     </dialog>
 
     <!-- Footer with version -->
-    <footer class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between text-xs" style="color: var(--sb-brand-muted);">
+    <footer class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs" style="color: var(--sb-brand-muted);">
         <span>StyloBot &mdash; Zero-PII Bot Detection</span>
         @if (!string.IsNullOrEmpty(Model.Version))
         {
-            <span>v@(Model.Version)</span>
+            @* The version carries a 40-char SHA: it must wrap, not widen the page. *@
+            <span class="sb-footer-version">v@(Model.Version)</span>
         }
     </footer>
 
