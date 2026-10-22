@@ -168,6 +168,40 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Endpoint_beacon_scope_resolves_after_the_store_learns_windowed()
+    {
+        var client = await StartAppAsync();
+        _store!.ResetWindowedCapability();
+        Assert.False(_store.SupportsWindowedEndpointStats);
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h");
+
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = await update.Content.ReadAsStringAsync();
+        Assert.Contains("in this range", swapped);
+        Assert.DoesNotContain("lifetime totals", swapped);
+        Assert.True(_store.SupportsWindowedEndpointStats);
+    }
+
+    [Fact]
+    public async Task Endpoint_beacon_unknown_capability_stays_lifetime()
+    {
+        var client = await StartAppAsync();
+        _store!.ResetWindowedCapability();
+        _store.LearnWindowedCapabilityOnRead = false;
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h");
+
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = await update.Content.ReadAsStringAsync();
+        Assert.Contains("lifetime totals", swapped);
+    }
+
+    [Fact]
     public async Task Endpoint_beacon_lifetime_token_still_reads_the_store_not_the_composed_default()
     {
         var client = await StartAppAsync();
@@ -313,9 +347,15 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         public IReadOnlyList<string>? LastEndpointDomains { get; private set; }
         public int EndpointReadCount { get; private set; }
 
+        // Conservative until a read proves otherwise, like RemoteDashboardEventStore.
+        public bool SupportsWindowedEndpointStats { get; private set; }
+        public bool LearnWindowedCapabilityOnRead { get; set; } = true;
+        public void ResetWindowedCapability() => SupportsWindowedEndpointStats = false;
+
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
         {
             EndpointReadCount++;
+            if (LearnWindowedCapabilityOnRead) SupportsWindowedEndpointStats = true;
             LastEndpointStart = startTime;
             LastEndpointEnd = endTime;
             LastEndpointAudience = audienceFilter;

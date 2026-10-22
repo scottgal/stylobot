@@ -644,12 +644,6 @@ public sealed class SbWidgetBatchMiddleware
         var queryFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IQueryFeature>();
         try
         {
-        // Stamp producer truth for _Lean.cshtml. The direct Razor render has its own
-        // ViewData, so this request-scoped key is the only scope carrier it can see.
-        EndpointStatsScope.Set(
-            context, _eventStore.SupportsWindowedEndpointStats, _eventStore.SupportsInternalEndpointStats,
-            audienceFilter, startTime, endTime);
-
         // The view builds its own sort/search/detail links from the bare query. The
         // beacon query is prefixed, so mirror the resolved scope as bare params before
         // rendering; otherwise a row click or sort would drop window/domain/internal.
@@ -705,11 +699,15 @@ public sealed class SbWidgetBatchMiddleware
             || !string.IsNullOrWhiteSpace(windowToken)
             || domainFilter is { Count: > 0 }
             || !string.Equals(audienceFilter, "all", StringComparison.OrdinalIgnoreCase);
+        string? bundleScope = null;
         if (pageResult?.Endpoints is { } composedEndpoints && !storeRequired)
         {
             data = composedEndpoints.ToList();
-            if (!string.IsNullOrEmpty(pageResult.EndpointStatsScope))
-                context.Items[EndpointStatsScope.ItemsKey] = pageResult.EndpointStatsScope;
+            bundleScope = !string.IsNullOrEmpty(pageResult.EndpointStatsScope)
+                ? pageResult.EndpointStatsScope
+                : pageResult.EndpointStatsWindowed is bool composedWindowed
+                    ? (composedWindowed ? EndpointStatsScope.Windowed : EndpointStatsScope.Lifetime)
+                    : null;
         }
         else
         {
@@ -721,6 +719,18 @@ public sealed class SbWidgetBatchMiddleware
             data = await _eventStore.GetEndpointStatsAsync(
                 100, startTime, endTime, audienceFilter, domainFilter);
         }
+
+        // Resolve AFTER the read: a remote store learns its windowed/internal capability
+        // from the response it just fetched. Stamping before the read labelled a healthy
+        // 24h PG read as "lifetime totals". The composed path owns its declared scope
+        // (or its windowed flag); a plain store path uses the now-fresh capability.
+        var resolvedScope = !string.IsNullOrEmpty(bundleScope)
+            ? EndpointStatsScope.Normalize(bundleScope)
+            : EndpointStatsScope.Resolve(
+                _eventStore.SupportsWindowedEndpointStats, _eventStore.SupportsInternalEndpointStats,
+                audienceFilter, startTime, endTime);
+        context.Items[EndpointStatsScope.ItemsKey] = resolvedScope;
+
         var model = BuildEndpointsModel(sortField, sortDir, page, pageSize, data, audienceFilter);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
