@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Dashboard.Data.Queries;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
@@ -44,6 +45,7 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
 {
     private WebApplication? _app;
     private SeededEventStore? _store;
+    private string? _lastScopeAfter;
 
     private sealed class NeverTickingScheduleCoordinator : IScheduleCoordinator
     {
@@ -165,6 +167,37 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         Assert.DoesNotContain("lifetime totals", swapped);
     }
 
+    [Fact]
+    public async Task Endpoint_beacon_lifetime_token_still_reads_the_store_not_the_composed_default()
+    {
+        var client = await StartAppAsync();
+        var before = _store!.EndpointReadCount;
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=lifetime");
+
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        Assert.True(_store.EndpointReadCount > before,
+            "window=lifetime must not reuse the page's default composed slice");
+    }
+
+    [Fact]
+    public async Task Endpoint_beacon_restores_the_previous_widget_scope_after_render()
+    {
+        var client = await StartAppAsync();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h");
+        request.Headers.Add("X-Test-Prior-Scope", "prior-widget-scope");
+
+        var update = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        Assert.Equal("prior-widget-scope", _lastScopeAfter);
+    }
+
     /// <summary>
     ///     Boots the dashboard host both tests share: seeded store → real composer → warm
     ///     content cache (boot prewarm composes the pinned windows) → the widget batch
@@ -203,6 +236,17 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         builder.Services.AddStyloBotWidgets();
 
         _app = builder.Build();
+        // Test-only outer capture: seed a prior widget's scope and observe what the
+        // endpoints beacon leaves behind for the NEXT widget in the same batch.
+        _app.Use(async (context, next) =>
+        {
+            var prior = context.Request.Headers["X-Test-Prior-Scope"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(prior))
+                context.Items[EndpointStatsScope.ItemsKey] = prior;
+            await next();
+            if (!string.IsNullOrEmpty(prior))
+                _lastScopeAfter = context.Items[EndpointStatsScope.ItemsKey] as string;
+        });
         _app.UseMiddleware<SbWidgetBatchMiddleware>();
         _app.UseMiddleware<StyloBotDashboardMiddleware>();
         await _app.StartAsync();
@@ -267,9 +311,11 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         public DateTime? LastEndpointEnd { get; private set; }
         public string? LastEndpointAudience { get; private set; }
         public IReadOnlyList<string>? LastEndpointDomains { get; private set; }
+        public int EndpointReadCount { get; private set; }
 
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
         {
+            EndpointReadCount++;
             LastEndpointStart = startTime;
             LastEndpointEnd = endTime;
             LastEndpointAudience = audienceFilter;

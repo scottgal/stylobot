@@ -634,6 +634,16 @@ public sealed class SbWidgetBatchMiddleware
             scopedDomains is { Count: > 0 } ? scopedDomains
             : requestedDomains.Length > 0 ? requestedDomains : null;
 
+        // Capture BEFORE stamping: this batch renders several widgets from one
+        // HttpContext, so the endpoint scope must not leak into the next widget's view.
+        var originalQueryString = context.Request.QueryString;
+        var originalQuery = context.Request.Query;
+        var originalScope = context.Items.TryGetValue(EndpointStatsScope.ItemsKey, out var scopeBefore)
+            ? scopeBefore as string
+            : null;
+        var queryFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IQueryFeature>();
+        try
+        {
         // Stamp producer truth for _Lean.cshtml. The direct Razor render has its own
         // ViewData, so this request-scoped key is the only scope carrier it can see.
         EndpointStatsScope.Set(
@@ -647,20 +657,15 @@ public sealed class SbWidgetBatchMiddleware
         // already forced Request.Query to parse, and the view reads that same cached
         // collection. A QueryString-only rewrite would leave the view's scope links on the
         // old prefixed-only query.
-        // Restore below: this batch renders several widgets from one HttpContext, so a
-        // mirrored scope must not leak into the next widget's own query/scope view.
-        var originalQueryString = context.Request.QueryString;
-        var originalQuery = context.Request.Query;
-        var originalScope = context.Items.TryGetValue(EndpointStatsScope.ItemsKey, out var scopeBefore)
-            ? scopeBefore as string
-            : null;
-        var queryFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IQueryFeature>();
-        try
-        {
         var bareQuery = context.Request.Query
             .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(windowToken) && !bareQuery.ContainsKey("window"))
             bareQuery["window"] = windowToken;
+        // Full-columns OOB refresh: the view selects lean/full from the bare query,
+        // so mirror the producer's columns token or every beacon swap reverts to lean.
+        var columnsToken = q["columns"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(columnsToken) && !bareQuery.ContainsKey("columns"))
+            bareQuery["columns"] = columnsToken;
         if (startTime.HasValue && string.Equals(windowToken, "custom", StringComparison.OrdinalIgnoreCase))
         {
             if (!string.IsNullOrWhiteSpace(q["from"].FirstOrDefault()) && !bareQuery.ContainsKey("from"))
@@ -693,9 +698,11 @@ public sealed class SbWidgetBatchMiddleware
         // exact scope; otherwise a correct beacon param still renders the page's default
         // rows under a windowed label.
         var storeFilters = audienceFilter is "humans" or "bots" or "honeypot" or "all_incl_internal";
+        // Gate on the REQUESTED token, not only on successfully parsed start/end:
+        // window=lifetime and an unparseable window=custom both produce null times but
+        // still must not reuse the page's default composed slice.
         var storeRequired = storeFilters
-            || startTime.HasValue
-            || endTime.HasValue
+            || !string.IsNullOrWhiteSpace(windowToken)
             || domainFilter is { Count: > 0 }
             || !string.Equals(audienceFilter, "all", StringComparison.OrdinalIgnoreCase);
         if (pageResult?.Endpoints is { } composedEndpoints && !storeRequired)
