@@ -348,8 +348,11 @@
             || !string.IsNullOrEmpty(Model.PathFilter);
         var emptyText = filterActive
             ? "No endpoints match this filter in this window"
-            : "No endpoint analytics in this window";
-        <div class="text-xs text-base-content/40 py-8 text-center">@emptyText</div>
+            : "No endpoint breakdown recorded in this window";
+        <div class="text-xs text-base-content/40 py-8 text-center">
+            @emptyText
+            <div class="mt-1 text-[11px] opacity-70">Request totals can include traffic without a recorded endpoint breakdown.</div>
+        </div>
     }
     else
     {

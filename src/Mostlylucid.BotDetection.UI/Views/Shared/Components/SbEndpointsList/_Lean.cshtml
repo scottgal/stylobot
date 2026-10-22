@@ -214,11 +214,12 @@
         <div class="sb-ep-empty">
             @(internalUnavailable
                 ? (hasWindowScope
-                    ? "No external endpoint traffic in this range."
-                    : "No external endpoint traffic recorded.")
+                    ? "No endpoint breakdown recorded in this range (external traffic only)."
+                    : "No endpoint breakdown recorded (external traffic only).")
                 : filterActive
                     ? $"No endpoints match this filter {(lifetimeOnly ? "in the lifetime totals." : retainedWindow ? "in the internal retained window." : "in this range.")}"
-                    : $"No endpoint traffic {(lifetimeOnly ? "recorded." : "in this range.")}")
+                    : $"No endpoint breakdown {(lifetimeOnly ? "recorded." : "recorded in this range.")}")
+            <div class="mt-1 text-[11px] opacity-70">Request totals can include traffic without a recorded endpoint breakdown.</div>
         </div>
     }
     else

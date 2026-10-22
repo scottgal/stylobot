@@ -243,8 +243,9 @@ public sealed class LeanEndpointsRenderedTests : IAsyncDisposable
         var app = await BuildAppAsync(windowedEndpoints: true, supportsInternalEndpoints: false, emptyEndpoints: true);
         var html = await app.GetTestClient().GetStringAsync("/dashboard/partials/endpoints?internal=show");
 
-        Assert.Contains("No external endpoint traffic recorded.", html);
-        Assert.DoesNotContain("No endpoint traffic in this range.", html);
+        Assert.Contains("No endpoint breakdown recorded (external traffic only).", html);
+        Assert.Contains("external traffic only", html);
+        Assert.DoesNotContain("No endpoint breakdown recorded in this range", html);
     }
 
     [Fact]
