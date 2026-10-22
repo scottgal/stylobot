@@ -48,6 +48,10 @@
         }
     </div>
     <div class="sb-chartlet-canvas-wrap">
-        <canvas id="@Model.Id" data-chartlet='@Html.Raw(modelJson)'></canvas>
+        @* The canvas is the visual rendering of the legend above it; give it a text
+           alternative so a screen reader names the series rather than an unlabelled
+           canvas. The legend buttons stay the interactive control. *@
+        <canvas id="@Model.Id" data-chartlet='@Html.Raw(modelJson)'
+                role="img" aria-label="@Model.Axes.YLabel by series"></canvas>
     </div>
 </div>

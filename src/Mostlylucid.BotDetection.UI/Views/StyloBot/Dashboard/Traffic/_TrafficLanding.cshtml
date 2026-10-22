@@ -140,20 +140,23 @@
 
     @{
         var hitsChart = HitsPerPeriodChartletBuilder.BuildFromSeries(Model.Timeseries, Model.Filters.Window);
-        var chartLabel = $"Traffic trend — requests per period (last {Model.Filters.Window})";
+        // Headline graph, not a disclosure: the traffic shape is the first thing the
+        // operator should see after the compact totals. The partial renders the widget
+        // card itself (heading + meta + chartlet), so no extra card chrome here.
+        const string chartLabel = "Traffic over time";
+        // Scope-completeness note (option A): when a domain filter is active the
+        // unscoped live-minute folds are deliberately NOT overlaid, so the plotted
+        // series is stored/windowed history and the most recent minutes can lag. Say
+        // so, rather than letting the chart imply live freshness it does not have.
+        var completenessNote = Model.Filters.Domains.Count > 0
+            ? "stored history only while a domain filter is active"
+            : null;
     }
-    @* One quiet trend, collapsed by default: the table is the page. A native
-       <details> keeps this keyboard-operable with no script and no extra CSP surface. *@
-    <details class="sb-trend">
-        <summary class="sb-trend-summary">
-            <span class="sb-trend-title">Traffic trend</span>
-            <span class="sb-trend-sub">requests per @Model.Filters.Window bucket</span>
-        </summary>
-        <div class="sb-trend-body">
-            @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_HitsPerPeriodChart.cshtml",
-                new HitsPerPeriodChartModel(hitsChart, chartLabel, Model.Filters.Window, Model.IsWarming))
-        </div>
-    </details>
+    @* Always visible, between the compact totals and the endpoint table. The live
+       owner is the landing swap (sb:summary-update re-fetches #sb-traffic-body), which
+       re-renders this same partial; the per-widget time-chart OOB branch is prewarm only. *@
+    @await Html.PartialAsync("/Views/StyloBot/Dashboard/Traffic/_HitsPerPeriodChart.cshtml",
+        new HitsPerPeriodChartModel(hitsChart, chartLabel, Model.Filters.Window, Model.IsWarming, completenessNote))
 
     @* The endpoint table is the page. No fixed-height tier and no inner scroll:
        the page scrolls, so a row can never be clipped mid-number. *@

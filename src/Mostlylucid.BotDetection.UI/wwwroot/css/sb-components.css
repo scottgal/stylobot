@@ -968,6 +968,11 @@
     font-variant-numeric: tabular-nums;
 }
 .sb-count-meta { font-size: 0.75rem; line-height: 1.35; opacity: 0.65; }
+
+/* Traffic hero chart: the interval/UTC line above the plot, and the honest,
+   traffic-specific empty sentence when every bucket in the range is zero. */
+.sb-chart-meta { margin: 0 0 0.25rem; font-size: 0.72rem; line-height: 1.3; opacity: 0.65; }
+.sb-chart-empty { margin: 0 0 0.5rem; font-size: 0.8rem; line-height: 1.35; opacity: 0.72; }
 /* The dashboard footer prints v<version>+<40-char SHA>. As an unbreakable token in a
    flex row it widened the document (measured 412px at a 375 viewport; the same token
    can widen any wider layout). It must wrap inside its own box; the rest of the
@@ -1061,9 +1066,11 @@
    bot traffic is not an error, and the complement is not a verified safe
    classification. */
 .sb-audience-notbot { color: #1d4ed8; }
-.sb-audience-bot { color: #b45309; }
+/* Bot is teal (operator 2026-10-22) so the counters and the traffic chart share one
+   audience palette: teal = Bot, blue = Human / unknown. */
+.sb-audience-bot { color: #0d9488; }
 [data-theme="dark"] .sb-audience-notbot { color: #93c5fd; }
-[data-theme="dark"] .sb-audience-bot { color: #fbbf24; }
+[data-theme="dark"] .sb-audience-bot { color: #2dd4bf; }
 .sb-ep-share { display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-end; width: 100%; }
 .sb-ep-sharebar {
     width: 3.5rem; height: 0.3rem; border-radius: 999px; flex: none; overflow: hidden;

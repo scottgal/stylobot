@@ -27,12 +27,49 @@
     return model.kind === 'HorizontalBar' && model.series.length === 1;
   }
 
+  // Chart.js wants an rgba() fill for a translucent area; the theme tokens are hex
+  // (and may be overridden per host with rgb()). Hex/rgb are converted; anything
+  // else falls back to the solid colour rather than rendering an invisible fill.
+  function withAlpha(color, alpha) {
+    var c = (color || '').trim();
+    if (c.charAt(0) === '#') {
+      var h = c.slice(1);
+      if (h.length === 3) h = h.split('').map(function (ch) { return ch + ch; }).join('');
+      if (h.length === 6) {
+        var r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+        return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+      }
+    }
+    if (c.indexOf('rgb(') === 0) return c.replace('rgb(', 'rgba(').replace(')', ',' + alpha + ')');
+    return c;
+  }
+
   function buildDatasets(model) {
     var categorical = isCategorical(model);
+    var area = model.kind === 'Area';
     return model.series.map(function (s) {
       var bg = categorical
         ? s.buckets.map(function (_, i) { return categoricalColor(i); })
         : colorFor(s.colorToken);
+      if (area) {
+        // Overlapping areas: each series fills to the shared zero baseline with a
+        // light translucent wash and a crisp 2px line. No `stack` key -- stacking is
+        // what the traffic chart must NOT do (the two audiences are independent).
+        return {
+          label: s.label,
+          data: s.buckets,
+          backgroundColor: withAlpha(bg, 0.20),
+          borderColor: bg,
+          borderWidth: 2,
+          tension: 0.35,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          pointHoverBorderWidth: 0,
+          fill: 'origin',
+          hidden: !!s.hidden,
+          _seriesKey: s.key
+        };
+      }
       return {
         label: s.label,
         data: s.buckets,
@@ -66,22 +103,37 @@
       case 'HorizontalBar': return 'bar';
       case 'Donut': return 'doughnut';
       case 'Line': return 'line';
+      case 'Area': return 'line';
       default: return 'bar';
     }
   }
 
   function buildOptions(model, onBarClick) {
     const stacked = model.kind === 'StackedBar' || model.kind === 'StackedArea';
+    const area = model.kind === 'Area';
     const isLog = model.axes && model.axes.yScale === 'logarithmic';
+    // An all-zero Area chart is a real, honest state (no traffic in the period), not
+    // an error: keep the zero baseline visible, force whole-number ticks and give the
+    // axis a 0..1 headroom so the plot doesn't render as an unreadable 0..0.5 axis.
+    const allZero = area && model.series.every(function (s) {
+      return s.buckets.every(function (v) { return !v; });
+    });
     const yScale = {
       stacked: stacked,
-      title: { display: !!model.axes.yLabel, text: model.axes.yLabel },
+      // Restrained chrome for the area chart: no rotated axis titles (the card meta
+      // line names the interval/unit), and integer-only ticks because requests are
+      // whole numbers.
+      title: { display: area ? false : !!model.axes.yLabel, text: model.axes.yLabel },
       grid: {
         display: !!model.axes.gridLines,
         color: 'rgba(127,127,127,0.15)'
       },
-      ticks: { callback: function (v) { return formatY(v, model.axes.yFormat); } }
+      ticks: {
+        precision: area ? 0 : undefined,
+        callback: function (v) { return formatY(v, model.axes.yFormat); }
+      }
     };
+    if (allZero) yScale.suggestedMax = 1;
     if (isLog) {
       // Chart.js v4 logarithmic axis rejects 0 (log(0) = -Infinity). Force the
       // floor to 1 so empty buckets still render at the baseline instead of
@@ -114,7 +166,9 @@
       scales: {
         x: {
           stacked: stacked,
-          title: { display: !!model.axes.xLabel, text: model.axes.xLabel },
+          // Area: the bucket axis is self-evident from the labels + the card meta
+          // line, so the rotated "time" title is dropped (restrained axes).
+          title: { display: area ? false : !!model.axes.xLabel, text: model.axes.xLabel },
           // No rotation so the time axis is always horizontally legible.
           ticks: { maxRotation: 0, autoSkip: true, autoSkipPadding: 12 },
           grid: { display: false }

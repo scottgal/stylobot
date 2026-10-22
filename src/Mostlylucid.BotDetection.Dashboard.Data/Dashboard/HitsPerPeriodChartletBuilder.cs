@@ -232,7 +232,15 @@ public static class HitsPerPeriodChartletBuilder
         {
             var idx = (int)((p.Timestamp.Ticks - alignedStartTicks) / bucketTicks);
             if (idx < 0 || idx >= bucketCount) continue;
-            human[idx] += p.HumanCount;
+            // Human / unknown is the exact remainder of the time-series row, not a
+            // confidence-gated "human" verdict: TotalCount = Bot + Human at this layer
+            // (PG fused rows use hit_count - bot_count; raw rows use bot_probability
+            // < botFloor). Computing it as max(0, Total - Bot) keeps the chart's two
+            // bands adding up to the real request total even if a producer ever emits
+            // a Total that disagrees with HumanCount. Do not use the summary's
+            // HumanRequests here (that one is confidence-gated and is a different
+            // population).
+            human[idx] += Math.Max(0, p.TotalCount - p.BotCount);
             bot[idx] += p.BotCount;
         }
         return new TrafficTimeseries(buckets, human, susp, bot);
@@ -291,25 +299,27 @@ public static class HitsPerPeriodChartletBuilder
 
         var series = new List<ChartletSeries>
         {
-            new("Human", "Human", "--sb-color-risk-verified", humanBuckets),
-            new("Bot", "Bot", "--sb-color-risk-veryhigh", botBuckets),
+            // "Human / unknown" is the page's own contract (see _TrafficCounters /
+            // the lean endpoint table): the remainder after bots, INCLUDING requests
+            // with no bot verdict -- never a confirmed-human claim. Suspicious is not
+            // added: at this layer it is always zero and summing it would re-introduce
+            // a third population.
+            new("Human", "Human / unknown", "--sb-chart-human", humanBuckets),
+            new("Bot", "Bot", "--sb-chart-bot", botBuckets),
         };
 
         return new ChartletViewModel(
             Id: "hits-per-period",
-            Kind: ChartletKind.StackedBar,
+            // Overlapping translucent areas, NOT stacked: the two audiences are
+            // independent series against the shared zero baseline, so their heights
+            // never sum and a bot-heavy window cannot hide the human band.
+            Kind: ChartletKind.Area,
             BucketLabels: labels,
             Series: series,
-            // Linear Y axis: the earlier logarithmic scale (meant to keep a
-            // bot-heavy column from squashing the human slice) instead made
-            // ordinary sparse traffic look like disconnected, erratic skinny
-            // spikes -- log-scale visually exaggerates small bar-to-bar swings
-            // near the axis floor. A stacked bar with a normal linear axis
-            // reads as an honest, readable shape; a genuinely lopsided window
-            // is better served by the bar's own two-colour split than by
-            // distorting the axis.
+            // Restrained linear axis with a zero baseline. Log scale was tried and
+            // rejected: it exaggerated small bar-to-bar swings into erratic spikes.
             Axes: new ChartletAxes(
-                YLabel: "hits", YFormat: "number", XLabel: "time",
+                YLabel: "requests", YFormat: "number", XLabel: "time",
                 GridLines: true, YScale: "linear"),
             Drill: null);
     }

@@ -19,8 +19,24 @@ namespace Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
 /// <param name="IsWarming">True on a cold envelope (no composed TimeBuckets yet) — the
 ///     widget renders the honest "generating" state, and the beacon replaces it once the
 ///     bundle warms.</param>
+/// <param name="CompletenessNote">
+///     Optional restrained note about how complete the plotted history is for the
+///     active scope (e.g. "stored history only while a domain filter is active").
+///     Null renders nothing; the chart never implies live freshness it does not have.
+/// </param>
 public sealed record HitsPerPeriodChartModel(
     ChartletViewModel Chart,
     string Label,
     string Window,
-    bool IsWarming);
+    bool IsWarming,
+    string? CompletenessNote = null)
+{
+    /// <summary>
+    ///     Honest, traffic-specific empty sentence. Deliberately NOT the endpoint
+    ///     table's "no endpoint breakdown" wording: this chart plots the traffic time
+    ///     series (summary buckets), and its emptiness means no traffic history was
+    ///     recorded for the range — not that the endpoint rollup is partial. The card,
+    ///     axes and legend stay visible around it (zero axis, no fabricated series).
+    /// </summary>
+    public const string NoTrafficText = "No recorded traffic history in this range yet.";
+}

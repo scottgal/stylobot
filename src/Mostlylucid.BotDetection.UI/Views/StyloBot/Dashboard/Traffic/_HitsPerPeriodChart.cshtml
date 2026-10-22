@@ -1,11 +1,18 @@
+@using Mostlylucid.BotDetection.UI.Dashboard
 @using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic
 @model HitsPerPeriodChartModel
 @*
     The hits-per-period chart widget — the page's headline graph.
 
     ONE markup, TWO renderers: _Body.cshtml (SSR first paint) and
-    SbWidgetBatchMiddleware.RenderTimeChartAsync (beacon OOB re-render) both come
+    SbWidgetBatchMiddleware.RenderTimeChartAsync (prewarm/OOB re-render) both come
     through here, so the swapped-in markup is identical to the markup it replaces.
+
+    On the WEBSITE the live path is the landing swap: sb:summary-update /
+    sb:signature-update re-fetch #sb-traffic-body, which re-renders _TrafficLanding
+    and therefore this partial (Alpine x-init rebuilds the Chart.js instance). The
+    per-widget time-chart OOB branch is prewarm/batch only — do not treat it as a
+    second owner.
 
     Beacon contract: data-sb-widget="time-chart" is the identity the bridge
     enumerates ([data-sb-widget]) and the OOB swap targets; data-sb-depends="summary"
@@ -19,11 +26,33 @@
     that period" (operator). A cold envelope renders the honest "generating" state via
     warming-when; the beacon replaces it once the bundle warms.
 *@
+@{
+    // Bucket width comes from the SAME helper the builder/controller use, so the
+    // caption can never drift from the plotted grain (24h is 20 min, not "a 24h
+    // bucket"; custom ranges resolve through the helper's own default). The range
+    // stays separate context ("last 24h"), and the axis is labelled UTC because the
+    // buckets are floored on UTC boundaries.
+    var bucketSpan = HitsPerPeriodChartletBuilder.BucketSizeForWindow(Model.Window);
+    var bucketText = bucketSpan.TotalMinutes < 60
+        ? $"{bucketSpan.TotalMinutes:0} min"
+        : $"{bucketSpan.TotalHours:0.#} h";
+    var rangeText = string.Equals(Model.Window, "custom", StringComparison.OrdinalIgnoreCase)
+        ? null
+        : $"last {Model.Window}";
+    var noTraffic = !Model.IsWarming && Model.Chart.Series.All(s => s.Buckets.All(v => v == 0));
+}
 <sb-widget width="full" height="half" heading="@Model.Label"
            widget-id="time-chart"
            depends="summary"
            data-sb-params="window=@Uri.EscapeDataString(Model.Window)"
            warming-when="@Model.IsWarming"
            warming-text="@($"Generating {Model.Window}…")">
+    <p class="sb-chart-meta">
+        @bucketText buckets · UTC@(rangeText is null ? "" : " · " + rangeText) · latest bucket may be partial@(string.IsNullOrEmpty(Model.CompletenessNote) ? "" : " · " + Model.CompletenessNote)
+    </p>
+    @if (noTraffic)
+    {
+        <p class="sb-chart-empty">@HitsPerPeriodChartModel.NoTrafficText</p>
+    }
     <vc:sb-chartlet model="Model.Chart" />
 </sb-widget>

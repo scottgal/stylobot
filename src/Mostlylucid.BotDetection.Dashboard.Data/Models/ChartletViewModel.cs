@@ -12,7 +12,17 @@ public enum ChartletKind
     StackedArea,
     HorizontalBar,
     Donut,
-    Line
+    Line,
+
+    /// <summary>
+    ///     Overlapping translucent area/line series (NOT stacked): each series is
+    ///     drawn against the shared zero baseline with its own fill, so two audiences
+    ///     can be compared over time without their heights summing. Added for the
+    ///     traffic hero chart (Bot vs Human / unknown). Append-only: existing kinds
+    ///     keep their behaviour, and the ordinal is never persisted (the JSON
+    ///     converter serialises kind names).
+    /// </summary>
+    Area
 }
 
 /// <summary>

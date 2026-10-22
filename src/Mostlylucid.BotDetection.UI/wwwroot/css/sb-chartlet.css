@@ -10,6 +10,11 @@
    theme hues so adjacent bars never share a colour. Resolved per-bar by
    sb-chartlet.js (--sb-chart-cat-N). Override per tier/brand as needed. */
 :root {
+    /* Traffic audience palette. Deliberately NOT the risk semantics: the traffic
+       chart compares two audiences over time, so it uses the same two colours as
+       the request counters — teal for Bot, blue for Human / unknown. */
+    --sb-chart-bot: #0d9488;   /* teal-600 */
+    --sb-chart-human: #1d4ed8; /* blue-700 — matches .sb-audience-notbot */
     --sb-chart-cat-1: #f2c744; /* amber (brand) */
     --sb-chart-cat-2: #38bdf8; /* sky */
     --sb-chart-cat-3: #a78bfa; /* violet */
@@ -79,4 +84,24 @@
 .sb-chartlet-canvas-wrap canvas {
     width: 100% !important;
     height: 100% !important;
+}
+
+/* Dark-theme audience palette — brighter teal/blue so the lines keep contrast
+   against the dark surface (same relationship as .sb-audience-* counters). */
+[data-theme="dark"] {
+    --sb-chart-bot: #2dd4bf;
+    --sb-chart-human: #93c5fd;
+}
+
+/* Traffic hero chart: the plot dominates the first view without burying the
+   endpoint table. Fluid width; the tier height lives here so the shared
+   chartlet default (280px) stays untouched for every other chart. */
+.sb-widget[data-sb-widget="time-chart"] .sb-chartlet-canvas-wrap {
+    height: 300px;
+}
+
+@media (max-width: 640px) {
+    .sb-widget[data-sb-widget="time-chart"] .sb-chartlet-canvas-wrap {
+        height: 220px;
+    }
 }

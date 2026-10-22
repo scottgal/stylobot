@@ -1,5 +1,6 @@
 using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic;
 
 namespace Mostlylucid.BotDetection.Test.Dashboard;
 
@@ -136,5 +137,72 @@ public sealed class HitsPerPeriodChartletBuilderTests
         Assert.Equal("--sb-color-risk-verified",  model.Series.Single(s => s.Key == "Human").ColorToken);
         Assert.Equal("--sb-color-risk-elevated",  model.Series.Single(s => s.Key == "Suspicious").ColorToken);
         Assert.Equal("--sb-color-risk-veryhigh",  model.Series.Single(s => s.Key == "Scraper").ColorToken);
+    }
+
+    // ---------------------------------------------------------------- hero chart
+
+    private static TrafficTimeseries Series(params (int Bot, int Human, int Total)[] rows)
+    {
+        var start = new DateTime(2026, 10, 22, 10, 0, 0, DateTimeKind.Utc);
+        return new TrafficTimeseries(
+            rows.Select((_, i) => start.AddMinutes(20 * i)).ToArray(),
+            rows.Select(r => r.Human).ToArray(),
+            rows.Select(_ => 0).ToArray(),
+            rows.Select(r => r.Bot).ToArray());
+    }
+
+    [Fact]
+    public void BuildFromSeries_emits_overlapping_area_with_two_audience_series()
+    {
+        var model = HitsPerPeriodChartletBuilder.BuildFromSeries(
+            Series((Bot: 7, Human: 2, Total: 9), (Bot: 5, Human: 3, Total: 8)), "24h");
+
+        Assert.Equal(ChartletKind.Area, model.Kind);
+        Assert.Equal(new[] { "Human", "Bot" }, model.Series.Select(s => s.Key));
+        Assert.Equal("Human / unknown", model.Series.Single(s => s.Key == "Human").Label);
+        Assert.Equal("Bot", model.Series.Single(s => s.Key == "Bot").Label);
+        Assert.Equal("--sb-chart-human", model.Series.Single(s => s.Key == "Human").ColorToken);
+        Assert.Equal("--sb-chart-bot", model.Series.Single(s => s.Key == "Bot").ColorToken);
+        // Two series only: no Suspicious band is added at this layer.
+        Assert.Equal(2, model.Series.Count);
+    }
+
+    [Fact]
+    public void BuildSeries_folds_human_as_total_minus_bot_not_the_reported_human_count()
+    {
+        // A producer that reports a stale/confidence-gated HumanCount must not make
+        // the chart's two bands disagree with the request total: Human = max(0, Total-Bot).
+        var start = new DateTime(2026, 10, 22, 10, 0, 0, DateTimeKind.Utc);
+        var points = new[]
+        {
+            new DashboardTimeSeriesPoint
+            {
+                Timestamp = start, BotCount = 6, HumanCount = 100, TotalCount = 10
+            }
+        };
+
+        var ts = HitsPerPeriodChartletBuilder.BuildSeries(
+            points, start, start.AddMinutes(20), TimeSpan.FromMinutes(20));
+
+        Assert.Equal(4, ts.Human.Sum());
+        Assert.Equal(6, ts.Bot.Sum());
+        Assert.Equal(10, ts.Human.Sum() + ts.Bot.Sum());
+    }
+
+    [Fact]
+    public void Empty_range_renders_zero_series_and_traffic_specific_copy()
+    {
+        var start = new DateTime(2026, 10, 22, 10, 0, 0, DateTimeKind.Utc);
+        var ts = HitsPerPeriodChartletBuilder.BuildSeries(
+            Array.Empty<DashboardTimeSeriesPoint>(), start, start.AddMinutes(40), TimeSpan.FromMinutes(20));
+        var model = HitsPerPeriodChartletBuilder.BuildFromSeries(ts, "24h");
+
+        Assert.Equal(2, model.BucketLabels.Count);
+        Assert.All(model.Series, s => Assert.All(s.Buckets, v => Assert.Equal(0, v)));
+
+        // The chart's empty sentence is about traffic, never the endpoint breakdown.
+        var text = Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.HitsPerPeriodChartModel.NoTrafficText;
+        Assert.Equal("No recorded traffic history in this range yet.", text);
+        Assert.DoesNotContain("endpoint", text, StringComparison.OrdinalIgnoreCase);
     }
 }
