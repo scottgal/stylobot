@@ -63,6 +63,44 @@ public class DashboardBatchDefaultsTests
         Assert.Null(bundleOnlyBuckets.LiveEndpointStats);
     }
 
+    /// <summary>
+    ///     A selected-domain compose must not dispatch the domain-unscoped live
+    ///     time-series fold: the live minute state has no domain dimension, so its
+    ///     recent counts would mix other domains into the scoped page. The stored
+    ///     (domain-filtered) TimeBuckets read remains the source. Unscoped requests
+    ///     still dispatch the overlay unchanged.
+    /// </summary>
+    [Fact]
+    public async Task FanOut_skips_LiveTimeBuckets_when_domains_are_selected()
+    {
+        var start = new DateTime(2026, 08, 22, 0, 0, 0, DateTimeKind.Utc);
+
+        var scopedFake = new FakeStore();
+        IDashboardEventStore scoped = scopedFake;
+        var scopedBundle = await scoped.ComposeBatchAsync(
+            new DashboardBatchRequest(
+                StartTime: start,
+                EndTime: start.AddHours(1),
+                Datasets: [new DatasetRequest(DatasetKind.LiveTimeBuckets)],
+                Domains: ["selected.example"]),
+            default);
+
+        Assert.Equal(0, scopedFake.LiveTimeBucketsCallCount);
+        Assert.Null(scopedBundle.LiveTimeBuckets);
+
+        var unscopedFake = new FakeStore();
+        IDashboardEventStore unscoped = unscopedFake;
+        var unscopedBundle = await unscoped.ComposeBatchAsync(
+            new DashboardBatchRequest(
+                StartTime: start,
+                EndTime: start.AddHours(1),
+                Datasets: [new DatasetRequest(DatasetKind.LiveTimeBuckets)]),
+            default);
+
+        Assert.Equal(1, unscopedFake.LiveTimeBucketsCallCount);
+        Assert.NotNull(unscopedBundle.LiveTimeBuckets);
+    }
+
     [Fact]
     public async Task TimeBuckets_throws_when_no_time_window()
     {

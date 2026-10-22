@@ -68,6 +68,13 @@ public static class DashboardEventStoreBatchDefaults
                         throw new ArgumentException(
                             "ComposeBatchAsync: a LiveTimeBuckets dataset requires both StartTime and EndTime (a time-series needs a window).",
                             nameof(req));
+                    // A selected-domain read must not add the live fold. The live
+                    // minute series has no domain dimension (it sums every resident
+                    // signature), while the base TimeBuckets read is domain-scoped;
+                    // adding it would contaminate the scoped series with other
+                    // domains' recent traffic. Leave the overlay null so the page
+                    // renders the honest stored/windowed data.
+                    if (req.Domains is { Count: > 0 }) break;
                     liveBucketsTask = store.GetLiveTimeSeriesAsync(req.StartTime.Value, req.EndTime.Value, TimeSpan.FromMinutes(d.BucketMinutes), req.AudienceFilter);
                     break;
                 case DatasetKind.LiveEndpointStats:
