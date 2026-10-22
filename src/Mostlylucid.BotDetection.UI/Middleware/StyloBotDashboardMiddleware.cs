@@ -5114,6 +5114,19 @@ public class StyloBotDashboardMiddleware
         var statusFilter = (context.Request.Query["status"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
         var pathFilter = (context.Request.Query["path"].FirstOrDefault() ?? string.Empty).Trim();
         var audienceFilter = (context.Request.Query["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        // The page-level internal toggle is a request input, not an audience param:
+        // ?internal=show must map to the same all_incl_internal slice the VC reads,
+        // otherwise sort/page/detail swaps silently fall back to the default rows.
+        if (audienceFilter is "all" or "" &&
+            string.Equals(context.Request.Query["internal"].ToString(), "show", StringComparison.OrdinalIgnoreCase))
+            audienceFilter = "all_incl_internal";
+        // The table's own sort/page/search links carry the real page window/range
+        // (?window=7d or ?window=custom&from=…&to=…); resolve the exact same
+        // start/end the component uses so a windowed audience slice is queried and
+        // labelled from one source, not just a presentation token.
+        var rangeToken = context.Request.Query["window"].FirstOrDefault()
+            ?? context.Request.Query["range"].FirstOrDefault();
+        var (startTime, endTime) = DashboardRangeScope.Resolve(context, rangeToken);
         // Si2 (endpoint-IA unification): method + mode round-trip through the
         // interactive hx-get chip/sort links too, not just the VC's own
         // initial-render parameters -- see SbEndpointsListViewComponent for the
@@ -5128,9 +5141,17 @@ public class StyloBotDashboardMiddleware
         // route through the store: the cached snapshot never contains Internal rows, so it
         // can't satisfy an "include Internal" request. honeypot is path-shape and works on
         // any snapshot, so we keep the cached path for it.
-        List<DashboardEndpointStats> endpoints = audienceFilter is "humans" or "bots" or "all_incl_internal"
-            ? await _eventStore.GetEndpointStatsAsync(500, audienceFilter: audienceFilter)
+        var storeAudience = audienceFilter is "humans" or "bots" or "all_incl_internal";
+        List<DashboardEndpointStats> endpoints = storeAudience
+            ? await _eventStore.GetEndpointStatsAsync(500, startTime, endTime, audienceFilter)
             : await GetEndpointsDataAsync(context);
+
+        // Stamp the scope of the read that actually produced these rows. The audience
+        // store branch honours the resolved window; the cached snapshot fallback is
+        // window-agnostic, so it must not claim a range it did not apply.
+        Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.Set(
+            context, _eventStore.SupportsWindowedEndpointStats, audienceFilter,
+            storeAudience ? startTime : null, storeAudience ? endTime : null);
 
         if (excludeStatic)
             endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();

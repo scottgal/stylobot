@@ -83,4 +83,7 @@ public sealed record DashboardDatasetBundle(
     // Endpoint-window capability of the store that composed this bundle. Null when the
     // backend did not report one. The remote viewer learns it from the SAME compose
     // response (no extra request) and must treat null conservatively.
-    bool? EndpointStatsWindowed = null);
+    bool? EndpointStatsWindowed = null,
+    // Truthfulness scope of the endpoint slice: lifetime | windowed | retained-window.
+    // Carried with the data so the first-paint badge cannot disagree with the rows.
+    string? EndpointStatsScope = null);

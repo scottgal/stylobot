@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Dashboard.Data.Queries;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -101,6 +102,8 @@ public static class DashboardEventStoreBatchDefaults
             degradationsTask is null ? null : degradationsTask.Result,
             liveBucketsTask is null ? null : liveBucketsTask.Result,
             liveEndpointsTask is null ? null : liveEndpointsTask.Result,
-            EndpointStatsWindowed: store.SupportsWindowedEndpointStats);
+            EndpointStatsWindowed: store.SupportsWindowedEndpointStats,
+            EndpointStatsScope: EndpointStatsScope.Resolve(
+                store.SupportsWindowedEndpointStats, req.AudienceFilter, req.StartTime, req.EndTime));
     }
 }
