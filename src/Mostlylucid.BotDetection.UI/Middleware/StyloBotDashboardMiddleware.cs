@@ -6230,8 +6230,12 @@ public class StyloBotDashboardMiddleware
     {
         var q = ExtractWidgetParams(context, widgetId);
         var cacheKey = ComputeWidgetCacheKey(widgetId, q);
+        // Endpoint OOB scope includes cookie/DI domains that are not in q, and all
+        // scope fields are already method arguments. Do not risk serving another
+        // operator's domain-selected HTML from the 2s widget cache.
+        var cacheable = !string.Equals(widgetId, "endpoints", StringComparison.OrdinalIgnoreCase);
 
-        if (_widgetCache.TryGetValue(cacheKey, out string? cached) && cached != null)
+        if (cacheable && _widgetCache.TryGetValue(cacheKey, out string? cached) && cached != null)
             return cached;
 
         try
@@ -6259,7 +6263,7 @@ public class StyloBotDashboardMiddleware
             if (!string.IsNullOrEmpty(html))
                 html = InjectOobAttribute(html);
 
-            if (!string.IsNullOrEmpty(html))
+            if (cacheable && !string.IsNullOrEmpty(html))
                 _widgetCache.Set(cacheKey, html, WidgetCacheTtl);
 
             return html ?? "";
@@ -6356,9 +6360,166 @@ public class StyloBotDashboardMiddleware
         var sortField = q["sort"].FirstOrDefault() ?? "total";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
-        var data = await GetEndpointsDataAsync(context);
-        var model = BuildEndpointsModel(context, sortField, sortDir, page, 20, data);
-        return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
+        var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 20;
+
+        // The beacon's params are prefixed (endpoints.window, endpoints.domain, ...).
+        // This is the path the website's /dashboard/partials/update actually takes: it
+        // must read and label the SAME scope as the page, not the aggregate cache's
+        // unscoped lifetime snapshot.
+        var windowToken = q["window"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(windowToken))
+            windowToken = context.Request.Query["window"].FirstOrDefault();
+        DateTime? startTime = null;
+        DateTime? endTime = null;
+        if (string.Equals(windowToken, "custom", StringComparison.OrdinalIgnoreCase))
+        {
+            (startTime, endTime) = AnalyticsRangeParser.ParseCustom(
+                q["from"].FirstOrDefault() ?? context.Request.Query["from"].FirstOrDefault(),
+                q["to"].FirstOrDefault() ?? context.Request.Query["to"].FirstOrDefault());
+        }
+        else if (!string.IsNullOrWhiteSpace(windowToken))
+        {
+            (startTime, endTime) = AnalyticsRangeParser.Parse(windowToken);
+        }
+
+        var internalShow = string.Equals(q["internal"].FirstOrDefault(), "show", StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(context.Request.Query["internal"].FirstOrDefault(), "show", StringComparison.OrdinalIgnoreCase);
+        var audienceValue = q["audience"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(audienceValue))
+            audienceValue = context.Request.Query["audience"].FirstOrDefault();
+        var audienceFilter = internalShow
+            ? "all_incl_internal"
+            : (audienceValue ?? "all").Trim().ToLowerInvariant();
+        // Parse both prefixed and bare forms: once ExtractWidgetParams sees any
+        // endpoints.* key it returns only the prefixed set, so a caller that supplies
+        // a bare domain/audience must still be scoped.
+        var requestedDomains = q["domain"].Concat(context.Request.Query["domain"])
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var scopedDomains = context.RequestServices
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
+        IReadOnlyList<string>? domainFilter =
+            scopedDomains is { Count: > 0 } ? scopedDomains
+            : requestedDomains.Length > 0 ? requestedDomains : null;
+
+        // Capture before mutating: one request may render several widgets, and the next
+        // widget must not inherit this endpoint view's mirror/scope fields.
+        var originalQueryString = context.Request.QueryString;
+        var originalQuery = context.Request.Query;
+        var originalScope = context.Items.TryGetValue(
+            Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.ItemsKey, out var scopeBefore)
+            ? scopeBefore as string
+            : null;
+        var queryFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IQueryFeature>();
+        try
+        {
+            var storeScoped = !string.IsNullOrWhiteSpace(windowToken)
+                              || domainFilter is { Count: > 0 }
+                              || !string.Equals(audienceFilter, "all", StringComparison.OrdinalIgnoreCase)
+                              || internalShow;
+            List<DashboardEndpointStats> data;
+            if (storeScoped)
+            {
+                data = await _eventStore.GetEndpointStatsAsync(
+                    500, startTime, endTime, audienceFilter, domainFilter);
+
+                // A scoped store read bypasses the aggregate path's pin merge. Preserve
+                // pinned-only rows (pins are operator intent, not traffic aggregates).
+                // Skip the extra aggregate read entirely when the host has no pin store.
+                if (context.RequestServices.GetService<IPinnedEndpointStore>() is not null)
+                {
+                    var cacheRows = await GetEndpointsDataAsync(context);
+                    var seen = data.Select(e => (e.Method.ToUpperInvariant(), e.Path)).ToHashSet();
+                    var pinnedOnly = cacheRows
+                        .Where(e => e.IsPinned && !seen.Contains((e.Method.ToUpperInvariant(), e.Path)))
+                        .ToList();
+                    if (pinnedOnly.Count > 0)
+                        data = [.. pinnedOnly, .. data];
+                }
+            }
+            else
+            {
+                data = await GetEndpointsDataAsync(context);
+            }
+
+            // Resolve AFTER the read. The cache/aggregate path carries lifetime rows;
+            // a store read without a resolved start/end also has no range to claim.
+            // Only a real windowed store read with bounds may say "in this range".
+            var internalRequested = string.Equals(
+                audienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(audienceFilter, "internal", StringComparison.OrdinalIgnoreCase);
+            var resolvedScope =
+                internalRequested
+                    // Internal has its own capability gate and must say external-only
+                    // even when no window resolved; do not let the no-bounds Lifetime
+                    // fallback erase InternalUnavailable.
+                    ? Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.Resolve(
+                        _eventStore.SupportsWindowedEndpointStats,
+                        _eventStore.SupportsInternalEndpointStats,
+                        audienceFilter, startTime, endTime)
+                    : !storeScoped || (startTime is null && endTime is null)
+                        ? Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.Lifetime
+                        : Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.Resolve(
+                            _eventStore.SupportsWindowedEndpointStats,
+                            _eventStore.SupportsInternalEndpointStats,
+                            audienceFilter, startTime, endTime);
+            context.Items[Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.ItemsKey] = resolvedScope;
+
+            // Mirror the resolved scope to bare query keys for the view's links and
+            // label. Mutate the parsed feature too: ExtractWidgetParams has already
+            // parsed Request.Query, and a QueryString-only change would be invisible.
+            var bareQuery = context.Request.Query
+                .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(windowToken) && !bareQuery.ContainsKey("window"))
+                bareQuery["window"] = windowToken;
+            var columnsToken = q["columns"].FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(columnsToken))
+                columnsToken = context.Request.Query["columns"].FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(columnsToken) && !bareQuery.ContainsKey("columns"))
+                bareQuery["columns"] = columnsToken;
+            if (startTime.HasValue && string.Equals(windowToken, "custom", StringComparison.OrdinalIgnoreCase))
+            {
+                // Mirror the same fallback values the parser used: bare from/to are
+                // valid inputs when only the prefixed window token is present.
+                var fromValue = q["from"].FirstOrDefault()
+                                ?? context.Request.Query["from"].FirstOrDefault();
+                var toValue = q["to"].FirstOrDefault()
+                              ?? context.Request.Query["to"].FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(fromValue) && !bareQuery.ContainsKey("from"))
+                    bareQuery["from"] = fromValue;
+                if (!string.IsNullOrWhiteSpace(toValue) && !bareQuery.ContainsKey("to"))
+                    bareQuery["to"] = toValue;
+            }
+            if (domainFilter is { Count: > 0 } && !bareQuery.ContainsKey("domain"))
+                bareQuery["domain"] = new StringValues(domainFilter.ToArray());
+            if (internalShow && !bareQuery.ContainsKey("internal"))
+                bareQuery["internal"] = "show";
+            else if (!string.Equals(audienceFilter, "all", StringComparison.OrdinalIgnoreCase)
+                     && !bareQuery.ContainsKey("audience"))
+                bareQuery["audience"] = audienceFilter;
+
+            var rewritten = new QueryCollection(bareQuery);
+            if (queryFeature is not null) queryFeature.Query = rewritten;
+            context.Request.QueryString = QueryString.Create(
+                rewritten.SelectMany(kv => kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v))));
+
+            var model = BuildEndpointsModel(context, sortField, sortDir, page, pageSize, data)
+                with { AudienceFilter = audienceFilter };
+            return await _razorViewRenderer.RenderViewToStringAsync(
+                "/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
+        }
+        finally
+        {
+            context.Request.QueryString = originalQueryString;
+            if (queryFeature is not null) queryFeature.Query = originalQuery;
+            if (originalScope is null)
+                context.Items.Remove(Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.ItemsKey);
+            else
+                context.Items[Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.ItemsKey] = originalScope;
+        }
     }
 
     private async Task<string> RenderUaPartialAsync(HttpContext context, IQueryCollection? q = null)

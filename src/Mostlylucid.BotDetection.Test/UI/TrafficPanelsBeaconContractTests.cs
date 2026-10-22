@@ -2,12 +2,15 @@ using System.Net;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard.Data.Queries;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.RateLimit;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Extensions;
@@ -46,6 +49,7 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     private WebApplication? _app;
     private SeededEventStore? _store;
     private string? _lastScopeAfter;
+    private string? _lastQueryAfter;
 
     private sealed class NeverTickingScheduleCoordinator : IScheduleCoordinator
     {
@@ -232,12 +236,240 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         Assert.Equal("prior-widget-scope", _lastScopeAfter);
     }
 
+    [Fact]
+    public async Task Actual_oob_update_reads_window_and_repeated_domains_and_renders_in_range()
+    {
+        // This is the website's ACTUAL live OOB route: only StyloBotDashboardMiddleware,
+        // not SbWidgetBatchMiddleware (prewarm-only).
+        var client = await StartAppAsync(useBatchMiddleware: false);
+        _store!.ResetWindowedCapability();
+        Assert.False(_store.SupportsWindowedEndpointStats);
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h" +
+            "&endpoints.domain=stylo.bot&endpoints.domain=other.example");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.Contains("in this range", swapped);
+        Assert.DoesNotContain("lifetime totals", swapped);
+        Assert.NotNull(_store.LastEndpointStart);
+        Assert.NotNull(_store.LastEndpointEnd);
+        Assert.Equal("all", _store.LastEndpointAudience);
+        Assert.Contains("stylo.bot", _store.LastEndpointDomains!);
+        Assert.Contains("other.example", _store.LastEndpointDomains!);
+        Assert.Contains("window=24h", swapped);
+        Assert.Contains("domain=stylo.bot", swapped);
+        Assert.Contains("domain=other.example", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_unscoped_cache_stays_lifetime_after_capability_is_learned()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+        _store!.ResetWindowedCapability();
+
+        // First a windowed read proves capability=true.
+        var windowed = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h");
+        Assert.Equal(HttpStatusCode.OK, windowed.StatusCode);
+        Assert.True(_store.SupportsWindowedEndpointStats);
+
+        // Now an unscoped cache read: its rows are lifetime, so the label must stay
+        // lifetime even though the store can serve windows.
+        var unscoped = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18");
+        Assert.Equal(HttpStatusCode.OK, unscoped.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await unscoped.Content.ReadAsStringAsync());
+        Assert.Contains("lifetime totals", swapped);
+        Assert.DoesNotContain("in this range", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_parses_bare_repeated_domains_audience_and_columns()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h" +
+            "&domain=bare-one.example&domain=bare-two.example&audience=bots&columns=full");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.Equal("bots", _store!.LastEndpointAudience);
+        Assert.Contains("bare-one.example", _store.LastEndpointDomains!);
+        Assert.Contains("bare-two.example", _store.LastEndpointDomains!);
+        Assert.Contains("columns=full", swapped);
+        Assert.Contains("domain=bare-one.example", swapped);
+        Assert.Contains("domain=bare-two.example", swapped);
+        Assert.Contains("audience=bots", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_custom_range_reaches_the_store()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=custom" +
+            "&endpoints.from=2026-10-20&endpoints.to=2026-10-21");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        Assert.NotNull(_store!.LastEndpointStart);
+        Assert.NotNull(_store.LastEndpointEnd);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+        Assert.Contains("in this range", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_internal_without_window_stays_external_only()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+        _store!.ResetWindowedCapability();
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.internal=show");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.Contains("external traffic only", swapped);
+        Assert.DoesNotContain("lifetime totals", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_bare_custom_from_to_reaches_store_and_links()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=custom" +
+            "&from=2026-10-20&to=2026-10-21");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.NotNull(_store!.LastEndpointStart);
+        Assert.NotNull(_store.LastEndpointEnd);
+        Assert.Contains("from=2026-10-20", swapped);
+        Assert.Contains("to=2026-10-21", swapped);
+        Assert.Contains("in this range", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_endpoint_scope_cache_is_isolated_between_domain_selections()
+    {
+        var scope = new MutableDomainScope("a.example");
+        var client = await StartAppAsync(useBatchMiddleware: false, domainScope: scope);
+        const string url =
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h";
+
+        var first = await client.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Contains("a.example", _store!.LastEndpointDomains!);
+
+        scope.Domains = ["b.example"];
+        var second = await client.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Contains("b.example", _store.LastEndpointDomains!);
+    }
+
+    [Fact]
+    public async Task Actual_oob_scoped_read_preserves_pinned_only_rows()
+    {
+        var client = await StartAppAsync(
+            useBatchMiddleware: false,
+            pinnedStore: new PinnedOnlyStore());
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.Contains("/pinned-only", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_mirrors_columns_into_beacon_params()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h&endpoints.columns=full");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.Contains("columns=full", swapped);
+        Assert.Contains("data-sb-params", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_internal_opt_in_reads_store_and_renders_external_only()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+        _store!.ResetWindowedCapability();
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h&endpoints.internal=show");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.Equal("all_incl_internal", _store.LastEndpointAudience);
+        Assert.Contains("external only", swapped);
+        Assert.DoesNotContain("lifetime totals", swapped);
+        Assert.Contains("internal=show", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_unknown_capability_stays_lifetime()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+        _store!.ResetWindowedCapability();
+        _store.LearnWindowedCapabilityOnRead = false;
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = WebUtility.HtmlDecode(await update.Content.ReadAsStringAsync());
+
+        Assert.Contains("lifetime totals", swapped);
+    }
+
+    [Fact]
+    public async Task Actual_oob_restores_original_query_and_prior_scope()
+    {
+        var client = await StartAppAsync(useBatchMiddleware: false);
+        const string query =
+            "?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h&endpoints.domain=stylo.bot";
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/dashboard/partials/update" + query);
+        request.Headers.Add("X-Test-Prior-Scope", "prior-widget-scope");
+
+        var update = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+
+        Assert.Equal("prior-widget-scope", _lastScopeAfter);
+        Assert.Equal(query, _lastQueryAfter);
+    }
+
     /// <summary>
     ///     Boots the dashboard host both tests share: seeded store → real composer → warm
     ///     content cache (boot prewarm composes the pinned windows) → the widget batch
     ///     middleware in front of the dashboard middleware, exactly as a real host wires it.
     /// </summary>
-    private async Task<HttpClient> StartAppAsync()
+    private async Task<HttpClient> StartAppAsync(
+        bool useBatchMiddleware = true, IPinnedEndpointStore? pinnedStore = null,
+        IDashboardDomainScope? domainScope = null)
     {
         var store = new SeededEventStore();
         _store = store;
@@ -254,6 +486,10 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<IDashboardEventStore>(store);
+        if (pinnedStore is not null)
+            builder.Services.AddSingleton(pinnedStore);
+        if (domainScope is not null)
+            builder.Services.AddSingleton(domainScope);
         builder.Services.AddSingleton<IDashboardContentCache>(cache);
         builder.Services.AddSingleton<IDashboardPageManifestSource>(manifests);
         builder.Services.AddSingleton<IScheduleCoordinator>(new NeverTickingScheduleCoordinator());
@@ -279,9 +515,13 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
                 context.Items[EndpointStatsScope.ItemsKey] = prior;
             await next();
             if (!string.IsNullOrEmpty(prior))
+            {
                 _lastScopeAfter = context.Items[EndpointStatsScope.ItemsKey] as string;
+                _lastQueryAfter = context.Request.QueryString.Value;
+            }
         });
-        _app.UseMiddleware<SbWidgetBatchMiddleware>();
+        if (useBatchMiddleware)
+            _app.UseMiddleware<SbWidgetBatchMiddleware>();
         _app.UseMiddleware<StyloBotDashboardMiddleware>();
         await _app.StartAsync();
 
@@ -289,6 +529,28 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     }
 
     /// <summary>Seed store: one bot + one country so the composed bundle carries real data.</summary>
+    private sealed class MutableDomainScope : IDashboardDomainScope
+    {
+        public IReadOnlyList<string> Domains { get; set; } = [];
+        public MutableDomainScope(params string[] domains) => Domains = domains;
+        public IReadOnlyList<string>? GetSelectedDomains(HttpContext context) => Domains;
+    }
+
+    private sealed class PinnedOnlyStore : IPinnedEndpointStore
+    {
+        private static readonly PinnedEndpoint Pin =
+            new(1, "GET", "/pinned-only", false, "test pin", DateTimeOffset.UtcNow);
+
+        public Task<IReadOnlyList<PinnedEndpoint>> GetAllAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<PinnedEndpoint>>([Pin]);
+
+        public Task<PinnedEndpoint?> AddAsync(
+            string method, string path, bool isHoneypot, string? note, CancellationToken ct = default)
+            => Task.FromResult<PinnedEndpoint?>(Pin);
+
+        public Task<bool> RemoveAsync(long id, CancellationToken ct = default) => Task.FromResult(true);
+    }
+
     private sealed class SeededEventStore : IDashboardEventStore
     {
         private static readonly List<DashboardTopBotEntry> Bots =
@@ -356,10 +618,19 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         {
             EndpointReadCount++;
             if (LearnWindowedCapabilityOnRead) SupportsWindowedEndpointStats = true;
-            LastEndpointStart = startTime;
-            LastEndpointEnd = endTime;
-            LastEndpointAudience = audienceFilter;
-            LastEndpointDomains = domains;
+            // The pin-merge path may make a follow-up unscoped cache read; keep the
+            // scoped request's args as the assertion target.
+            var scopedRead = startTime.HasValue || endTime.HasValue
+                             || (audienceFilter is not null
+                                 && !string.Equals(audienceFilter, "all", StringComparison.OrdinalIgnoreCase))
+                             || domains is { Count: > 0 };
+            if (scopedRead)
+            {
+                LastEndpointStart = startTime;
+                LastEndpointEnd = endTime;
+                LastEndpointAudience = audienceFilter;
+                LastEndpointDomains = domains;
+            }
             return Task.FromResult(new List<DashboardEndpointStats>
             {
                 new() { Path = "/api/health", Method = "GET", TotalCount = 10, BotCount = 2, BotRate = 0.2 },
