@@ -9,12 +9,23 @@ namespace Mostlylucid.BotDetection.Test.UI;
 public sealed class EndpointStatsScopeTests
 {
     [Fact]
+    public void Internal_request_on_a_store_without_internal_endpoints_is_unavailable()
+    {
+        Assert.Equal(EndpointStatsScope.InternalUnavailable,
+            EndpointStatsScope.Resolve(true, false, "all_incl_internal", new DateTime(2026, 1, 1), new DateTime(2026, 1, 2)));
+        Assert.Equal(EndpointStatsScope.InternalUnavailable,
+            EndpointStatsScope.Resolve(true, false, "internal", null, null));
+        Assert.Equal(EndpointStatsScope.RetainedWindow,
+            EndpointStatsScope.Resolve(false, true, "all_incl_internal", new DateTime(2026, 1, 1), new DateTime(2026, 1, 2)));
+    }
+
+    [Fact]
     public void Windowed_store_is_windowed_for_every_audience()
     {
         Assert.Equal(EndpointStatsScope.Windowed,
             EndpointStatsScope.Resolve(true, "all", new DateTime(2026, 1, 1), new DateTime(2026, 1, 2)));
         Assert.Equal(EndpointStatsScope.Windowed,
-            EndpointStatsScope.Resolve(true, "all_incl_internal", null, null));
+            EndpointStatsScope.Resolve(true, true, "all_incl_internal", null, null));
     }
 
     [Fact]
@@ -32,14 +43,14 @@ public sealed class EndpointStatsScopeTests
     public void Lifetime_store_internal_opt_in_with_a_window_is_retained_window(string audience)
     {
         Assert.Equal(EndpointStatsScope.RetainedWindow,
-            EndpointStatsScope.Resolve(false, audience, new DateTime(2026, 1, 1), new DateTime(2026, 1, 2)));
+            EndpointStatsScope.Resolve(false, true, audience, new DateTime(2026, 1, 1), new DateTime(2026, 1, 2)));
     }
 
     [Fact]
     public void Lifetime_store_internal_opt_in_without_a_window_is_lifetime()
     {
         Assert.Equal(EndpointStatsScope.Lifetime,
-            EndpointStatsScope.Resolve(false, "all_incl_internal", null, null));
+            EndpointStatsScope.Resolve(false, true, "all_incl_internal", null, null));
     }
 
     [Fact]
@@ -58,12 +69,15 @@ public sealed class EndpointStatsScopeTests
         var context = new DefaultHttpContext();
         Assert.Null(EndpointStatsScope.ReadOrNull(context));
 
-        EndpointStatsScope.Set(context, false, "all_incl_internal",
+        EndpointStatsScope.Set(context, false, true, "all_incl_internal",
             new DateTime(2026, 1, 1), new DateTime(2026, 1, 2));
         Assert.Equal(EndpointStatsScope.RetainedWindow, EndpointStatsScope.ReadOrNull(context));
         Assert.Equal(EndpointStatsScope.RetainedWindow,
             context.Items[EndpointStatsScope.ItemsKey] as string);
         Assert.Equal(EndpointStatsScope.Lifetime, EndpointStatsScope.Normalize("not-a-scope"));
         Assert.Equal(EndpointStatsScope.Windowed, EndpointStatsScope.Normalize("WINDOWED"));
+
+        EndpointStatsScope.Set(context, true, false, "all_incl_internal", null, null);
+        Assert.Equal(EndpointStatsScope.InternalUnavailable, EndpointStatsScope.ReadOrNull(context));
     }
 }

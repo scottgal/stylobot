@@ -5150,8 +5150,8 @@ public class StyloBotDashboardMiddleware
         // store branch honours the resolved window; the cached snapshot fallback is
         // window-agnostic, so it must not claim a range it did not apply.
         Mostlylucid.BotDetection.Dashboard.Data.Queries.EndpointStatsScope.Set(
-            context, _eventStore.SupportsWindowedEndpointStats, audienceFilter,
-            storeAudience ? startTime : null, storeAudience ? endTime : null);
+            context, _eventStore.SupportsWindowedEndpointStats, _eventStore.SupportsInternalEndpointStats,
+            audienceFilter, storeAudience ? startTime : null, storeAudience ? endTime : null);
 
         if (excludeStatic)
             endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();

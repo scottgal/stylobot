@@ -80,6 +80,9 @@ public sealed class DashboardPageResult
     /// <summary>Truthfulness scope carried with the endpoint slice (lifetime/windowed/retained-window).</summary>
     public string? EndpointStatsScope => _bundle?.EndpointStatsScope;
 
+    /// <summary>Whether the composing store can return Internal endpoint volume (null = unknown/false).</summary>
+    public bool? EndpointStatsInternalSupported => _bundle?.EndpointStatsInternalSupported;
+
     /// <summary>Legacy capability field on bundles composed before EndpointStatsScope existed.</summary>
     public bool? EndpointStatsWindowed => _bundle?.EndpointStatsWindowed;
 

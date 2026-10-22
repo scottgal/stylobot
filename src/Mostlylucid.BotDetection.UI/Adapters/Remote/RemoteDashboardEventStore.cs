@@ -48,8 +48,10 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
     ///     as windowed. No extra request is made — the value rides the same response.
     /// </summary>
     private volatile bool _endpointStatsWindowed;
+    private volatile bool _endpointStatsInternalSupported;
 
     public bool SupportsWindowedEndpointStats => _endpointStatsWindowed;
+    public bool SupportsInternalEndpointStats => _endpointStatsInternalSupported;
 
     public RemoteDashboardEventStore(GatewayApiClient api, IMemoryCache cache)
     {
@@ -256,8 +258,9 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         query += AppendDomainQuery(domains, ref sep);
         return GetOrFetchAsync(query, async () =>
         {
-            var (list, window) = await _api.GetEnvelopeWithMetaAsync<List<DashboardEndpointStats>>(query);
+            var (list, window, internalSupported) = await _api.GetEnvelopeWithMetaAsync<List<DashboardEndpointStats>>(query);
             ObserveEndpointStatsWindow(window);
+            if (internalSupported is { } supported) _endpointStatsInternalSupported = supported;
             if (list is { Count: > 0 } || (startTime is null && endTime is null) || domains is { Count: > 0 })
                 return list ?? new List<DashboardEndpointStats>();
 
@@ -267,8 +270,9 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
             var liveQuery = BuildRangedQuery("/api/v1/endpoints", count, null, null);
             if (!string.IsNullOrEmpty(audienceFilter))
                 liveQuery += $"&audience={Uri.EscapeDataString(audienceFilter)}";
-            var (live, liveWindow) = await _api.GetEnvelopeWithMetaAsync<List<DashboardEndpointStats>>(liveQuery);
+            var (live, liveWindow, liveInternalSupported) = await _api.GetEnvelopeWithMetaAsync<List<DashboardEndpointStats>>(liveQuery);
             ObserveEndpointStatsWindow(liveWindow);
+            if (liveInternalSupported is { } supportedLive) _endpointStatsInternalSupported = supportedLive;
             return live is { Count: > 0 } ? live : list ?? new List<DashboardEndpointStats>();
         });
     }
@@ -383,6 +387,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         // bundle, not from a direct store call). Unknown stays conservative.
         if (bundle?.EndpointStatsWindowed is { } windowed)
             _endpointStatsWindowed = windowed;
+        if (bundle?.EndpointStatsInternalSupported is { } internalSupported)
+            _endpointStatsInternalSupported = internalSupported;
         return bundle ?? new DashboardDatasetBundle(null, null, null, null, null);
     }
 

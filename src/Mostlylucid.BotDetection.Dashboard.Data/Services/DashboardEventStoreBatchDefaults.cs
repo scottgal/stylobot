@@ -104,6 +104,8 @@ public static class DashboardEventStoreBatchDefaults
             liveEndpointsTask is null ? null : liveEndpointsTask.Result,
             EndpointStatsWindowed: store.SupportsWindowedEndpointStats,
             EndpointStatsScope: EndpointStatsScope.Resolve(
-                store.SupportsWindowedEndpointStats, req.AudienceFilter, req.StartTime, req.EndTime));
+                store.SupportsWindowedEndpointStats, store.SupportsInternalEndpointStats,
+                req.AudienceFilter, req.StartTime, req.EndTime),
+            EndpointStatsInternalSupported: store.SupportsInternalEndpointStats);
     }
 }

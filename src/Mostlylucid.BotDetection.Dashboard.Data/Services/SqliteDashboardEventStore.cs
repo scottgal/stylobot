@@ -305,6 +305,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
     public bool SupportsWindowedEndpointStats => false;
 
+    /// <summary>The internal opt-in falls back to raw retained detections, so the volume is available.</summary>
+    public bool SupportsInternalEndpointStats => true;
+
     public async Task AddDetectionAsync(DashboardDetectionEvent detection)
     {
         await EnsureInitializedAsync();

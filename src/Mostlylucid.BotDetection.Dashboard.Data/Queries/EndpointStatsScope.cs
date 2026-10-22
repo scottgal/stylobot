@@ -18,6 +18,7 @@ public static class EndpointStatsScope
     public const string Lifetime = "lifetime";
     public const string Windowed = "windowed";
     public const string RetainedWindow = "retained-window";
+    public const string InternalUnavailable = "internal-unavailable";
 
     /// <summary>
     ///     Resolve the honest label for one read. A windowed-capable store always wins.
@@ -26,29 +27,42 @@ public static class EndpointStatsScope
     ///     and therefore must not be presented as lifetime totals.
     /// </summary>
     public static string Resolve(
-        bool supportsWindowedStats, string? audienceFilter, DateTime? startTime, DateTime? endTime)
+        bool supportsWindowedStats, bool supportsInternalEndpointStats,
+        string? audienceFilter, DateTime? startTime, DateTime? endTime)
     {
-        if (supportsWindowedStats) return Windowed;
-
         var internalOptIn =
             string.Equals(audienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(audienceFilter, "internal", StringComparison.OrdinalIgnoreCase);
+        if (internalOptIn && !supportsInternalEndpointStats) return InternalUnavailable;
+        if (supportsWindowedStats) return Windowed;
         return internalOptIn && (startTime.HasValue || endTime.HasValue)
             ? RetainedWindow
             : Lifetime;
     }
+
+    /// <summary>Backward-compatible overload for callers that have not yet threaded the internal capability.</summary>
+    public static string Resolve(
+        bool supportsWindowedStats, string? audienceFilter, DateTime? startTime, DateTime? endTime) =>
+        Resolve(supportsWindowedStats, false, audienceFilter, startTime, endTime);
 
     /// <summary>Request-scoped key for the partial/lean path (the composed path carries it on the bundle).</summary>
     public const string ItemsKey = "sb.dashboard.endpoints.scope";
 
     /// <summary>Stamp the resolved scope on the request for the HTMX/partial render path.</summary>
     public static void Set(
-        HttpContext? context, bool supportsWindowedStats, string? audienceFilter,
-        DateTime? startTime, DateTime? endTime)
+        HttpContext? context, bool supportsWindowedStats, bool supportsInternalEndpointStats,
+        string? audienceFilter, DateTime? startTime, DateTime? endTime)
     {
         if (context is null) return;
-        context.Items[ItemsKey] = Resolve(supportsWindowedStats, audienceFilter, startTime, endTime);
+        context.Items[ItemsKey] = Resolve(
+            supportsWindowedStats, supportsInternalEndpointStats, audienceFilter, startTime, endTime);
     }
+
+    /// <summary>Backward-compatible setter overload.</summary>
+    public static void Set(
+        HttpContext? context, bool supportsWindowedStats, string? audienceFilter,
+        DateTime? startTime, DateTime? endTime) =>
+        Set(context, supportsWindowedStats, false, audienceFilter, startTime, endTime);
 
     /// <summary>
     ///     Read the request-scoped scope, or null when this request carries no producer
@@ -69,5 +83,6 @@ public static class EndpointStatsScope
         string.Equals(scope, Lifetime, StringComparison.OrdinalIgnoreCase) ? Lifetime
         : string.Equals(scope, Windowed, StringComparison.OrdinalIgnoreCase) ? Windowed
         : string.Equals(scope, RetainedWindow, StringComparison.OrdinalIgnoreCase) ? RetainedWindow
+        : string.Equals(scope, InternalUnavailable, StringComparison.OrdinalIgnoreCase) ? InternalUnavailable
         : Lifetime;
 }

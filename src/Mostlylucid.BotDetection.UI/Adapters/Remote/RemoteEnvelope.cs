@@ -20,4 +20,5 @@ internal sealed record RemoteEnvelope<T>(
     [property: JsonPropertyName("meta")] RemoteEnvelopeMeta? Meta = null);
 
 internal sealed record RemoteEnvelopeMeta(
-    [property: JsonPropertyName("endpointStatsWindow")] string? EndpointStatsWindow = null);
+    [property: JsonPropertyName("endpointStatsWindow")] string? EndpointStatsWindow = null,
+    [property: JsonPropertyName("endpointStatsInternalSupported")] bool? EndpointStatsInternalSupported = null);

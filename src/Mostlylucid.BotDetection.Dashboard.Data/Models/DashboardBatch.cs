@@ -86,4 +86,7 @@ public sealed record DashboardDatasetBundle(
     bool? EndpointStatsWindowed = null,
     // Truthfulness scope of the endpoint slice: lifetime | windowed | retained-window.
     // Carried with the data so the first-paint badge cannot disagree with the rows.
-    string? EndpointStatsScope = null);
+    string? EndpointStatsScope = null,
+    // Whether the composing store can return Internal endpoint volume. Null/unknown is
+    // conservative: an internal request is labelled InternalUnavailable, never relabelled.
+    bool? EndpointStatsInternalSupported = null);

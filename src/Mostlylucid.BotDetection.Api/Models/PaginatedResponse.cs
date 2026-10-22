@@ -31,6 +31,13 @@ public sealed record ResponseMeta
     ///     must treat null as unknown (conservatively: not windowed), never as windowed.
     /// </summary>
     public string? EndpointStatsWindow { get; init; }
+
+    /// <summary>
+    ///     For <c>GET /api/v1/endpoints</c>: whether the backing store can return
+    ///     Internal endpoint volume. False/unknown must make an internal request render
+    ///     "external only", never relabel external rows as internal.
+    /// </summary>
+    public bool? EndpointStatsInternalSupported { get; init; }
 }
 
 /// <summary>

@@ -40,25 +40,27 @@ public sealed class GatewayApiClient
     ///     gateway did not report it (older build); callers must treat that conservatively
     ///     as "not windowed", never as confirmed windowed.
     /// </summary>
-    public async Task<(T? Data, string? EndpointStatsWindow)> GetEnvelopeWithMetaAsync<T>(
+    public async Task<(T? Data, string? EndpointStatsWindow, bool? EndpointStatsInternalSupported)> GetEnvelopeWithMetaAsync<T>(
         string path, CancellationToken ct = default)
     {
         try
         {
             using var response = await _http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, ct);
-            if (response.StatusCode == HttpStatusCode.NotFound) return (default, null);
+            if (response.StatusCode == HttpStatusCode.NotFound) return (default, null, null);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Remote gateway returned {Status} for GET {Path}", (int)response.StatusCode, path);
-                return (default, null);
+                return (default, null, null);
             }
             var envelope = await response.Content.ReadFromJsonAsync<RemoteEnvelope<T>>(ct);
-            return envelope is null ? (default, null) : (envelope.Data, envelope.Meta?.EndpointStatsWindow);
+            return envelope is null
+                ? (default, null, null)
+                : (envelope.Data, envelope.Meta?.EndpointStatsWindow, envelope.Meta?.EndpointStatsInternalSupported);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
             _logger.LogWarning(ex, "Remote gateway call failed for GET {Path}", path);
-            return (default, null);
+            return (default, null, null);
         }
     }
 

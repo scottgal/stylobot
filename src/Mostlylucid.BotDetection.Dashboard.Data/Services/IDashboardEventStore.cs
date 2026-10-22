@@ -20,6 +20,14 @@ public interface IDashboardEventStore
     bool SupportsWindowedEndpointStats => true;
 
     /// <summary>
+    ///     Whether <see cref="GetEndpointStatsAsync"/> can return Internal endpoint volume.
+    ///     PG after Option A cannot (the rollup has no bot_type dimension), so the endpoint
+    ///     table must label an internal request "external only"; SQLite's raw retained
+    ///     fallback can; remote adapters forward the gateway capability (unknown = false).
+    /// </summary>
+    bool SupportsInternalEndpointStats => false;
+
+    /// <summary>
     ///     Add a detection event to the store.
     /// </summary>
     Task AddDetectionAsync(DashboardDetectionEvent detection);

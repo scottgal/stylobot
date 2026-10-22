@@ -452,6 +452,8 @@ public static class ReadEndpoints
         // it on the response so a client never prints a range over lifetime counters.
         context.Response.Headers["X-StyloBot-Endpoint-Stats-Window"] =
             store.SupportsWindowedEndpointStats ? "windowed" : "lifetime";
+        context.Response.Headers["X-StyloBot-Endpoint-Internal-Supported"] =
+            store.SupportsInternalEndpointStats ? "true" : "false";
         var eps = await store.GetEndpointStatsAsync(limit, since, until, normalizedAudience, normalizedDomains);
         return TypedResults.Ok(new PaginatedResponse<DashboardEndpointStats>
         {
@@ -459,7 +461,8 @@ public static class ReadEndpoints
             Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = eps.Count },
             Meta = new ResponseMeta
             {
-                EndpointStatsWindow = store.SupportsWindowedEndpointStats ? "windowed" : "lifetime"
+                EndpointStatsWindow = store.SupportsWindowedEndpointStats ? "windowed" : "lifetime",
+                EndpointStatsInternalSupported = store.SupportsInternalEndpointStats
             }
         });
     }
