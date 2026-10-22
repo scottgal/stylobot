@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -42,6 +43,7 @@ namespace Mostlylucid.BotDetection.Test.UI;
 public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
 {
     private WebApplication? _app;
+    private SeededEventStore? _store;
 
     private sealed class NeverTickingScheduleCoordinator : IScheduleCoordinator
     {
@@ -111,6 +113,58 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         Assert.DoesNotContain("Warming up", swapped);
     }
 
+    [Fact]
+    public async Task Endpoint_beacon_refresh_preserves_window_and_renders_the_windowed_scope()
+    {
+        // Producer half: the SSR endpoints widget advertises its actual window in the
+        // beacon params. Consumer half: /partials/update must read that scope and the
+        // OOB render must say "in this range", not the aggregate lifetime snapshot.
+        // This is the 2026-10-22 refresh drift (24h -> "lifetime totals" after 20s).
+        var client = await StartAppAsync();
+
+        var page = await client.GetAsync("/dashboard/traffic?window=24h");
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        var html = await page.Content.ReadAsStringAsync();
+        var endpointParams = Regex.Match(
+            html,
+            "data-sb-widget=\"endpoints\"[^>]*data-sb-params=\"([^\"]*)\"",
+            RegexOptions.Singleline);
+        Assert.True(endpointParams.Success, "endpoints widget did not expose data-sb-params");
+        var decodedParams = WebUtility.HtmlDecode(endpointParams.Groups[1].Value);
+        Assert.Contains("window=24h", decodedParams);
+
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h" +
+            "&endpoints.domain=stylo.bot&endpoints.domain=other.example");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = await update.Content.ReadAsStringAsync();
+
+        Assert.Contains("data-sb-widget=\"endpoints\"", swapped);
+        Assert.Contains("in this range", swapped);
+        Assert.DoesNotContain("lifetime totals", swapped);
+        // The store, not the page's composed default slice, must receive the beacon scope.
+        Assert.NotNull(_store!.LastEndpointStart);
+        Assert.NotNull(_store.LastEndpointEnd);
+        Assert.Contains("stylo.bot", _store.LastEndpointDomains!);
+        Assert.Contains("other.example", _store.LastEndpointDomains!);
+    }
+
+    [Fact]
+    public async Task Endpoint_beacon_internal_opt_in_reads_the_store_with_the_internal_audience()
+    {
+        var client = await StartAppAsync();
+        var update = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h&endpoints.internal=show");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var swapped = await update.Content.ReadAsStringAsync();
+
+        Assert.Equal("all_incl_internal", _store!.LastEndpointAudience);
+        Assert.Contains("external only", swapped);
+        Assert.DoesNotContain("lifetime totals", swapped);
+    }
+
     /// <summary>
     ///     Boots the dashboard host both tests share: seeded store → real composer → warm
     ///     content cache (boot prewarm composes the pinned windows) → the widget batch
@@ -119,6 +173,7 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     private async Task<HttpClient> StartAppAsync()
     {
         var store = new SeededEventStore();
+        _store = store;
         var manifests = new DefaultDashboardPageManifestSource();
         var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
         var composer = new DefaultDashboardPageComposer(catalog, store);
@@ -208,11 +263,22 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
         public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(Countries);
 
+        public DateTime? LastEndpointStart { get; private set; }
+        public DateTime? LastEndpointEnd { get; private set; }
+        public string? LastEndpointAudience { get; private set; }
+        public IReadOnlyList<string>? LastEndpointDomains { get; private set; }
+
         public Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null, IReadOnlyList<string>? domains = null)
-            => Task.FromResult(new List<DashboardEndpointStats>
+        {
+            LastEndpointStart = startTime;
+            LastEndpointEnd = endTime;
+            LastEndpointAudience = audienceFilter;
+            LastEndpointDomains = domains;
+            return Task.FromResult(new List<DashboardEndpointStats>
             {
                 new() { Path = "/api/health", Method = "GET", TotalCount = 10, BotCount = 2, BotRate = 0.2 },
             });
+        }
 
         public Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, IReadOnlyList<string>? domains = null)
             => Task.FromResult(new List<ThreatEntry>());

@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Dashboard.Data.Queries;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.UI.Dashboard;
+using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
@@ -592,38 +594,137 @@ public sealed class SbWidgetBatchMiddleware
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = WidgetRenderHelpers.QueryPage(q);
         var pageSize = WidgetRenderHelpers.QueryPageSize(q, 25);
-        var audienceFilter = (q["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
 
-        // Use the composed Endpoints slice when available (zero additional store calls).
-        // Fall back to the existing cache-first / store path for targeted audience queries.
+        // The beacon sends the SSR widget's canonical scope prefixed as
+        // endpoints.window / endpoints.domain / endpoints.audience / endpoints.internal.
+        // This render path is the consumer; dropping those params was the 2026-10-22
+        // "in this range" -> "lifetime totals" drift after a live swap. Resolve the
+        // SAME scope the page used, stamp it for the view, and read the store with it.
+        var windowToken = q["window"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(windowToken))
+            windowToken = context.Request.Query["window"].FirstOrDefault();
+
+        DateTime? startTime = null;
+        DateTime? endTime = null;
+        if (string.Equals(windowToken, "custom", StringComparison.OrdinalIgnoreCase))
+        {
+            var (customStart, customEnd) = AnalyticsRangeParser.ParseCustom(
+                q["from"].FirstOrDefault(), q["to"].FirstOrDefault());
+            startTime = customStart;
+            endTime = customEnd;
+        }
+        else if (!string.IsNullOrWhiteSpace(windowToken))
+        {
+            (startTime, endTime) = AnalyticsRangeParser.Parse(windowToken);
+        }
+
+        var internalShow = string.Equals(q["internal"].FirstOrDefault(), "show", StringComparison.OrdinalIgnoreCase);
+        var audienceFilter = internalShow
+            ? "all_incl_internal"
+            : (q["audience"].FirstOrDefault() ?? "all").Trim().ToLowerInvariant();
+        var requestedDomains = q["domain"]
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var scopedDomains = context.RequestServices
+            .GetService<IDashboardDomainScope>()
+            ?.GetSelectedDomains(context);
+        IReadOnlyList<string>? domainFilter =
+            scopedDomains is { Count: > 0 } ? scopedDomains
+            : requestedDomains.Length > 0 ? requestedDomains : null;
+
+        // Stamp producer truth for _Lean.cshtml. The direct Razor render has its own
+        // ViewData, so this request-scoped key is the only scope carrier it can see.
+        EndpointStatsScope.Set(
+            context, _eventStore.SupportsWindowedEndpointStats, _eventStore.SupportsInternalEndpointStats,
+            audienceFilter, startTime, endTime);
+
+        // The view builds its own sort/search/detail links from the bare query. The
+        // beacon query is prefixed, so mirror the resolved scope as bare params before
+        // rendering; otherwise a row click or sort would drop window/domain/internal.
+        // Mutate the parsed query feature, not just QueryString: ExtractWidgetParams has
+        // already forced Request.Query to parse, and the view reads that same cached
+        // collection. A QueryString-only rewrite would leave the view's scope links on the
+        // old prefixed-only query.
+        // Restore below: this batch renders several widgets from one HttpContext, so a
+        // mirrored scope must not leak into the next widget's own query/scope view.
+        var originalQueryString = context.Request.QueryString;
+        var originalQuery = context.Request.Query;
+        var originalScope = context.Items.TryGetValue(EndpointStatsScope.ItemsKey, out var scopeBefore)
+            ? scopeBefore as string
+            : null;
+        var queryFeature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IQueryFeature>();
+        try
+        {
+        var bareQuery = context.Request.Query
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(windowToken) && !bareQuery.ContainsKey("window"))
+            bareQuery["window"] = windowToken;
+        if (startTime.HasValue && string.Equals(windowToken, "custom", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(q["from"].FirstOrDefault()) && !bareQuery.ContainsKey("from"))
+                bareQuery["from"] = q["from"].First()!;
+            if (!string.IsNullOrWhiteSpace(q["to"].FirstOrDefault()) && !bareQuery.ContainsKey("to"))
+                bareQuery["to"] = q["to"].First()!;
+        }
+        // A prefixed domain list is the only one the beacon sends, so mirror it once.
+        if (!bareQuery.ContainsKey("domain") && requestedDomains.Length > 0)
+            bareQuery["domain"] = new Microsoft.Extensions.Primitives.StringValues(requestedDomains);
+        if (internalShow && !bareQuery.ContainsKey("internal"))
+            bareQuery["internal"] = "show";
+        else if (!string.Equals(audienceFilter, "all", StringComparison.OrdinalIgnoreCase)
+                 && !bareQuery.ContainsKey("audience"))
+            bareQuery["audience"] = audienceFilter;
+
+        var rewritten = new QueryCollection(bareQuery);
+        if (queryFeature is not null) queryFeature.Query = rewritten;
+        context.Request.QueryString = QueryString.Create(
+            rewritten.SelectMany(kv => kv.Value.Select(v => new KeyValuePair<string, string?>(kv.Key, v))));
+
+        // Use the composed Endpoints slice only when it can satisfy the SAME read.
+        // The aggregate cache is deliberately not used here: it is the unscoped
+        // lifetime snapshot, which is exactly the wrong rows for a windowed beacon.
         List<DashboardEndpointStats> data;
         var pageResult = context.Items["sb.dashboard.pageresult"] as DashboardPageResult;
-        // "all_incl_internal" (the endpoint control's "Show self-probe" toggle) must also
-        // route through the store: BuildBatchWindow only ever composes "bots"/"humans"/null
-        // (see its audience parse above), so a composed bundle can never satisfy an
-        // "include Internal" request -- it was composed with Internal already excluded.
+        // The composed bundle has no domain identity and is keyed to the page's compose
+        // window, so it is only safe for a truly default read. Any requested window,
+        // domain, internal opt-in or non-default audience must read the store with that
+        // exact scope; otherwise a correct beacon param still renders the page's default
+        // rows under a windowed label.
         var storeFilters = audienceFilter is "humans" or "bots" or "honeypot" or "all_incl_internal";
-        if (pageResult?.Endpoints is { } composedEndpoints && !storeFilters)
+        var storeRequired = storeFilters
+            || startTime.HasValue
+            || endTime.HasValue
+            || domainFilter is { Count: > 0 }
+            || !string.Equals(audienceFilter, "all", StringComparison.OrdinalIgnoreCase);
+        if (pageResult?.Endpoints is { } composedEndpoints && !storeRequired)
         {
             data = composedEndpoints.ToList();
+            if (!string.IsNullOrEmpty(pageResult.EndpointStatsScope))
+                context.Items[EndpointStatsScope.ItemsKey] = pageResult.EndpointStatsScope;
         }
-        else if (storeFilters)
+        else
         {
             // humans / bots / honeypot / all_incl_internal all require the store path.
             // honeypot needs IsHoneypot populated per row by the path classifier; humans /
             // bots need the SQL is_bot predicate; all_incl_internal needs the Internal rows
-            // the composed/cached snapshots never carry.
-            data = await _eventStore.GetEndpointStatsAsync(100, audienceFilter: audienceFilter);
+            // the composed/cached snapshots never carry. Every windowed read passes the
+            // resolved range and domain scope so the OOB label and rows agree.
+            data = await _eventStore.GetEndpointStatsAsync(
+                100, startTime, endTime, audienceFilter, domainFilter);
         }
-        else
-        {
-            data = _aggregateCache.Current.Endpoints is { Count: > 0 } cached
-                ? cached
-                : await _eventStore.GetEndpointStatsAsync(100);
-        }
-        var model = BuildEndpointsModel(sortField, sortDir, page, pageSize, data);
+        var model = BuildEndpointsModel(sortField, sortDir, page, pageSize, data, audienceFilter);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
+        }
+        finally
+        {
+            context.Request.QueryString = originalQueryString;
+            if (queryFeature is not null) queryFeature.Query = originalQuery;
+            if (originalScope is null) context.Items.Remove(EndpointStatsScope.ItemsKey);
+            else context.Items[EndpointStatsScope.ItemsKey] = originalScope;
+        }
     }
 
     private async Task<string> RenderUserAgentsAsync(HttpContext context, IQueryCollection q)
@@ -940,7 +1041,9 @@ public sealed class SbWidgetBatchMiddleware
         };
     }
 
-    private EndpointsListModel BuildEndpointsModel(string sortField, string sortDir, int page, int pageSize, List<DashboardEndpointStats> all)
+    private EndpointsListModel BuildEndpointsModel(
+        string sortField, string sortDir, int page, int pageSize,
+        List<DashboardEndpointStats> all, string audienceFilter)
     {
         IEnumerable<DashboardEndpointStats> sorted = sortField.ToLowerInvariant() switch
         {
@@ -964,6 +1067,7 @@ public sealed class SbWidgetBatchMiddleware
             Page = page,
             PageSize = pageSize,
             TotalCount = all.Count,
+            AudienceFilter = audienceFilter,
             AllowEndpointPinning = _options.EnableEndpointPinning,
         };
     }
