@@ -88,6 +88,9 @@
         // Single source: the model's audience is the one the read used.
         if (string.Equals(Model.AudienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase))
             parts.Add("internal=show");
+        else if (!string.IsNullOrEmpty(Model.AudienceFilter)
+                 && !string.Equals(Model.AudienceFilter, "all", StringComparison.OrdinalIgnoreCase))
+            parts.Add($"audience={Uri.EscapeDataString(Model.AudienceFilter)}");
         return parts;
     }
 

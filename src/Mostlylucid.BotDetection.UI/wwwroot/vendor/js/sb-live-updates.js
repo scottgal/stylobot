@@ -302,7 +302,10 @@
             try {
                 new URLSearchParams(raw).forEach(function (val, key) {
                     if (val !== '' && val !== 'undefined' && val !== 'null') {
-                        qs.set(wid + '.' + key, val);
+                        // append, not set: scope params are multi-valued (domain is
+                        // repeated per selected host, and a future multi-value key must
+                        // not silently collapse to the last value).
+                        qs.append(wid + '.' + key, val);
                     }
                 });
             } catch (e) { /* ignore malformed params */ }

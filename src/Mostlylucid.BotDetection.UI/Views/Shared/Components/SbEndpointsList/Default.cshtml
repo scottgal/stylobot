@@ -57,7 +57,22 @@
         // Single source: the model's audience is the one the read used.
         if (string.Equals(Model.AudienceFilter, "all_incl_internal", StringComparison.OrdinalIgnoreCase))
             parts.Add("internal=show");
+        else if (!string.IsNullOrEmpty(Model.AudienceFilter)
+                 && !string.Equals(Model.AudienceFilter, "all", StringComparison.OrdinalIgnoreCase))
+            parts.Add($"audience={Uri.EscapeDataString(Model.AudienceFilter)}");
         return parts.Count == 0 ? "" : "&" + string.Join("&", parts);
+    }
+
+    // Beacon (OOB) refresh params must carry the page's ACTUAL scope, and must not
+    // emit an empty window= (which would resolve to a different scope than the page).
+    string BeaconParams()
+    {
+        var parts = new List<string>
+        {
+            $"page={Model.Page}", $"sort={Model.SortField}", $"dir={Model.SortDir}",
+            $"pageSize={Model.PageSize}", $"columns={Uri.EscapeDataString(columnsToken)}"
+        };
+        return string.Join("&", parts) + ScopeQs();
     }
 
     string FilterQs(string statusOverride, string pathOverride, string audienceOverride, string methodOverride, string modeOverride)
@@ -153,7 +168,7 @@
 <div id="endpoints-list"
      data-sb-widget="endpoints"
      data-sb-depends="endpoints"
-     data-sb-params="page=@Model.Page&sort=@Model.SortField&dir=@Model.SortDir&pageSize=@Model.PageSize"
+     data-sb-params="@BeaconParams()"
      class="transition-colors duration-200 @(lean ? "sb-ep-host" : "sb-scroll-shell")">
     @if (lean)
     {

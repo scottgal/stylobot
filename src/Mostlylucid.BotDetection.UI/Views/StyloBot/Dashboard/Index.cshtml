@@ -318,6 +318,10 @@
         function initMap(containerId) {
             var el = document.getElementById(containerId);
             if (!el || typeof jsVectorMap === 'undefined') return;
+            // A widget that declares this id owns it (the V2 panels render their own
+            // map). Binding a second vector map onto a beacon-swapped element leaves a
+            // stale instance driving a detached node.
+            if (el.hasAttribute('data-sb-widget') || el.closest('[data-sb-widget]')) return;
 
             // Resolve theme variables once at construction. daisyui exposes its palette as
             // CSS custom properties on :root -- pulling them here means the map adopts the
@@ -393,6 +397,11 @@
         function initTimeChart() {
             var el = document.getElementById('time-chart');
             if (!el || typeof ApexCharts === 'undefined') return;
+            // #time-chart is the V2 hit-chart WIDGET id (set by widget-id="time-chart"),
+            // not the legacy canvas. Binding ApexCharts here built a second chart on a
+            // beacon-swapped node and threw on every 15s refresh (t.put is Apex's
+            // SVG addTo against a non-container). The chartlet owns this element.
+            if (el.hasAttribute('data-sb-widget')) return;
 
             // Window selector lives in the card header; default is whatever the markup
             // has marked as active (1h on first paint).
