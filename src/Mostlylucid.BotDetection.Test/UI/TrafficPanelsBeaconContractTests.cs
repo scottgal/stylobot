@@ -381,6 +381,27 @@ public sealed class TrafficPanelsBeaconContractTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Actual_initial_traffic_and_oob_share_domain_and_rows_same_selection()
+    {
+        var scope = new MutableDomainScope("stylo.bot");
+        var client = await StartAppAsync(useBatchMiddleware: false, domainScope: scope);
+
+        var initial = await client.GetAsync("/dashboard/traffic?window=24h");
+        Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+        var initialHtml = WebUtility.HtmlDecode(await initial.Content.ReadAsStringAsync());
+        Assert.Contains("/api/health", initialHtml);
+        Assert.Contains("stylo.bot", _store!.LastEndpointDomains!);
+
+        var oob = await client.GetAsync(
+            "/dashboard/partials/update?widgets=endpoints&endpoints.page=1&endpoints.sort=total" +
+            "&endpoints.dir=desc&endpoints.pageSize=18&endpoints.window=24h");
+        Assert.Equal(HttpStatusCode.OK, oob.StatusCode);
+        var oobHtml = WebUtility.HtmlDecode(await oob.Content.ReadAsStringAsync());
+        Assert.Contains("/api/health", oobHtml);
+        Assert.Equal("stylo.bot", string.Join(",", _store.LastEndpointDomains!));
+    }
+
+    [Fact]
     public async Task Actual_oob_scoped_read_preserves_pinned_only_rows()
     {
         var client = await StartAppAsync(

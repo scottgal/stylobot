@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
@@ -96,11 +97,28 @@ public sealed class TrafficController : Controller
         // ASP.NET Core's Query collection semantics, not something the
         // model binder auto-fans out into arrays without a matching
         // parameter type.
-        var domainValues = Request.Query["domain"]
+        // One effective domain identity for the whole page: explicit URL domains win;
+        // otherwise the commercial IDashboardDomainScope (cookie/default licensed
+        // domain). The live OOB path already resolves that seam, so first paint,
+        // page bundle, summaries, counters and the first-paint endpoint reader must
+        // use the SAME set or the page changes identity on refresh (31 -> 0).
+        var explicitDomains = Request.Query["domain"]
             .Where(v => !string.IsNullOrWhiteSpace(v))
             .Select(v => v!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        IReadOnlyList<string> effectiveDomains = explicitDomains;
+        if (effectiveDomains.Count == 0 && HttpContext.RequestServices is { } requestServices)
+        {
+            effectiveDomains = requestServices
+                .GetService<IDashboardDomainScope>()
+                ?.GetSelectedDomains(HttpContext)
+                ?.Where(v => !string.IsNullOrWhiteSpace(v))
+                .Select(v => v.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() ?? [];
+        }
+
         var filters = new TrafficFilters(
             Country: string.IsNullOrWhiteSpace(country) ? null : country,
             BotType: string.IsNullOrWhiteSpace(botType) ? null : botType,
@@ -111,7 +129,7 @@ public sealed class TrafficController : Controller
             Window: string.IsNullOrWhiteSpace(window) ? FormatDefaultWindow(opts.DefaultTimeWindowMinutes) : window,
             Threat: string.IsNullOrWhiteSpace(threat) ? null : threat)
         {
-            Domains = domainValues,
+            Domains = effectiveDomains,
         };
 
         var topN = opts.TrafficCardTopN;

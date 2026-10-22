@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Test.Helpers;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.RateLimit;
 using Mostlylucid.BotDetection.UI.Dashboard;
@@ -193,6 +195,72 @@ public sealed class TrafficControllerComposeTests
         }.OrderBy(k => k).ToArray();
         Assert.Contains(store.BatchRequests,
             r => r.Datasets.Select(d => d.Kind).OrderBy(k => k).SequenceEqual(currentKinds));
+    }
+
+    [Fact]
+    public async Task Effective_domain_scope_reaches_the_current_and_prior_page_windows()
+    {
+        var store = new RecordingEventStore();
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
+        var services = new ServiceCollection();
+        services.AddMvcCore();
+        services.AddSingleton<ITempDataDictionaryFactory>(Mock.Of<ITempDataDictionaryFactory>());
+        services.AddSingleton<IDashboardDomainScope>(new FixedDomainScope("stylo.bot"));
+        var serviceProvider = services.BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = serviceProvider };
+        var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+        controller.TempData = new TempDataDictionary(httpContext, Mock.Of<ITempDataProvider>());
+
+        var result = await controller.Index(
+            country: null, botType: null, window: "24h", from: null, to: null,
+            threat: null, partial: null, null, default);
+
+        Assert.NotEmpty(store.BatchRequests);
+        Assert.All(store.BatchRequests, request =>
+            Assert.Equal(new[] { "stylo.bot" }, request.Domains));
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<Mostlylucid.BotDetection.UI.Models.Dashboard.Traffic.TrafficPageModel>(view.Model);
+        Assert.Equal(0, model.Counters.Total);
+        Assert.Empty(model.TopEndpoints);
+    }
+
+    [Fact]
+    public async Task Explicit_url_domain_wins_over_the_dashboard_scope()
+    {
+        var store = new RecordingEventStore();
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
+        var services = new ServiceCollection();
+        services.AddMvcCore();
+        services.AddSingleton<ITempDataDictionaryFactory>(Mock.Of<ITempDataDictionaryFactory>());
+        services.AddSingleton<IDashboardDomainScope>(new FixedDomainScope("cookie.example"));
+        var serviceProvider = services.BuildServiceProvider();
+        var httpContext = new DefaultHttpContext { RequestServices = serviceProvider };
+        httpContext.Request.QueryString = new QueryString("?domain=url.example&domain=url2.example");
+        var controller = new Mostlylucid.BotDetection.UI.Controllers.TrafficController(
+            store, ContentCache(composer), manifests, DefaultLayoutOptions(), DefaultThreatsOptions());
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+        controller.TempData = new TempDataDictionary(httpContext, Mock.Of<ITempDataProvider>());
+
+        _ = await controller.Index(
+            country: null, botType: null, window: "24h", from: null, to: null,
+            threat: null, partial: null, null, default);
+
+        Assert.NotEmpty(store.BatchRequests);
+        Assert.All(store.BatchRequests, request =>
+            Assert.Equal(new[] { "url.example", "url2.example" }, request.Domains));
+    }
+
+    private sealed class FixedDomainScope : IDashboardDomainScope
+    {
+        private readonly IReadOnlyList<string> _domains;
+        public FixedDomainScope(params string[] domains) => _domains = domains;
+        public IReadOnlyList<string>? GetSelectedDomains(HttpContext context) => _domains;
     }
 
     [Fact]
