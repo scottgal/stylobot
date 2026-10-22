@@ -28,6 +28,14 @@
         if (s.Hidden) initialHidden[s.Key] = true;
     }
     var initialHiddenJson = JsonSerializer.Serialize(initialHidden, jsonOpts);
+
+    // Text alternative for the canvas: name the measure AND the actual series, so a
+    // screen reader hears "requests: Human / unknown, Bot" rather than an anonymous
+    // "by series". Built from the same model the legend renders, so they cannot drift.
+    var seriesNames = string.Join(", ", Model.Series.Select(s => s.Label));
+    var canvasLabel = string.IsNullOrWhiteSpace(seriesNames)
+        ? Model.Axes.YLabel
+        : $"{Model.Axes.YLabel}: {seriesNames}";
 }
 <div x-data='sbChartlet({ id: "@Model.Id", kind: "@Model.Kind", drill: @Html.Raw(drillJson), initialHidden: @Html.Raw(initialHiddenJson) })'
      x-init="init()"
@@ -52,6 +60,6 @@
            alternative so a screen reader names the series rather than an unlabelled
            canvas. The legend buttons stay the interactive control. *@
         <canvas id="@Model.Id" data-chartlet='@Html.Raw(modelJson)'
-                role="img" aria-label="@Model.Axes.YLabel by series"></canvas>
+                role="img" aria-label="@canvasLabel"></canvas>
     </div>
 </div>
