@@ -1,3 +1,4 @@
+@using Htmx
 @using Microsoft.AspNetCore.Mvc.Rendering
 @using Microsoft.Extensions.Options
 @using Mostlylucid.BotDetection.UI.Dashboard
@@ -329,4 +330,24 @@
         BasePath: Model.BasePath,
         YourDetection: Model.YourDetection);
 }
-@await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/Index.cshtml", pageModel)
+@*
+    PARTIAL SWAPS GET THE BODY ONLY. This row partial serves BOTH the full page
+    (inside the dashboard chrome) and htmx partial-swap requests (#sb-traffic-body
+    hx-get="...?partial=1"). Rendering Traffic/Index.cshtml for a swap re-emits the
+    page shell — <section class="space-y-4"> plus the inline SignalR bootstrap — into
+    #sb-traffic-body on every beacon tick. htmx re-executes scripts found in the
+    swapped fragment, and the clone cannot carry the document's nonce (browsers hide
+    nonce attribute VALUES from attribute reflection), so the browser blocks it
+    (script-src-elem) and a second hub connection starts; the section also nests one
+    level deeper per refresh. The page shell (and its one bootstrap script) belongs to
+    the first paint; a swap returns only the data body. Same sanctioned Htmx.NET
+    predicate the middleware uses for IsPartialSwapRequest — no header sniffing.
+*@
+@if (Context!.Request.IsHtmx())
+{
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/_Body.cshtml", pageModel)
+}
+else
+{
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/Traffic/Index.cshtml", pageModel)
+}
