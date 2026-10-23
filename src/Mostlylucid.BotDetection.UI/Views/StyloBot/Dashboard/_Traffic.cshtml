@@ -55,13 +55,25 @@
     var query = Context!.Request.Query;
     string? Nullable(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
     var opts = LayoutOpts.Value;
+    // The EFFECTIVE page window (explicit ?domain list, else IDashboardDomainScope's
+    // stable default / explicit-all sentinel). Computed once and reused for the bundle
+    // read below, so the data scope and the model can never disagree.
+    var effectiveWindow = StyloBotDashboardMiddleware.BuildVisitorsPageWindow(Context!);
     var filters = new TrafficFilters(
         Country: Nullable(query["country"].FirstOrDefault()),
         BotType: Nullable(query["bot_type"].FirstOrDefault()),
         Window:  string.IsNullOrWhiteSpace(query["window"].FirstOrDefault())
                  ? FormatWindow(opts.DefaultTimeWindowMinutes)
                  : query["window"].FirstOrDefault()!,
-        Threat:  Nullable(query["threat"].FirstOrDefault()));
+        Threat:  Nullable(query["threat"].FirstOrDefault()))
+    {
+        // The bundle IS scoped by effectiveWindow, but the view model used to carry an
+        // empty Domains list on this row path. The landing gates its scope caption on
+        // Model.Filters.Domains (stored-history-only note) and preserves the same list
+        // in its links, so an empty list silently dropped the note while the data was
+        // still domain-scoped — the UX9 canonical caption failure.
+        Domains = effectiveWindow.Domains ?? Array.Empty<string>()
+    };
 
     int ParseWindow(string window) => window switch
     {
@@ -116,7 +128,7 @@
             {
                 page = await ContentCache.GetCurrentAsync(
                     trafficManifest,
-                    StyloBotDashboardMiddleware.BuildVisitorsPageWindow(Context),
+                    effectiveWindow,
                     Context.RequestAborted);
             }
             catch
@@ -166,7 +178,11 @@
             EndTime: startTime,
             AudienceFilter: "all",
             ProbMin: null,
-            Domains: null,
+            // The prior comparator must compare LIKE WITH LIKE: same effective domain
+            // scope as the current window (default / ?domain list; empty for the
+            // explicit-all sentinel). Null here made a domain-filtered page's deltas
+            // silently all-domain.
+            Domains: filters.Domains.Count > 0 ? filters.Domains : null,
             TopN: 500,
             BucketMinutes: (int)bucketSize.TotalMinutes);
         var priorPage = await ContentCache.GetCurrentAsync(priorManifest, priorWindow, Context.RequestAborted);

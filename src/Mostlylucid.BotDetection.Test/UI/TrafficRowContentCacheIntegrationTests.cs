@@ -1,11 +1,13 @@
 using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.RateLimit;
+using Mostlylucid.BotDetection.UI.Dashboard;
 using Mostlylucid.BotDetection.UI.Dashboard.Composition;
 using Mostlylucid.BotDetection.UI.Dashboard.Materialization;
 using Mostlylucid.BotDetection.UI.Extensions;
@@ -141,6 +143,53 @@ public sealed class TrafficRowContentCacheIntegrationTests : IAsyncDisposable
         Assert.Equal(0, store.GetTimeSeriesCallCount);
     }
 
+    /// <summary>
+    ///     The actual row path (middleware -> Index -> _Traffic -> _Body) must carry the
+    ///     effective default domain into the chart model. The bundle can be correctly
+    ///     domain-scoped while <c>TrafficFilters.Domains</c> stays empty, which silently
+    ///     drops the stored-history-only note; no MVC TrafficController is involved here.
+    /// </summary>
+    [Fact]
+    public async Task Traffic_row_note_uses_effective_default_domain_not_only_url()
+    {
+        var store = new RecordingEventStore();
+        var catalog = DashboardWidgetCatalog.BuildFromLoadedAssemblies();
+        var composer = new DefaultDashboardPageComposer(catalog, store);
+        var manifests = new DefaultDashboardPageManifestSource();
+
+        long tick = 1;
+        var cache = new Mostlylucid.BotDetection.Test.Helpers.AutoWarmingContentCache(
+            new DashboardContentCache((m, w, ct) => composer.ComposeAsync(m, w, ct), () => tick,
+                Options.Create(new DashboardMaterializerOptions())),
+            () => tick);
+
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddSingleton<IDashboardEventStore>(store);
+        builder.Services.AddSingleton<IDashboardContentCache>(cache);
+        builder.Services.AddSingleton<IDashboardPageManifestSource>(manifests);
+        builder.Services.AddSingleton<IDashboardDomainScope>(new FixedDomainScope("stylo.bot"));
+        builder.Services.AddControllersWithViews().AddApplicationPart(typeof(StyloBotDashboardMiddleware).Assembly);
+        builder.Services.AddStyloBotDashboard(options =>
+        {
+            options.BasePath = "/dashboard";
+            options.RequireAuthentication = false;
+            options.AllowUnauthenticatedAccess = true;
+        });
+
+        _app = builder.Build();
+        _app.UseMiddleware<StyloBotDashboardMiddleware>();
+        await _app.StartAsync();
+
+        var response = await _app.GetTestClient().GetAsync("/dashboard/traffic");
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("stored history only while a domain filter is active", html);
+        Assert.Equal(0, store.GetTimeSeriesCallCount);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_app is not null) await _app.DisposeAsync();
@@ -245,5 +294,10 @@ public sealed class TrafficRowContentCacheIntegrationTests : IAsyncDisposable
         public Task<List<HoneypotHitRow>> GetHoneypotHitsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<FilterCounts> GetVisitorSegmentCountsAsync(DateTime startTime, DateTime endTime, string? filter = null, string? country = null, string? botType = null, string? threat = null, IReadOnlyList<string>? domains = null) => throw new NotImplementedException();
+    }
+
+    private sealed class FixedDomainScope(string domain) : IDashboardDomainScope
+    {
+        public IReadOnlyList<string>? GetSelectedDomains(HttpContext context) => [domain];
     }
 }
