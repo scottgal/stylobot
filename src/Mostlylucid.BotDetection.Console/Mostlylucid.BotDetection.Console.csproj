@@ -33,6 +33,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="Microsoft.DotNet.ILCompiler" Version="10.0.14" />
         <PackageReference Include="OpenTelemetry.Api" Version="1.17.0" />
 <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
         <PackageReference Include="XenoAtom.Terminal.UI" Version="3.9.0" />
